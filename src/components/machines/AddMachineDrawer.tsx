@@ -17,7 +17,7 @@ export const AddMachineDrawer: React.FC<AddMachineDrawerProps> = ({
   const [machineModels, setMachineModels] = useState<MachineModel[]>([]);
   const [formData, setFormData] = useState({
     serial_number: '',
-    model: 'F25',
+    model: '',
     version: '',
     capacity: '',
     location: '',
@@ -61,12 +61,6 @@ export const AddMachineDrawer: React.FC<AddMachineDrawerProps> = ({
             return a.model_code.localeCompare(b.model_code);
           });
           setMachineModels(sorted);
-          if (sorted.length > 0) {
-            setFormData((prev) => ({
-              ...prev,
-              model: prev.model || sorted[0].model_code,
-            }));
-          }
         })
         .catch((err) => console.error('Failed to load machine models:', err));
     }
@@ -267,6 +261,7 @@ export const AddMachineDrawer: React.FC<AddMachineDrawerProps> = ({
                         onChange={handleChange}
                         className="w-full bg-white border border-[#D1D5DB] rounded-lg px-3.5 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all appearance-none cursor-pointer pr-9"
                       >
+                        <option value="">Select</option>
                         {machineModels.length > 0 ? (
                           machineModels.map((m) => (
                             <option key={m.id} value={m.model_code}>

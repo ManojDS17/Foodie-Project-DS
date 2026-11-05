@@ -44,10 +44,10 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
   const [onboardingDate, setOnboardingDate] = useState(
     new Date().toISOString().split('T')[0]
   );
-  const [businessType, setBusinessType] = useState<'Corporate' | 'Individual'>('Corporate');
+  const [businessType, setBusinessType] = useState<string>('');
   const [taxId, setTaxId] = useState('');
-  const [paymentTerms, setPaymentTerms] = useState('30 days');
-  const [commsPreference, setCommsPreference] = useState('Email');
+  const [paymentTerms, setPaymentTerms] = useState('');
+  const [commsPreference, setCommsPreference] = useState('');
 
   // Section 2: Contact details
   const [contactPoc, setContactPoc] = useState('');
@@ -113,8 +113,9 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
       setWebsite('');
       setBillingAddress('');
       setShippingAddress('');
-      setPaymentTerms('30 days');
-      setCommsPreference('Email');
+      setBusinessType('');
+      setPaymentTerms('');
+      setCommsPreference('');
 
       // Fetch next auto-generated client code (e.g. CL-0015)
       orgsApi
@@ -268,7 +269,7 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
         client_code: clientCode.trim().toUpperCase(),
         company_name: companyName.trim(),
         onboarding_date: onboardingDate || undefined,
-        business_type: businessType,
+        business_type: businessType ? (businessType as 'Corporate' | 'Individual') : undefined,
         tax_id: taxId.trim() || undefined,
         contact_poc: contactPoc.trim() || undefined,
         phone_number: phoneNumber.trim() || undefined,
@@ -276,8 +277,8 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
         website: website.trim() || undefined,
         billing_address: trimmedBilling,
         shipping_address: cleanShipping,
-        payment_terms: paymentTerms,
-        comms_preference: commsPreference,
+        payment_terms: paymentTerms || undefined,
+        comms_preference: commsPreference || undefined,
         assigned_machines:
           validAssignedMachines.length > 0 ? validAssignedMachines : undefined,
         is_active: true,
@@ -419,10 +420,11 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
                   <select
                     value={businessType}
                     onChange={(e) =>
-                      setBusinessType(e.target.value as 'Corporate' | 'Individual')
+                      setBusinessType(e.target.value)
                     }
                     className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
                   >
+                    <option value="">Select</option>
                     <option value="Corporate">Corporate</option>
                     <option value="Individual">Individual</option>
                   </select>
@@ -452,6 +454,7 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
                     onChange={(e) => setPaymentTerms(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
                   >
+                    <option value="">Select</option>
                     <option value="15 days">15 days</option>
                     <option value="30 days">30 days</option>
                     <option value="60 days">60 days</option>
@@ -468,6 +471,7 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
                     onChange={(e) => setCommsPreference(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
                   >
+                    <option value="">Select</option>
                     <option value="Email">Email</option>
                     <option value="Phone">Phone</option>
                   </select>
