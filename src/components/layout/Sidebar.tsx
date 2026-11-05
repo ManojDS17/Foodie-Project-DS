@@ -47,10 +47,9 @@ export const Sidebar: React.FC = () => {
                 }
               }}
               className={({ isActive }) =>
-                `w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-pointer border ${
-                  isActive
-                    ? 'bg-red-50 text-[#E32032] border-red-200 shadow-2xs'
-                    : 'border-transparent text-[#666666] hover:text-[#171717] hover:bg-[#F8F9FA]'
+                `w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-pointer border ${isActive
+                  ? 'bg-red-50 text-[#E32032] border-red-200 shadow-2xs'
+                  : 'border-transparent text-[#666666] hover:text-[#171717] hover:bg-[#F8F9FA]'
                 }`
               }
             >

@@ -385,7 +385,6 @@ export const MachinesPage: React.FC = () => {
                 <option value="Running">Running</option>
                 <option value="Idle">Idle</option>
                 <option value="Maintenance">Maintenance</option>
-                <option value="Offline">Offline</option>
               </select>
             </div>
 
