@@ -57,7 +57,9 @@ export const OemDashboardView: React.FC = () => {
   }, []);
 
   const recentClients = dashboardStats?.recent_clients || [];
-  const attentionMachines = dashboardStats?.attention_machines || [];
+  const attentionMachines = (dashboardStats?.attention_machines || []).slice().sort((a, b) =>
+    (b.machine_code || '').localeCompare(a.machine_code || '', undefined, { numeric: true, sensitivity: 'base' })
+  );
   const upcomingMaintenance = dashboardStats?.upcoming_maintenance || [];
 
   return (

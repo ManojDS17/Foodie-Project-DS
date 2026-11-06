@@ -256,6 +256,7 @@ export const EditMachineDrawer: React.FC<EditMachineDrawerProps> = ({
                         onChange={handleChange}
                         className="w-full bg-white border border-[#D1D5DB] rounded-lg px-3.5 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all appearance-none cursor-pointer pr-9"
                       >
+                        <option value="">Select</option>
                         {machineModels.length > 0 ? (
                           machineModels.map((m) => (
                             <option key={m.id} value={m.display_name}>

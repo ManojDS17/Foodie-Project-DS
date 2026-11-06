@@ -204,6 +204,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
                           onChange={handleChange}
                           className="w-full h-9 bg-white border border-[#D1D5DB] rounded-lg px-3.5 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all appearance-none cursor-pointer pr-9"
                         >
+                          <option value="">Select</option>
                           <option value="Corporate">Corporate</option>
                           <option value="Individual">Individual</option>
                         </select>
@@ -260,6 +261,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
                           onChange={handleChange}
                           className="w-full bg-white border border-[#D1D5DB] rounded-lg px-3.5 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all appearance-none cursor-pointer pr-9"
                         >
+                          <option value="">Select</option>
                           <option value="Email">Email</option>
                           <option value="Phone">Phone</option>
                         </select>
