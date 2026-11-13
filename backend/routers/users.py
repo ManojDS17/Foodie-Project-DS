@@ -3,18 +3,38 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
 from ..schemas import UserCreate, UserUpdate, UserResponse
 from ..auth import get_password_hash, get_current_user
+from ..email_service import send_operator_welcome_email
 
 router = APIRouter(prefix="/api/users", tags=["Users"], dependencies=[Depends(get_current_user)])
 
 @router.get("", response_model=List[UserResponse])
-def get_all_users():
+def get_all_users(current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Users are hidden for operators."
+        )
+
     with get_db_cursor() as cur:
-        cur.execute("""
-            SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at
-            FROM users
-            WHERE is_deleted IS NOT TRUE
-            ORDER BY first_name ASC;
-        """)
+        if user_role == "OEM_MANAGER":
+            cur.execute("""
+                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at
+                FROM users
+                WHERE is_deleted IS NOT TRUE
+                ORDER BY first_name ASC;
+            """)
+        else:
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                return []
+            cur.execute("""
+                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at
+                FROM users
+                WHERE is_deleted IS NOT TRUE AND organization_id = %s
+                ORDER BY first_name ASC;
+            """, (user_org_id,))
+
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
         results = []
@@ -28,25 +48,57 @@ def get_all_users():
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, current_user: dict = Depends(get_current_user)):
-    if payload.role == "OEM_MANAGER" and current_user.get("role") != "OEM_MANAGER":
+    user_role = current_user.get("role")
+    if user_role not in ("OEM_MANAGER", "SITE_ADMIN"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only OEM Managers and Site Admins can provision users."
+        )
+
+    if payload.role == "OEM_MANAGER" and user_role != "OEM_MANAGER":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Only OEM Managers can provision OEM Manager accounts."
         )
 
+    if payload.role == "OPERATOR" and user_role == "OEM_MANAGER" and not payload.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please select a client organization to assign the operator."
+        )
+
     normalized_email = payload.email.strip().lower()
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id FROM users WHERE LOWER(email) = %s;", (normalized_email,))
+        cur.execute("SELECT id FROM users WHERE LOWER(email) = %s AND (is_deleted IS NOT TRUE);", (normalized_email,))
         if cur.fetchone():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f'An account with email "{normalized_email}" is already registered. Email must be unique.'
             )
 
-        pw_hash = get_password_hash(payload.password or "admin123")
+        raw_password = (payload.password or "").strip()
+        if not raw_password:
+            raw_password = "Password@123"
+        pw_hash = get_password_hash(raw_password)
 
-        org_id = None if payload.role == "OEM_MANAGER" else payload.organization_id
+        if user_role != "OEM_MANAGER":
+            org_id = current_user.get("organization_id")
+        else:
+            org_id = None if payload.role == "OEM_MANAGER" else payload.organization_id
+
+        company_name = None
+        client_code = None
+        if org_id:
+            cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s AND (is_deleted IS NOT TRUE);", (org_id,))
+            org_row = cur.fetchone()
+            if not org_row:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Selected client organization was not found or is inactive."
+                )
+            company_name = org_row[0]
+            client_code = org_row[1]
 
         cur.execute("""
             INSERT INTO users (organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active)
@@ -57,7 +109,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             normalized_email,
             pw_hash,
             payload.first_name.strip(),
-            payload.last_name.strip(),
+            (payload.last_name or "").strip(),
             payload.role,
             payload.phone_number.strip() if payload.phone_number else None
         ))
@@ -67,11 +119,46 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
         d["id"] = str(d["id"])
         if d.get("organization_id"):
             d["organization_id"] = str(d["organization_id"])
+        d["company_name"] = company_name
+        d["client_code"] = client_code
+
+        # Dispatch welcome email with credentials if operator
+        if payload.role == "OPERATOR":
+            poc_name = f"{payload.first_name.strip()} {(payload.last_name or '').strip()}".strip()
+            try:
+                send_operator_welcome_email(
+                    to_email=normalized_email,
+                    raw_password=raw_password,
+                    company_name=company_name or "Assigned Client",
+                    client_code=client_code or "",
+                    recipient_name=poc_name
+                )
+            except Exception as e:
+                print(f"[Operator Welcome Email Notice] Failed to dispatch welcome email: {e}")
+
         return UserResponse(**d)
 
 @router.put("/{user_id}", response_model=UserResponse)
-def update_user(user_id: str, payload: UserUpdate):
+def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(get_current_user)):
+    if payload.role == "OEM_MANAGER" and current_user.get("role") != "OEM_MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot elevate permissions to OEM_MANAGER."
+        )
+
     with get_db_cursor(commit=True) as cur:
+        if current_user.get("role") != "OEM_MANAGER":
+            cur.execute("SELECT organization_id FROM users WHERE id = %s AND is_deleted IS NOT TRUE;", (user_id,))
+            target_row = cur.fetchone()
+            if not target_row:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+            user_org_id = str(current_user.get("organization_id") or "")
+            target_org_id = str(target_row[0] or "")
+            if not user_org_id or target_org_id != user_org_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Cannot modify users of another organization."
+                )
         cur.execute("""
             UPDATE users
             SET first_name = COALESCE(%s, first_name),

@@ -11,10 +11,11 @@ import {
   Building2,
   ShieldCheck,
   RefreshCw,
+  MapPin,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
 import { FleetEnergyChart } from './FleetEnergyChart';
-import { MachineDetailDrawer } from '../machines/MachineDetailDrawer';
+import { MachineDetailView } from '../machines/MachineDetailView';
 import { useAuth } from '../../context/AuthContext';
 import { dashboardApi, machinesApi } from '../../services/api';
 import type { Machine, DashboardStats } from '../../types';
@@ -72,37 +73,55 @@ export const ClientDashboardView: React.FC = () => {
   const attentionMachines = dashboardStats?.attention_machines || [];
   const openAlerts = dashboardStats?.open_alerts_count || 0;
 
+  if (selectedMachine) {
+    return (
+      <div className="select-none">
+        <MachineDetailView
+          machine={selectedMachine}
+          onBack={() => setSelectedMachine(null)}
+          onEdit={() => {}}
+          onDelete={() => {}}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-5 max-w-[1400px] mx-auto pb-10">
+    <div className="flex flex-col gap-5 max-w-[1400px] w-full min-w-0 mx-auto pb-10">
       {/* Top Welcome Header & Client Identity */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-[#E3E4E6] pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-[#E3E4E6] pb-4 min-w-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
               Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Client')}
             </h1>
+            {user?.role && (
+              <span className="font-semibold text-xs text-[#374151] bg-[#F3F4F6] border border-[#E5E7EB] px-2.5 py-0.5 rounded-full shrink-0">
+                {user.role === 'SITE_ADMIN' ? 'Site Admin' : user.role === 'OPERATOR' ? 'Facility Operator' : user.role}
+              </span>
+            )}
             {user?.client_code && (
-              <span className="font-mono text-xs font-bold text-[#E32032] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+              <span className="font-mono text-xs font-bold text-[#E32032] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md shrink-0">
                 {user.client_code}
               </span>
             )}
           </div>
-          <p className="text-xs text-[#666666] mt-0.5">
+          <p className="text-xs text-[#666666] mt-0.5 break-words">
             {user?.company_name || 'Facility Operations'} · Real-time commercial composter telemetry & energy monitoring
           </p>
         </div>
 
         {/* Status Indicator Badge */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 bg-[#F8F9FA] border border-[#E3E4E6] px-3 py-1.5 rounded-full text-xs font-semibold text-[#171717] shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-[#00C951] animate-pulse" />
-            <span>Facility Status: Normal</span>
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <div className="flex items-center gap-2 bg-[#F8F9FA] border border-[#E3E4E6] px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold text-[#171717] shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-[#00C951] animate-pulse shrink-0" />
+            <span className="truncate">Facility Status: Normal</span>
           </div>
         </div>
       </div>
 
       {/* 5 Top Metric Cards Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
         <MetricCard
           id="client-metric-machines"
           title="Assigned machines"
@@ -148,6 +167,7 @@ export const ClientDashboardView: React.FC = () => {
           subtitle={openAlerts > 0 ? 'Requires attention' : 'All systems normal'}
           icon={Bell}
           iconVariant={openAlerts > 0 ? 'danger' : 'default'}
+          className="col-span-2 sm:col-span-1"
           onClick={() => navigate('/alerts')}
         />
       </div>
@@ -159,8 +179,8 @@ export const ClientDashboardView: React.FC = () => {
           {/* 1. Live Energy Usage Chart */}
           <FleetEnergyChart data={dashboardStats?.energy_history_14d || []} />
 
-          {/* 2. Assigned Composter Units Main Table */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
+          {/* 2. Assigned Composter Units Main Card */}
+          <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
             <div className="flex items-center justify-between pb-3 border-b border-[#F3F4F6]">
               <div className="flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-[#E32032]" />
@@ -178,69 +198,51 @@ export const ClientDashboardView: React.FC = () => {
               </button>
             </div>
 
-            <div className="overflow-x-auto mt-2">
-              {isLoading ? (
-                <div className="py-8 text-center text-[#888888] text-xs flex items-center justify-center gap-2">
-                  <RefreshCw className="w-4 h-4 animate-spin text-[#E32032]" />
-                  <span>Loading assigned equipment...</span>
+            {isLoading ? (
+              <div className="py-8 text-center text-[#888888] text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-[#E32032]" />
+                <span>Loading assigned equipment...</span>
+              </div>
+            ) : machines.length === 0 ? (
+              <div className="py-10 text-center text-xs">
+                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-2 text-[#888888]">
+                  <Cpu className="w-5 h-5" />
                 </div>
-              ) : machines.length === 0 ? (
-                <div className="py-10 text-center text-xs">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-2 text-[#888888]">
-                    <Cpu className="w-5 h-5" />
-                  </div>
-                  <p className="font-bold text-[#171717]">No composter units assigned yet</p>
-                  <p className="text-[#888888] mt-1 max-w-sm mx-auto">
-                    PowerTech Energy is provisioning equipment for your facility. Telemetry streams will appear here once connected.
-                  </p>
-                </div>
-              ) : (
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280]">
-                      <th className="py-2.5 px-3 font-semibold">Machine code</th>
-                      <th className="py-2.5 px-3 font-semibold">Model</th>
-                      <th className="py-2.5 px-3 font-semibold">Capacity</th>
-                      <th className="py-2.5 px-3 font-semibold">Location</th>
-                      <th className="py-2.5 px-3 font-semibold">Connectivity</th>
-                      <th className="py-2.5 px-3 font-semibold">Status</th>
-                      <th className="py-2.5 px-3 font-semibold text-right">Telemetry</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F3F4F6]">
-                    {machines.map((m) => {
-                      const isOnline = m.connectivity_status?.toLowerCase() === 'online';
-                      const opStatus = m.operational_status || 'Idle';
+                <p className="font-bold text-[#171717]">No composter units assigned yet</p>
+                <p className="text-[#888888] mt-1 max-w-sm mx-auto">
+                  PowerTech Energy is provisioning equipment for your facility. Telemetry streams will appear here once connected.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Mobile View: Dedicated Thumb-Friendly Equipment Cards (< md) */}
+                <div className="md:hidden divide-y divide-[#F3F4F6] mt-1">
+                  {machines.map((m) => {
+                    const isOnline = m.connectivity_status?.toLowerCase() === 'online';
+                    const opStatus = m.operational_status || 'Idle';
 
-                      return (
-                        <tr
-                          key={m.id}
-                          className="hover:bg-[#F9FAFB] transition-colors"
-                        >
-                          <td className="py-2.5 px-3 font-mono font-bold">
+                    return (
+                      <div
+                        key={m.id}
+                        className="py-3.5 hover:bg-[#F9FAFB] transition-colors rounded-xl flex flex-col gap-2.5"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
                             <button
                               type="button"
                               onClick={() => setSelectedMachine(m)}
-                              className="text-[#E32032] underline hover:text-[#C1121F] cursor-pointer"
+                              className="font-mono font-bold text-sm text-[#E32032] underline hover:text-[#C1121F] cursor-pointer"
                             >
                               {m.machine_code || m.serial_number}
                             </button>
-                          </td>
-                          <td className="py-2.5 px-3 font-semibold text-[#171717]">
-                            {m.model}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#6B7280]">
-                            {m.capacity || '50 kg/day'}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#171717]">
-                            <div className="font-medium">{m.location_label || m.site_name || 'Main Facility'}</div>
-                            {m.serial_number && (
-                              <div className="text-[10px] text-[#888888]">SN: {m.serial_number}</div>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3">
+                            <div className="text-xs font-semibold text-[#171717] mt-0.5">
+                              {m.model} {m.capacity ? `· ${m.capacity}` : ''}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-1 shrink-0">
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                                 isOnline
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                   : 'bg-slate-100 text-slate-700 border-slate-200'
@@ -253,10 +255,9 @@ export const ClientDashboardView: React.FC = () => {
                               />
                               <span>{isOnline ? 'Online' : 'Offline'}</span>
                             </span>
-                          </td>
-                          <td className="py-2.5 px-3">
+
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                                 opStatus === 'Running'
                                   ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
                                   : opStatus === 'Idle'
@@ -275,30 +276,141 @@ export const ClientDashboardView: React.FC = () => {
                               />
                               <span>{opStatus}</span>
                             </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedMachine(m)}
-                              className="text-xs font-semibold text-[#171717] hover:text-[#E32032] underline cursor-pointer"
-                            >
-                              View specs
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-[#6B7280] pt-0.5">
+                          <div className="flex items-center gap-1 truncate max-w-[200px]">
+                            <MapPin className="w-3.5 h-3.5 text-[#9CA3AF] shrink-0" />
+                            <span className="truncate">{m.location_label || m.site_name || 'Main Facility'}</span>
+                          </div>
+                          {m.serial_number && (
+                            <span className="text-[10px] text-[#888888] font-mono shrink-0">
+                              SN: {m.serial_number}
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMachine(m)}
+                          className="w-full mt-1 py-1.5 px-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] hover:bg-slate-100 text-xs font-semibold text-[#171717] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <span>View specs &amp; telemetry</span>
+                          <ArrowRight className="w-3.5 h-3.5 text-[#E32032]" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop / Tablet View: Full Data Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto mt-2">
+                  <table className="w-full text-left border-collapse text-xs min-w-[650px]">
+                    <thead>
+                      <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280]">
+                        <th className="py-2.5 px-3 font-semibold">Machine code</th>
+                        <th className="py-2.5 px-3 font-semibold">Model</th>
+                        <th className="py-2.5 px-3 font-semibold">Capacity</th>
+                        <th className="py-2.5 px-3 font-semibold">Location</th>
+                        <th className="py-2.5 px-3 font-semibold">Connectivity</th>
+                        <th className="py-2.5 px-3 font-semibold">Status</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Telemetry</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F3F4F6]">
+                      {machines.map((m) => {
+                        const isOnline = m.connectivity_status?.toLowerCase() === 'online';
+                        const opStatus = m.operational_status || 'Idle';
+
+                        return (
+                          <tr
+                            key={m.id}
+                            className="hover:bg-[#F9FAFB] transition-colors"
+                          >
+                            <td className="py-2.5 px-3 font-mono font-bold">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMachine(m)}
+                                className="text-[#E32032] underline hover:text-[#C1121F] cursor-pointer"
+                              >
+                                {m.machine_code || m.serial_number}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 font-semibold text-[#171717]">
+                              {m.model}
+                            </td>
+                            <td className="py-2.5 px-3 text-[#6B7280]">
+                              {m.capacity || '50 kg/day'}
+                            </td>
+                            <td className="py-2.5 px-3 text-[#171717]">
+                              <div className="font-medium">{m.location_label || m.site_name || 'Main Facility'}</div>
+                              {m.serial_number && (
+                                <div className="text-[10px] text-[#888888]">SN: {m.serial_number}</div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                  isOnline
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    isOnline ? 'bg-[#00C951]' : 'bg-[#9CA3AF]'
+                                  }`}
+                                />
+                                <span>{isOnline ? 'Online' : 'Offline'}</span>
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                  opStatus === 'Running'
+                                    ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
+                                    : opStatus === 'Idle'
+                                    ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
+                                    : 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
+                                }`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    opStatus === 'Running'
+                                      ? 'bg-[#00C951]'
+                                      : opStatus === 'Idle'
+                                      ? 'bg-amber-500'
+                                      : 'bg-blue-500'
+                                  }`}
+                                />
+                                <span>{opStatus}</span>
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMachine(m)}
+                                className="text-xs font-semibold text-[#171717] hover:text-[#E32032] underline cursor-pointer"
+                              >
+                                View specs
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         {/* Right Column (4 cols): Attention Items & Facility Profile Card */}
         <div className="lg:col-span-4 flex flex-col gap-5">
           {/* 1. Equipment Attention & Health */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
+          <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
             <div className="flex items-center justify-between pb-3 border-b border-[#F3F4F6]">
               <h2 className="text-sm font-bold text-[#171717]">
                 Equipment health &amp; attention
@@ -332,7 +444,7 @@ export const ClientDashboardView: React.FC = () => {
                         {m.issue}
                       </div>
                     </div>
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-[#E32032] border border-red-200">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-[#E32032] border border-red-200 shrink-0">
                       {m.status}
                     </span>
                   </div>
@@ -342,7 +454,7 @@ export const ClientDashboardView: React.FC = () => {
           </div>
 
           {/* 2. Facility Account & Service Details */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
+          <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
             <div className="flex items-center gap-2 pb-3 border-b border-[#F3F4F6]">
               <Building2 className="w-4 h-4 text-[#171717]" />
               <h2 className="text-sm font-bold text-[#171717]">
@@ -365,7 +477,7 @@ export const ClientDashboardView: React.FC = () => {
 
               <div>
                 <span className="text-[11px] text-[#888888] font-medium block">Registered Account Email</span>
-                <span className="text-[#171717]">{user?.email || 'client@example.com'}</span>
+                <span className="text-[#171717] break-all">{user?.email || 'client@example.com'}</span>
               </div>
 
               <div className="pt-2 border-t border-[#F3F4F6]">
@@ -378,13 +490,6 @@ export const ClientDashboardView: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Machine Detail Drawer */}
-      <MachineDetailDrawer
-        isOpen={Boolean(selectedMachine)}
-        machine={selectedMachine}
-        onClose={() => setSelectedMachine(null)}
-      />
     </div>
   );
 };

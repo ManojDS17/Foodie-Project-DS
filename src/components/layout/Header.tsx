@@ -14,6 +14,7 @@ import {
   User as UserIcon,
   Settings,
   LogOut,
+  Menu,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { FoodieLogo } from '../common/FoodieLogo';
@@ -21,7 +22,11 @@ import { searchApi } from '../../services/api';
 import type { SearchResults } from '../../services/api';
 import type { UserRole } from '../../types';
 
-export const Header: React.FC = () => {
+export interface HeaderProps {
+  onOpenMobileMenu?: () => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -107,11 +112,22 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-[#E3E4E6] px-3 sm:px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs select-none gap-2 sm:gap-4">
+    <header className="h-16 bg-white border-b border-[#E3E4E6] px-3 sm:px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs select-none gap-2 sm:gap-4 w-full max-w-full">
       {/* Brand & Workspace Indicator */}
-      <div className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="p-1.5 rounded-lg text-[#171717] hover:bg-[#F3F4F6] transition-colors md:hidden shrink-0 cursor-pointer"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="w-5 h-5 text-[#171717]" />
+          </button>
+        )}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <FoodieLogo size="md" showEndorsement={true} />
+          <FoodieLogo size="sm" showEndorsement={true} className="sm:hidden" />
+          <FoodieLogo size="md" showEndorsement={true} className="hidden sm:flex" />
           <div className="h-6 w-px bg-[#E3E4E6] hidden lg:block" />
           <div className="hidden lg:flex flex-col">
             <span className="text-[10px] text-[#888888] font-bold uppercase leading-tight">
@@ -125,9 +141,9 @@ export const Header: React.FC = () => {
           </div>
         </div>
         {user?.role !== 'OEM_MANAGER' && user?.company_name && (
-          <div className="lg:hidden flex items-center gap-1.5 bg-[#F8F9FA] border border-[#E3E4E6] px-2 py-1 rounded-full text-[11px] font-semibold text-[#171717] shrink-0">
+          <div className="hidden sm:flex lg:hidden items-center gap-1.5 bg-[#F8F9FA] border border-[#E3E4E6] px-2.5 py-1 rounded-full text-[11px] font-semibold text-[#171717] shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00C951] shrink-0" />
-            <span className="truncate max-w-[120px] font-bold">{user.company_name}</span>
+            <span className="truncate max-w-[140px] font-bold">{user.company_name}</span>
           </div>
         )}
       </div>
@@ -325,7 +341,7 @@ export const Header: React.FC = () => {
         <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 shrink-0">
           {/* FAQ Pill Button */}
           <div
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-full border border-[#D1D5DB] bg-white text-[#171717] flex items-center gap-1.5 text-xs font-bold shadow-2xs cursor-default select-none shrink-0"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full border border-[#D1D5DB] bg-white text-[#171717] text-xs font-bold shadow-2xs cursor-default select-none shrink-0"
           >
             <span>FAQ</span>
             <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#171717] shrink-0" />
@@ -345,7 +361,7 @@ export const Header: React.FC = () => {
           </button>
 
           {/* Vertical Divider */}
-          <div className="h-5 sm:h-6 w-px bg-[#E5E7EB] mx-0.5 shrink-0 hidden xs:block sm:block" />
+          <div className="h-5 sm:h-6 w-px bg-[#E5E7EB] mx-0.5 shrink-0 hidden sm:block" />
 
           {/* User Profile Pill & Dropdown */}
           <div ref={userMenuContainerRef} className="relative shrink-0">
@@ -371,11 +387,11 @@ export const Header: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setIsUserMenuOpen((prev) => !prev)}
-                    className="flex items-center gap-1.5 sm:gap-2.5 p-1 rounded-xl hover:bg-[#F9FAFB] transition-colors cursor-pointer select-none text-left shrink-0"
+                    className="flex items-center gap-1 sm:gap-2 p-1 rounded-xl hover:bg-[#F9FAFB] transition-colors cursor-pointer select-none text-left shrink-0"
                     aria-expanded={isUserMenuOpen}
                   >
                     {/* Soft pink/red avatar circle with dark red initials */}
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#FFEBEB] text-[#991B1B] text-xs font-bold flex items-center justify-center flex-shrink-0">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#FFEBEB] text-[#991B1B] text-xs font-bold flex items-center justify-center shrink-0">
                       {userInitials}
                     </div>
                     <div className="hidden lg:flex flex-col text-left">
@@ -391,7 +407,7 @@ export const Header: React.FC = () => {
 
                   {/* Dropdown Menu Overlay matching the image */}
                   {isUserMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl border border-[#E5E7EB] shadow-xl py-3 z-50 text-left animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl border border-[#E5E7EB] shadow-xl py-3 z-50 text-left animate-in fade-in slide-in-from-top-1 duration-150">
                       {/* Top User Identity Section */}
                       <div className="px-4 py-1.5">
                         <div className="text-sm font-bold text-[#171717]">
@@ -467,7 +483,7 @@ export const Header: React.FC = () => {
 
         {/* FAQ Modal Dialog */}
         {isFaqOpen && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center z-[100] p-4 animate-in fade-in duration-150">
             <div className="bg-white rounded-2xl border border-[#E3E4E6] shadow-2xl max-w-lg w-full overflow-hidden animate-in zoom-in-95 duration-150">
               <div className="px-6 py-4 border-b border-[#E3E4E6] flex items-center justify-between bg-[#FAFAFA]">
                 <div className="flex items-center gap-2">

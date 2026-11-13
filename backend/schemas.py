@@ -8,6 +8,28 @@ SITE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
 PHONE_REGEX = r'^\+?[0-9\s-]{8,16}$'
 VALID_ROLES = ['OEM_MANAGER', 'SITE_ADMIN', 'OPERATOR']
 
+def validate_phone_number(v: Optional[str]) -> Optional[str]:
+    if not v or not v.strip():
+        return None
+    clean = v.strip()
+    if re.search(r'[a-zA-Z]', clean):
+        raise ValueError('Phone number accepts digits and symbols only (no alphabets).')
+    if len(clean) > 20:
+        raise ValueError('Phone number cannot exceed 20 characters.')
+    digits = re.sub(r'\D', '', clean)
+    if len(digits) < 7:
+        raise ValueError('Phone number must contain at least 7 digits.')
+    return clean
+
+def validate_max_words(v: Optional[str], field_name: str = "Full name", max_words: int = 20) -> Optional[str]:
+    if not v or not v.strip():
+        return v
+    clean = v.strip()
+    words = clean.split()
+    if len(words) > max_words:
+        raise ValueError(f'{field_name} cannot exceed {max_words} words.')
+    return clean
+
 # --------------------------------------------------------------------------
 # Authentication Schemas
 # --------------------------------------------------------------------------
@@ -77,9 +99,9 @@ class UserCreate(BaseModel):
     organization_id: Optional[str] = None
     assigned_site_id: Optional[str] = None
     email: str
-    password: Optional[str] = 'password123'
+    password: Optional[str] = None
     first_name: str
-    last_name: str
+    last_name: Optional[str] = ""
     role: str
     phone_number: Optional[str] = None
 
@@ -101,18 +123,36 @@ class UserCreate(BaseModel):
     @field_validator('password')
     @classmethod
     def check_password(cls, v: Optional[str]) -> Optional[str]:
-        if v and len(v) < 8:
-            raise ValueError('Password must be at least 8 characters long.')
-        if v and (not re.search(r'[A-Za-z]', v) or not re.search(r'[0-9]', v)):
-            raise ValueError('Password must contain at least 1 letter and 1 number.')
-        return v
+        if not v or not v.strip():
+            return None
+        clean = v.strip()
+        if len(clean) < 6:
+            raise ValueError('Password must be at least 6 characters long.')
+        if len(clean) > 15:
+            raise ValueError('Password cannot exceed 15 characters.')
+        if len(clean.split()) > 15:
+            raise ValueError('Password cannot exceed 15 words.')
+        return clean
+
+    @field_validator('first_name')
+    @classmethod
+    def check_first_name(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError('First name is required.')
+        return validate_max_words(clean, "First name", 20) or clean
+
+    @field_validator('last_name')
+    @classmethod
+    def check_last_name(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            return ""
+        return validate_max_words(v.strip(), "Last name", 20) or v.strip()
 
     @field_validator('phone_number')
     @classmethod
     def check_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v and v.strip() and not re.match(PHONE_REGEX, v.strip()):
-            raise ValueError('Enter a valid phone number (e.g. +61 411 222 333).')
-        return v.strip() if v else None
+        return validate_phone_number(v)
 
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -121,6 +161,16 @@ class UserUpdate(BaseModel):
     phone_number: Optional[str] = None
     assigned_site_id: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @field_validator('first_name', 'last_name')
+    @classmethod
+    def check_names_update(cls, v: Optional[str]) -> Optional[str]:
+        return validate_max_words(v, "Name", 20)
+
+    @field_validator('phone_number')
+    @classmethod
+    def check_phone_update(cls, v: Optional[str]) -> Optional[str]:
+        return validate_phone_number(v)
 
     @field_validator('role')
     @classmethod
@@ -219,6 +269,7 @@ class OrganizationCreate(BaseModel):
     tax_id: Optional[str] = None
     contact_poc: Optional[str] = None
     email: Optional[str] = None
+    password: Optional[str] = None
     phone_number: Optional[str] = None
     website: Optional[str] = None
     billing_address: Optional[str] = None
@@ -228,6 +279,35 @@ class OrganizationCreate(BaseModel):
     comms_preference: Optional[str] = 'Email'
     assigned_machines: Optional[List[MachineAssignmentItem]] = None
     is_active: Optional[bool] = True
+
+    @field_validator('company_name')
+    @classmethod
+    def check_company_name(cls, v: str) -> str:
+        return validate_max_words(v, "Company name", 20) or v
+
+    @field_validator('contact_poc')
+    @classmethod
+    def check_contact_poc(cls, v: Optional[str]) -> Optional[str]:
+        return validate_max_words(v, "Point of contact name", 20)
+
+    @field_validator('phone_number')
+    @classmethod
+    def check_phone_org(cls, v: Optional[str]) -> Optional[str]:
+        return validate_phone_number(v)
+
+    @field_validator('password')
+    @classmethod
+    def check_password_org(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            return None
+        clean = v.strip()
+        if len(clean) < 6:
+            raise ValueError('Password must be at least 6 characters long.')
+        if len(clean) > 15:
+            raise ValueError('Password cannot exceed 15 characters.')
+        if len(clean.split()) > 15:
+            raise ValueError('Password cannot exceed 15 words.')
+        return clean
 
     @field_validator('onboarding_date')
     @classmethod
@@ -256,6 +336,16 @@ class OrganizationCreate(BaseModel):
             return 'Email'
         return clean
 
+    @field_validator('tax_id')
+    @classmethod
+    def check_tax_id(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            return None
+        clean = re.sub(r'[\s\-]', '', v.strip())
+        if not clean.isdigit() or len(clean) != 11:
+            raise ValueError('Tax ID (ABN) must be exactly 11 digits (e.g. 12 345 678 901)')
+        return f"{clean[:2]} {clean[2:5]} {clean[5:8]} {clean[8:]}"
+
 class OrganizationUpdate(BaseModel):
     company_name: Optional[str] = None
     onboarding_date: Optional[str] = None
@@ -273,12 +363,37 @@ class OrganizationUpdate(BaseModel):
     comms_preference: Optional[str] = None
     is_active: Optional[bool] = None
 
+    @field_validator('company_name')
+    @classmethod
+    def check_company_name(cls, v: str) -> str:
+        return validate_max_words(v, "Company name", 20) or v
+
+    @field_validator('contact_poc')
+    @classmethod
+    def check_contact_poc(cls, v: Optional[str]) -> Optional[str]:
+        return validate_max_words(v, "Point of contact name", 20)
+
+    @field_validator('phone_number')
+    @classmethod
+    def check_phone_org(cls, v: Optional[str]) -> Optional[str]:
+        return validate_phone_number(v)
+
     @field_validator('onboarding_date')
     @classmethod
     def check_onboarding_date_update(cls, v: Optional[str]) -> Optional[str]:
         if not v or not v.strip():
             return None
         return v.strip()
+
+    @field_validator('tax_id')
+    @classmethod
+    def check_tax_id_update(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            return None
+        clean = re.sub(r'[\s\-]', '', v.strip())
+        if not clean.isdigit() or len(clean) != 11:
+            raise ValueError('Tax ID (ABN) must be exactly 11 digits (e.g. 12 345 678 901)')
+        return f"{clean[:2]} {clean[2:5]} {clean[5:8]} {clean[8:]}"
 
 class OrganizationResponse(BaseModel):
     id: str
@@ -385,7 +500,7 @@ class MachineLeaseResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
 class MachineCreate(BaseModel):
-    serial_number: str
+    serial_number: Optional[str] = None
     machine_code: Optional[str] = None
     model: str
     model_id: Optional[str] = None
@@ -415,18 +530,20 @@ class MachineCreate(BaseModel):
 
     @field_validator('serial_number')
     @classmethod
-    def check_serial(cls, v: str) -> str:
+    def check_serial(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            return None
         clean = v.strip().upper()
         if len(clean) < 2:
-            raise ValueError('Serial number is required.')
+            raise ValueError('Serial number must be at least 2 characters.')
         return clean
 
     @field_validator('model')
     @classmethod
     def check_model(cls, v: str) -> str:
         clean = v.strip()
-        if clean not in VALID_MACHINE_MODELS:
-            raise ValueError(f"Model must be one of: {', '.join(VALID_MACHINE_MODELS.keys())}")
+        if not clean:
+            raise ValueError('Model is required.')
         return clean
 
     @field_validator('connectivity_status')

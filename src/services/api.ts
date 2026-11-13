@@ -1,4 +1,4 @@
-import type { Site, User, Organization, Machine, MachineModel, OrganizationCreateData, DashboardStats } from '../types';
+import type { Site, User, UserCreateData, Organization, Machine, MachineModel, OrganizationCreateData, DashboardStats } from '../types';
 
 const getApiBaseUrl = (): string => {
   if (typeof window !== 'undefined' && window.location) {
@@ -119,7 +119,7 @@ export const authApi = {
     return request<User>('/auth/me');
   },
 
-  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; email: string; expires_in_minutes: number }> => {
+  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; email: string; expires_in_minutes: number; reset_url?: string }> => {
     return request('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
@@ -140,8 +140,14 @@ export const authApi = {
     });
   },
 
-  logout: () => {
-    tokenStorage.clear();
+  logout: async () => {
+    try {
+      await request<any>('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignored if offline or token already expired
+    } finally {
+      tokenStorage.clear();
+    }
   },
 };
 
@@ -172,7 +178,7 @@ export const usersApi = {
     return await request<User[]>('/users');
   },
 
-  create: async (userData: any): Promise<User> => {
+  create: async (userData: UserCreateData): Promise<User> => {
     return await request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),

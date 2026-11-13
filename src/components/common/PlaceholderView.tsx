@@ -16,7 +16,7 @@ export const PlaceholderView: React.FC<PlaceholderViewProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white rounded-2xl border border-[#E3E4E6] p-12 text-center max-w-2xl mx-auto shadow-xs my-8">
+    <div className="bg-white rounded-2xl border border-[#E3E4E6] p-5 sm:p-12 text-center max-w-2xl mx-auto shadow-xs my-4 sm:my-8">
       <div className="w-12 h-12 rounded-xl bg-red-50 text-[#E32032] border border-red-200 flex items-center justify-center mx-auto mb-4">
         <Sparkles className="w-6 h-6" />
       </div>

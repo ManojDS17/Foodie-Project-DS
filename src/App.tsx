@@ -73,7 +73,7 @@ export const AppContent: React.FC = () => {
         <Route
           path="machines"
           element={
-            <ProtectedRoute adminOnly>
+            <ProtectedRoute>
               <MachinesPage />
             </ProtectedRoute>
           }
@@ -89,7 +89,7 @@ export const AppContent: React.FC = () => {
         <Route
           path="sustainability"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute adminOnly>
               <PlaceholderView
                 title="Sustainability & Environmental Impact"
                 subtitle="Track CO2 diversion, organic landfill mitigation, and green carbon credits across all client composter installations."

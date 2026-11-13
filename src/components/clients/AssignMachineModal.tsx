@@ -213,24 +213,24 @@ export const AssignMachineModal: React.FC<AssignMachineModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-hidden"
+      className="fixed inset-0 z-[100] overflow-hidden"
       role="dialog"
       aria-modal="true"
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
+        className="fixed inset-0 bg-black/50 backdrop-blur-2xs transition-opacity animate-in fade-in duration-200"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Slide-over Drawer (Right to Left) */}
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10 pointer-events-none">
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10 pointer-events-none">
         <div className="w-screen max-w-2xl bg-white shadow-2xl flex flex-col pointer-events-auto transform transition-transform duration-200 ease-in-out animate-in slide-in-from-right">
           {/* Header */}
-          <div className="px-8 py-6 border-b border-[#E5E7EB] flex items-start justify-between bg-white shrink-0">
+          <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-[#E5E7EB] flex items-start justify-between bg-white shrink-0">
             <div>
-              <h2 className="text-xl font-bold text-[#111827] tracking-tight">
+              <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
                 Assign machine
               </h2>
               <p className="text-xs text-[#6B7280] mt-1">
@@ -248,7 +248,7 @@ export const AssignMachineModal: React.FC<AssignMachineModalProps> = ({
           </div>
 
           {/* Drawer Body (Scrollable) */}
-          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6 space-y-6">
             {error && (
               <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2.5 text-xs text-[#E32032] font-medium">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -292,123 +292,125 @@ export const AssignMachineModal: React.FC<AssignMachineModalProps> = ({
               </div>
 
               {/* Table of Rows */}
-              <div className="space-y-3">
-                {/* Table Header */}
-                <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-[#6B7280] px-1">
-                  <div className="col-span-4">Serial Number</div>
-                  <div className="col-span-3">Location</div>
-                  <div className="col-span-2">Lease start date</div>
-                  <div className="col-span-2">Lease end date (if applicable)</div>
-                  <div className="col-span-1 text-right"></div>
-                </div>
+              <div className="overflow-x-auto -mx-2 px-2 sm:mx-0 sm:px-0">
+                <div className="min-w-[560px] space-y-3">
+                  {/* Table Header */}
+                  <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-[#6B7280] px-1">
+                    <div className="col-span-4">Serial Number</div>
+                    <div className="col-span-3">Location</div>
+                    <div className="col-span-2">Lease start date</div>
+                    <div className="col-span-2">Lease end date (if applicable)</div>
+                    <div className="col-span-1 text-right"></div>
+                  </div>
 
-                {/* Rows */}
-                {rows.map((row, idx) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-12 gap-2 items-center bg-white"
-                  >
-                    {/* Machine Selector */}
-                    <div className="col-span-4 relative">
-                      <select
-                        value={row.machine_id}
-                        onChange={(e) => handleRowChange(idx, 'machine_id', e.target.value)}
-                        disabled={isLoadingMachines}
-                        className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2.5 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all appearance-none pr-7 cursor-pointer"
-                      >
-                        <option value="">Select available / unmapped machine</option>
-                        {availableMachines.map((m) => {
-                          const isAlreadySelected = rows.some(
-                            (r, i) => i !== idx && r.machine_id === m.id
-                          );
-                          return (
-                            <option
-                              key={m.id}
-                              value={m.id}
-                              disabled={isAlreadySelected}
-                            >
-                              {m.machine_code || m.serial_number} · {m.model}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-[#6B7280]">
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
-                          <path
-                            fillRule="evenodd"
-                            d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
+                  {/* Rows */}
+                  {rows.map((row, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-12 gap-2 items-center bg-white"
+                    >
+                      {/* Machine Selector */}
+                      <div className="col-span-4 relative">
+                        <select
+                          value={row.machine_id}
+                          onChange={(e) => handleRowChange(idx, 'machine_id', e.target.value)}
+                          disabled={isLoadingMachines}
+                          className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2.5 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all appearance-none pr-7 cursor-pointer"
+                        >
+                          <option value="">Select available / unmapped machine</option>
+                          {availableMachines.map((m) => {
+                            const isAlreadySelected = rows.some(
+                              (r, i) => i !== idx && r.machine_id === m.id
+                            );
+                            return (
+                              <option
+                                key={m.id}
+                                value={m.id}
+                                disabled={isAlreadySelected}
+                              >
+                                {m.machine_code || m.serial_number} · {m.model}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-[#6B7280]">
+                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                            <path
+                              fillRule="evenodd"
+                              d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+
+                      {/* Location */}
+                      <div className="col-span-3">
+                        <input
+                          type="text"
+                          value={row.location}
+                          onChange={(e) => handleRowChange(idx, 'location', e.target.value)}
+                          placeholder="Enter text"
+                          className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2.5 py-2 text-xs text-[#111827] placeholder-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all"
+                        />
+                      </div>
+
+                      {/* Lease Start Date */}
+                      <div className="col-span-2">
+                        <input
+                          type="date"
+                          value={row.lease_start_date}
+                          onChange={(e) =>
+                            handleRowChange(idx, 'lease_start_date', e.target.value)
+                          }
+                          className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Lease End Date */}
+                      <div className="col-span-2">
+                        <input
+                          type="date"
+                          value={row.lease_end_date}
+                          onChange={(e) =>
+                            handleRowChange(idx, 'lease_end_date', e.target.value)
+                          }
+                          className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Remove Action */}
+                      <div className="col-span-1 text-right">
+                        {rows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRow(idx)}
+                            className="p-1.5 text-[#9CA3AF] hover:text-[#E32032] rounded-md hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Remove row"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
+                  ))}
 
-                    {/* Location */}
-                    <div className="col-span-3">
-                      <input
-                        type="text"
-                        value={row.location}
-                        onChange={(e) => handleRowChange(idx, 'location', e.target.value)}
-                        placeholder="Enter text"
-                        className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2.5 py-2 text-xs text-[#111827] placeholder-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all"
-                      />
-                    </div>
-
-                    {/* Lease Start Date */}
-                    <div className="col-span-2">
-                      <input
-                        type="date"
-                        value={row.lease_start_date}
-                        onChange={(e) =>
-                          handleRowChange(idx, 'lease_start_date', e.target.value)
-                        }
-                        className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Lease End Date */}
-                    <div className="col-span-2">
-                      <input
-                        type="date"
-                        value={row.lease_end_date}
-                        onChange={(e) =>
-                          handleRowChange(idx, 'lease_end_date', e.target.value)
-                        }
-                        className="w-full bg-white border border-[#D1D5DB] rounded-lg px-2 py-2 text-xs text-[#111827] focus:outline-none focus:ring-1 focus:ring-[#111827] focus:border-[#111827] transition-all cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Remove Action */}
-                    <div className="col-span-1 text-right">
-                      {rows.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveRow(idx)}
-                          className="p-1.5 text-[#9CA3AF] hover:text-[#E32032] rounded-md hover:bg-red-50 transition-colors cursor-pointer"
-                          title="Remove row"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {/* + Add another machine Button */}
-                <button
-                  type="button"
-                  onClick={handleAddRow}
-                  className="w-full py-2.5 rounded-lg border border-[#D1D5DB] text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-3"
-                >
-                  <Plus className="w-3.5 h-3.5 text-[#6B7280]" />
-                  <span>Add another machine</span>
-                </button>
+                  {/* + Add another machine Button */}
+                  <button
+                    type="button"
+                    onClick={handleAddRow}
+                    className="w-full py-2.5 rounded-lg border border-[#D1D5DB] text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-3"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-[#6B7280]" />
+                    <span>Add another machine</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
 
           {/* Footer Actions */}
-          <div className="px-8 py-4 border-t border-[#E5E7EB] bg-white flex items-center justify-end gap-3 shrink-0">
+          <div className="px-4 sm:px-8 py-3.5 sm:py-4 border-t border-[#E5E7EB] bg-white flex items-center justify-end gap-3 shrink-0">
             <button
               type="button"
               onClick={onClose}

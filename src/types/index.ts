@@ -26,7 +26,7 @@ export interface Organization {
   company_name: string;
   onboarding_date?: string;
   business_type?: 'Corporate' | 'Individual';
-  status?: 'Active' | 'Pending' | 'Inactive';
+  status?: 'Active' | 'Pending' | 'Inactive' | 'Archived';
   tax_id?: string;
   contact_poc: string;
   email: string;
@@ -62,6 +62,7 @@ export interface OrganizationCreateData {
   contact_poc?: string;
   phone_number?: string;
   email?: string;
+  password?: string;
   website?: string;
   billing_address?: string;
   shipping_address?: string;
@@ -100,6 +101,17 @@ export interface User {
   last_login_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserCreateData {
+  first_name: string;
+  last_name?: string;
+  email: string;
+  password?: string;
+  phone_number?: string;
+  organization_id?: string;
+  assigned_site_id?: string;
+  role: UserRole;
 }
 
 export interface SiteFormData {

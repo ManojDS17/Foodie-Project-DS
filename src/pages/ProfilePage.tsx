@@ -119,14 +119,14 @@ export const ProfilePage: React.FC = () => {
       {/* Main Profile Card */}
       <div className="bg-white rounded-xl border border-[#E5E7EB] shadow-xs overflow-hidden">
         {/* Banner with Avatar & Identity */}
-        <div className="px-6 py-6 border-b border-[#E5E7EB] bg-gradient-to-r from-[#FAFAFA] to-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-[#E5E7EB] bg-gradient-to-r from-[#FAFAFA] to-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-red-50 border-2 border-red-200 text-[#E32032] flex items-center justify-center font-bold text-xl select-none shadow-2xs">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-red-50 border-2 border-red-200 text-[#E32032] flex items-center justify-center font-bold text-lg sm:text-xl select-none shadow-2xs shrink-0">
               {initials}
             </div>
             <div>
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-lg font-bold text-[#171717]">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2 className="text-base sm:text-lg font-bold text-[#171717]">
                   {formData.first_name} {formData.last_name}
                 </h2>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -148,21 +148,21 @@ export const ProfilePage: React.FC = () => {
 
         {/* Notifications */}
         {successMessage && (
-          <div className="mx-6 mt-6 p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-3 text-emerald-800 text-xs font-medium animate-fadeIn">
+          <div className="mx-4 sm:mx-6 mt-4 sm:mt-6 p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-3 text-emerald-800 text-xs font-medium animate-fadeIn">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             <span>{successMessage}</span>
           </div>
         )}
 
         {errorMessage && (
-          <div className="mx-6 mt-6 p-3.5 rounded-lg bg-red-50 border border-red-200 flex items-center gap-3 text-red-800 text-xs font-medium animate-fadeIn">
+          <div className="mx-4 sm:mx-6 mt-4 sm:mt-6 p-3.5 rounded-lg bg-red-50 border border-red-200 flex items-center gap-3 text-red-800 text-xs font-medium animate-fadeIn">
             <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {/* Profile Edit Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* First Name */}
             <div>
@@ -240,8 +240,9 @@ export const ProfilePage: React.FC = () => {
                 </div>
                 <input
                   type="tel"
+                  maxLength={20}
                   value={formData.phone_number}
-                  onChange={(e) => handleInputChange('phone_number', e.target.value)}
+                  onChange={(e) => handleInputChange('phone_number', e.target.value.replace(/[a-zA-Z]/g, '').slice(0, 20))}
                   className="w-full h-10 pl-9 pr-3.5 rounded-lg border border-[#D1D5DB] text-xs text-[#171717] bg-white transition-colors focus:outline-none focus:border-[#171717] focus:ring-1 focus:ring-[#171717]"
                   placeholder="+61 400 000 000"
                 />
