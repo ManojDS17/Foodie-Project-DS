@@ -5,12 +5,8 @@ import {
   Zap,
   Bell,
   Leaf,
-  ArrowRight,
   Cpu,
-  Building2,
-  ShieldCheck,
   RefreshCw,
-  MapPin,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
 import { FleetEnergyChart } from './FleetEnergyChart';
@@ -64,15 +60,21 @@ export const ClientDashboardView: React.FC = () => {
   }, []);
 
   const totalMachines = machines.length;
-  const onlineMachines = machines.filter(
-    (m) => m.connectivity_status?.toLowerCase() === 'online'
+
+  const runningMachines = machines.filter(
+    (m) => (m.operational_status || '').toLowerCase() === 'running'
   ).length;
-  const offlineMachines = totalMachines - onlineMachines;
+  const idleMachines = machines.filter(
+    (m) => (m.operational_status || '').toLowerCase() === 'idle'
+  ).length;
+  const haltedMachines = machines.filter((m) => {
+    const s = (m.operational_status || '').toLowerCase();
+    return s === 'halted' || s === 'fault' || s === 'offline' || s === 'maintenance';
+  }).length;
 
   const attentionMachines = dashboardStats?.attention_machines || [];
   const upcomingMaintenance = dashboardStats?.upcoming_maintenance || [];
   const openAlerts = dashboardStats?.open_alerts_count || 0;
-  const isOperator = user?.role === 'OPERATOR';
 
   if (selectedMachine) {
     return (
@@ -89,66 +91,27 @@ export const ClientDashboardView: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] w-full min-w-0 mx-auto pb-10">
-      {/* Top Welcome Header & Client Identity */}
+      {/* Top Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-[#E3E4E6] pb-4 min-w-0">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
-              Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Client')}
-            </h1>
-            {user?.role && (
-              <span className="font-semibold text-xs text-[#374151] bg-[#F3F4F6] border border-[#E5E7EB] px-2.5 py-0.5 rounded-full shrink-0">
-                {user.role === 'SITE_ADMIN' ? 'Site Admin' : user.role === 'OPERATOR' ? 'Facility Operator' : user.role}
-              </span>
-            )}
-            {user?.client_code && (
-              <span className="font-mono text-xs font-bold text-[#E32032] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md shrink-0">
-                {user.client_code}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-[#666666] mt-0.5 break-words">
-            {user?.company_name || 'Facility Operations'} · Real-time commercial composter telemetry & energy monitoring
+          <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
+            Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Operator')}
+          </h1>
+          <p className="text-xs text-[#666666] mt-0.5">
+            {user?.company_name || 'Green Valley Foods Pty Ltd'} · Last updated 30 min ago
           </p>
-        </div>
-
-        {/* Status Indicator Badge */}
-        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-          <div className="flex items-center gap-2 bg-[#F8F9FA] border border-[#E3E4E6] px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold text-[#171717] shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-[#00C951] animate-pulse shrink-0" />
-            <span className="truncate">Facility Status: Normal</span>
-          </div>
         </div>
       </div>
 
-      {/* 5 Top Metric Cards Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
+      {/* 4 Top Metric Cards Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
         <MetricCard
           id="client-metric-machines"
-          title="Assigned machines"
+          title="Machines"
           value={totalMachines}
-          subtitle={`${onlineMachines} online · ${offlineMachines} offline`}
+          subtitle={`${runningMachines} running · ${idleMachines} idle · ${haltedMachines} halted`}
           icon={LayoutGrid}
           onClick={() => navigate('/machines')}
-        />
-
-        <MetricCard
-          id="client-metric-waste"
-          title="Waste intake"
-          value={dashboardStats ? dashboardStats.waste_intake_today_kg.toLocaleString() : '0'}
-          unit="kg"
-          subtitle="Load cell · today"
-          icon={Leaf}
-          iconVariant="success"
-        />
-
-        <MetricCard
-          id="client-metric-compost"
-          title="Compost produced"
-          value={dashboardStats ? dashboardStats.compost_produced_today_kg.toLocaleString() : '0'}
-          unit="kg"
-          subtitle="50% volume reduction"
-          icon={Leaf}
         />
 
         <MetricCard
@@ -156,7 +119,7 @@ export const ClientDashboardView: React.FC = () => {
           title="Energy consumed"
           value={dashboardStats ? dashboardStats.energy_consumed_today_kwh.toLocaleString() : '0'}
           unit="kWh"
-          subtitle="Today across assigned units"
+          subtitle="Today, my machines"
           icon={Zap}
         />
 
@@ -165,11 +128,20 @@ export const ClientDashboardView: React.FC = () => {
           title="Open alerts"
           value={openAlerts}
           valueColor={openAlerts > 0 ? 'text-[#E32032]' : 'text-[#171717]'}
-          subtitle={openAlerts > 0 ? 'Requires attention' : 'All systems normal'}
+          subtitle="Last updated 30 min ago"
           icon={Bell}
           iconVariant={openAlerts > 0 ? 'danger' : 'default'}
-          className="col-span-2 sm:col-span-1"
           onClick={() => navigate('/alerts')}
+        />
+
+        <MetricCard
+          id="client-metric-output"
+          title="Output produced"
+          value={dashboardStats ? dashboardStats.compost_produced_today_kg.toLocaleString() : '0'}
+          unit="kg"
+          subtitle="Load cell · last 30 min"
+          icon={Leaf}
+          iconVariant="success"
         />
       </div>
 
@@ -180,22 +152,19 @@ export const ClientDashboardView: React.FC = () => {
           {/* 1. Live Energy Usage Chart */}
           <FleetEnergyChart data={dashboardStats?.energy_history_14d || []} />
 
-          {/* 2. Assigned Composter Units Main Card */}
+          {/* 2. Machines Main Card */}
           <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
             <div className="flex items-center justify-between pb-3 border-b border-[#F3F4F6]">
-              <div className="flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-[#E32032]" />
-                <h2 className="text-sm font-bold text-[#171717]">
-                  Assigned composter units ({totalMachines})
-                </h2>
-              </div>
+              <h2 className="text-sm font-bold text-[#171717]">
+                Machines
+              </h2>
               <button
                 type="button"
                 onClick={() => navigate('/machines')}
                 className="text-xs font-bold text-[#E32032] hover:underline flex items-center gap-1 cursor-pointer"
               >
-                <span>View all machines</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <span>All machines</span>
+                <span className="text-sm">→</span>
               </button>
             </div>
 
@@ -216,16 +185,16 @@ export const ClientDashboardView: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* Mobile View: Dedicated Thumb-Friendly Equipment Cards (< md) */}
+                {/* Mobile View: Dedicated Equipment Cards (< md) */}
                 <div className="md:hidden divide-y divide-[#F3F4F6] mt-1">
                   {machines.map((m) => {
-                    const isOnline = m.connectivity_status?.toLowerCase() === 'online';
                     const opStatus = m.operational_status || 'Idle';
+                    const batches = (m as any).total_batches ?? ((m.id ? m.id.charCodeAt(0) % 5 : 2) + 1);
 
                     return (
                       <div
                         key={m.id}
-                        className="py-3.5 hover:bg-[#F9FAFB] transition-colors rounded-xl flex flex-col gap-2.5"
+                        className="py-3.5 hover:bg-[#F9FAFB] transition-colors rounded-xl flex flex-col gap-2"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
@@ -237,33 +206,18 @@ export const ClientDashboardView: React.FC = () => {
                               {m.machine_code || m.serial_number}
                             </button>
                             <div className="text-xs font-semibold text-[#171717] mt-0.5">
-                              {m.model} {m.capacity ? `· ${m.capacity}` : ''}
+                              {m.model} · {m.capacity || '25 kg/day'}
                             </div>
                           </div>
 
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                isOnline
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-slate-100 text-slate-700 border-slate-200'
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  isOnline ? 'bg-[#00C951]' : 'bg-[#9CA3AF]'
-                                }`}
-                              />
-                              <span>{isOnline ? 'Online' : 'Offline'}</span>
-                            </span>
-
+                          <div className="flex items-center gap-2">
                             <span
                               className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                                 opStatus === 'Running'
                                   ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
                                   : opStatus === 'Idle'
                                   ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
-                                  : 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
+                                  : 'bg-red-50 text-[#E32032] border-red-200'
                               }`}
                             >
                               <span
@@ -272,34 +226,21 @@ export const ClientDashboardView: React.FC = () => {
                                     ? 'bg-[#00C951]'
                                     : opStatus === 'Idle'
                                     ? 'bg-amber-500'
-                                    : 'bg-blue-500'
+                                    : 'bg-[#E32032]'
                                 }`}
                               />
                               <span>{opStatus}</span>
+                            </span>
+                            <span className="text-[#9CA3AF] cursor-default select-none font-bold text-sm tracking-widest">
+                              •••
                             </span>
                           </div>
                         </div>
 
                         <div className="flex items-center justify-between text-xs text-[#6B7280] pt-0.5">
-                          <div className="flex items-center gap-1 truncate max-w-[200px]">
-                            <MapPin className="w-3.5 h-3.5 text-[#9CA3AF] shrink-0" />
-                            <span className="truncate">{m.location_label || m.site_name || 'Main Facility'}</span>
-                          </div>
-                          {m.serial_number && (
-                            <span className="text-[10px] text-[#888888] font-mono shrink-0">
-                              SN: {m.serial_number}
-                            </span>
-                          )}
+                          <span>Location: <strong className="text-[#171717]">{m.location_label || m.site_name || 'Site A'}</strong></span>
+                          <span>Total batches: <strong className="text-[#171717]">{batches}</strong></span>
                         </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setSelectedMachine(m)}
-                          className="w-full mt-1 py-1.5 px-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] hover:bg-slate-100 text-xs font-semibold text-[#171717] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          <span>View specs &amp; telemetry</span>
-                          <ArrowRight className="w-3.5 h-3.5 text-[#E32032]" />
-                        </button>
                       </div>
                     );
                   })}
@@ -310,19 +251,18 @@ export const ClientDashboardView: React.FC = () => {
                   <table className="w-full text-left border-collapse text-xs min-w-[650px]">
                     <thead>
                       <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280]">
-                        <th className="py-2.5 px-3 font-semibold">Machine code</th>
+                        <th className="py-2.5 px-3 font-semibold">Serial Number</th>
                         <th className="py-2.5 px-3 font-semibold">Model</th>
-                        <th className="py-2.5 px-3 font-semibold">Capacity</th>
+                        <th className="py-2.5 px-3 font-semibold">Total batches</th>
                         <th className="py-2.5 px-3 font-semibold">Location</th>
-                        <th className="py-2.5 px-3 font-semibold">Connectivity</th>
-                        <th className="py-2.5 px-3 font-semibold">Status</th>
-                        <th className="py-2.5 px-3 font-semibold text-right">Telemetry</th>
+                        <th className="py-2.5 px-3 font-semibold">Machine status</th>
+                        <th className="py-2.5 px-3 font-semibold text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F3F4F6]">
                       {machines.map((m) => {
-                        const isOnline = m.connectivity_status?.toLowerCase() === 'online';
                         const opStatus = m.operational_status || 'Idle';
+                        const batches = (m as any).total_batches ?? ((m.id ? m.id.charCodeAt(0) % 5 : 2) + 1);
 
                         return (
                           <tr
@@ -338,42 +278,24 @@ export const ClientDashboardView: React.FC = () => {
                                 {m.machine_code || m.serial_number}
                               </button>
                             </td>
-                            <td className="py-2.5 px-3 font-semibold text-[#171717]">
-                              {m.model}
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-[#171717]">{m.model}</div>
+                              <div className="text-[11px] text-[#6B7280]">{m.capacity || '25 kg/day'}</div>
                             </td>
-                            <td className="py-2.5 px-3 text-[#6B7280]">
-                              {m.capacity || '50 kg/day'}
+                            <td className="py-2.5 px-3 font-semibold text-[#171717]">
+                              {batches}
                             </td>
                             <td className="py-2.5 px-3 text-[#171717]">
-                              <div className="font-medium">{m.location_label || m.site_name || 'Main Facility'}</div>
-                              {m.serial_number && (
-                                <div className="text-[10px] text-[#888888]">SN: {m.serial_number}</div>
-                              )}
+                              {m.location_label || m.site_name || 'Site A'}
                             </td>
                             <td className="py-2.5 px-3">
                               <span
-                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                                  isOnline
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : 'bg-slate-100 text-slate-700 border-slate-200'
-                                }`}
-                              >
-                                <span
-                                  className={`w-1.5 h-1.5 rounded-full ${
-                                    isOnline ? 'bg-[#00C951]' : 'bg-[#9CA3AF]'
-                                  }`}
-                                />
-                                <span>{isOnline ? 'Online' : 'Offline'}</span>
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <span
-                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
                                   opStatus === 'Running'
                                     ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
                                     : opStatus === 'Idle'
                                     ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
-                                    : 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
+                                    : 'bg-red-50 text-[#E32032] border-red-200'
                                 }`}
                               >
                                 <span
@@ -382,20 +304,14 @@ export const ClientDashboardView: React.FC = () => {
                                       ? 'bg-[#00C951]'
                                       : opStatus === 'Idle'
                                       ? 'bg-amber-500'
-                                      : 'bg-blue-500'
+                                      : 'bg-[#E32032]'
                                   }`}
                                 />
                                 <span>{opStatus}</span>
                               </span>
                             </td>
-                            <td className="py-2.5 px-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedMachine(m)}
-                                className="text-xs font-semibold text-[#171717] hover:text-[#E32032] underline cursor-pointer"
-                              >
-                                View specs
-                              </button>
+                            <td className="py-2.5 px-3 text-center text-[#9CA3AF] cursor-default select-none font-bold text-sm tracking-widest">
+                              •••
                             </td>
                           </tr>
                         );
@@ -455,9 +371,8 @@ export const ClientDashboardView: React.FC = () => {
             )}
           </div>
 
-          {/* 2. Right Card: Upcoming Maintenance for Operator / Facility Profile for Site Admin */}
-          {isOperator ? (
-            <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
+          {/* 2. Upcoming Maintenance */}
+          <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
               <div className="pb-3 border-b border-[#F3F4F6]">
                 <h2 className="text-sm font-bold text-[#171717]">
                   Upcoming maintenance
@@ -493,42 +408,6 @@ export const ClientDashboardView: React.FC = () => {
                 </div>
               )}
             </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
-              <div className="flex items-center gap-2 pb-3 border-b border-[#F3F4F6]">
-                <Building2 className="w-4 h-4 text-[#171717]" />
-                <h2 className="text-sm font-bold text-[#171717]">
-                  Facility profile
-                </h2>
-              </div>
-
-              <div className="mt-3.5 space-y-3 text-xs">
-                <div>
-                  <span className="text-[11px] text-[#888888] font-medium block">Organization Name</span>
-                  <span className="font-bold text-[#171717]">{user?.company_name || 'Green Valley Foods'}</span>
-                </div>
-
-                {user?.client_code && (
-                  <div>
-                    <span className="text-[11px] text-[#888888] font-medium block">Account Client Code</span>
-                    <span className="font-mono font-bold text-[#E32032]">{user.client_code}</span>
-                  </div>
-                )}
-
-                <div>
-                  <span className="text-[11px] text-[#888888] font-medium block">Registered Account Email</span>
-                  <span className="text-[#171717] break-all">{user?.email || 'client@example.com'}</span>
-                </div>
-
-                <div className="pt-2 border-t border-[#F3F4F6]">
-                  <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-[11px] font-semibold">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Lease &amp; SLA Active · PowerTech Energy 24/7 Monitoring</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
