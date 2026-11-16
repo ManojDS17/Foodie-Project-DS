@@ -17,6 +17,20 @@ export interface EditMachineViewProps {
   onSuccess: (updatedMachine: Machine) => void;
 }
 
+const getModelCode = (rawModel?: string | null, models: MachineModel[] = []): string => {
+  if (!rawModel) return '';
+  const trimmed = rawModel.trim();
+  const found = models.find(
+    (m) =>
+      m.model_code.toLowerCase() === trimmed.toLowerCase() ||
+      m.display_name.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (found) return found.model_code;
+  const match = trimmed.match(/\b(F\d+)\b/i);
+  if (match) return match[1].toUpperCase();
+  return trimmed;
+};
+
 export const EditMachineView: React.FC<EditMachineViewProps> = ({
   machine,
   onBack,
@@ -25,7 +39,7 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
   const [machineModels, setMachineModels] = useState<MachineModel[]>([]);
   const [formData, setFormData] = useState({
     serial_number: machine.serial_number || machine.machine_code || '',
-    model: machine.model || 'Foodie F25',
+    model: getModelCode(machine.model),
     version: machine.hardware_version || '',
     capacity: machine.capacity || '',
     location: machine.location_label || '',
@@ -43,7 +57,6 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load models dynamically from DB
   useEffect(() => {
     machinesApi
       .getModels()
@@ -56,9 +69,41 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
           return a.model_code.localeCompare(b.model_code);
         });
         setMachineModels(sorted);
+
+        setFormData((prev) => {
+          const resolvedCode = getModelCode(prev.model || machine.model, sorted);
+          const matched = sorted.find((m) => m.model_code === resolvedCode);
+          return {
+            ...prev,
+            model: resolvedCode || prev.model,
+            capacity: prev.capacity || matched?.capacity || '',
+          };
+        });
       })
       .catch((err) => console.error('Failed to load machine models:', err));
-  }, []);
+  }, [machine.model]);
+
+  useEffect(() => {
+    const resolvedCode = getModelCode(machine.model, machineModels);
+    const matched = machineModels.find((m) => m.model_code === resolvedCode);
+    setFormData((prev) => ({
+      ...prev,
+      serial_number: machine.serial_number || machine.machine_code || '',
+      model: resolvedCode,
+      version: machine.hardware_version || '',
+      capacity: machine.capacity || matched?.capacity || '',
+      location: machine.location_label || '',
+      location_description: machine.location_description || '',
+      plc_software_version: machine.plc_software_version || '',
+      energy_meter_model: machine.energy_meter_model || '',
+      deodor_model: machine.deodor_model || '',
+      extractor_model: machine.extractor_model || '',
+      has_stairs: Boolean(machine.has_stairs),
+      notes: machine.notes || '',
+      connectivity_status: machine.connectivity_status || 'Offline',
+      operational_status: machine.operational_status || 'Idle',
+    }));
+  }, [machine.id]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -263,7 +308,7 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium appearance-none pr-9"
                   required
                 >
-                  <option value="">Select</option>
+                  <option value="">Select a model...</option>
                   {machineModels.length > 0 ? (
                     machineModels.map((m) => (
                       <option key={m.id} value={m.model_code}>
@@ -272,10 +317,10 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
                     ))
                   ) : (
                     <>
-                      <option value="Foodie F25">F25</option>
-                      <option value="Foodie F100">F100</option>
-                      <option value="Foodie F500">F500</option>
-                      <option value="Foodie F1000">F1000</option>
+                      <option value="F25">F25</option>
+                      <option value="F100">F100</option>
+                      <option value="F500">F500</option>
+                      <option value="F1000">F1000</option>
                     </>
                   )}
                 </select>
@@ -291,7 +336,22 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
               </div>
             </div>
 
-            {/* Version */}
+            {/* Capacity */}
+            <div>
+              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                Capacity
+              </label>
+              <input
+                type="text"
+                name="capacity"
+                value={formData.capacity}
+                readOnly
+                placeholder="Auto-populated from model"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-[#F9FAFB] text-[#374151] text-xs font-medium cursor-not-allowed focus:outline-none"
+              />
+            </div>
+
+            {/* Hardware version */}
             <div>
               <label className="block text-xs font-semibold text-[#171717] mb-1.5">
                 Hardware version <span className="text-[#DC2626]">*</span>
@@ -304,21 +364,6 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
                 placeholder="e.g. v2.1"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
                 required
-              />
-            </div>
-
-            {/* Capacity (Clean label, Non-editable, Auto-populated) */}
-            <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Capacity
-              </label>
-              <input
-                type="text"
-                name="capacity"
-                value={formData.capacity}
-                readOnly
-                placeholder="Auto-populated from model"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-[#F9FAFB] text-[#374151] text-xs font-medium cursor-not-allowed focus:outline-none"
               />
             </div>
           </div>
@@ -443,7 +488,7 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
               />
             </div>
 
-            {/* Has stairs (optional) - Exact Yes / No segmented control */}
+            {/* Has stairs */}
             <div className="md:col-span-2 lg:col-span-4">
               <label className="block text-xs font-semibold text-[#171717] mb-1.5">
                 Has stairs (optional)
