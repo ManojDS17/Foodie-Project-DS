@@ -1,3 +1,5 @@
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import List
 from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
@@ -19,7 +21,7 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
     with get_db_cursor() as cur:
         if user_role == "OEM_MANAGER":
             cur.execute("""
-                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at
+                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by
                 FROM users
                 WHERE is_deleted IS NOT TRUE
                 ORDER BY first_name ASC;
@@ -29,7 +31,7 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
             if not user_org_id:
                 return []
             cur.execute("""
-                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at
+                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by
                 FROM users
                 WHERE is_deleted IS NOT TRUE AND organization_id = %s
                 ORDER BY first_name ASC;
@@ -100,10 +102,16 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             company_name = org_row[0]
             client_code = org_row[1]
 
+        welcome_token = secrets.token_urlsafe(32)
+        welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
+
         cur.execute("""
-            INSERT INTO users (organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, true)
-            RETURNING id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at;
+            INSERT INTO users (
+                organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active,
+                reset_token, reset_token_expires_at, created_by
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, true, %s, %s, %s)
+            RETURNING id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by;
         """, (
             org_id,
             normalized_email,
@@ -111,7 +119,10 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             payload.first_name.strip(),
             (payload.last_name or "").strip(),
             payload.role,
-            payload.phone_number.strip() if payload.phone_number else None
+            payload.phone_number.strip() if payload.phone_number else None,
+            welcome_token,
+            welcome_token_expires,
+            current_user.get("id")
         ))
         row = cur.fetchone()
         cols = [desc[0] for desc in cur.description]
@@ -119,10 +130,42 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
         d["id"] = str(d["id"])
         if d.get("organization_id"):
             d["organization_id"] = str(d["organization_id"])
+        if d.get("created_by"):
+            d["created_by"] = str(d["created_by"])
+        if d.get("updated_by"):
+            d["updated_by"] = str(d["updated_by"])
+        if d.get("deleted_by"):
+            d["deleted_by"] = str(d["deleted_by"])
         d["company_name"] = company_name
         d["client_code"] = client_code
 
-        # Dispatch welcome email with credentials if operator
+        if payload.role == "OPERATOR" and org_id:
+            cur.execute("""
+                SELECT m.id, ml.location_label, ml.lease_start_date, ml.lease_end_date
+                FROM machines m
+                JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
+                WHERE m.organization_id = %s 
+                  AND (m.is_deleted IS NOT TRUE)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM machine_assign_to_operators mato
+                      JOIN users u ON mato.operator_id = u.id AND (u.is_deleted IS NOT TRUE) AND u.is_active = TRUE
+                      WHERE mato.machine_id = m.id AND mato.status = 'Active'
+                  );
+            """, (org_id,))
+            unassigned_leased_machines = cur.fetchall()
+            for lm in unassigned_leased_machines:
+                mach_id, loc, s_dt, e_dt = lm[0], lm[1], lm[2], lm[3]
+                cur.execute("""
+                    INSERT INTO machine_assign_to_operators (
+                        organization_id, operator_id, machine_id,
+                        start_date, end_date, location, created_by, assigned_by, status
+                    ) VALUES (
+                        %s, %s, %s,
+                        %s, %s, %s, %s, %s, 'Active'
+                    ) ON CONFLICT (operator_id, machine_id) DO UPDATE
+                    SET status = 'Active', revoked_at = NULL, revoked_by = NULL;
+                """, (org_id, d["id"], mach_id, s_dt, e_dt, loc, current_user.get("id"), current_user.get("id")))
+
         if payload.role == "OPERATOR":
             poc_name = f"{payload.first_name.strip()} {(payload.last_name or '').strip()}".strip()
             try:
@@ -131,7 +174,8 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
                     raw_password=raw_password,
                     company_name=company_name or "Assigned Client",
                     client_code=client_code or "",
-                    recipient_name=poc_name
+                    recipient_name=poc_name,
+                    reset_token=welcome_token
                 )
             except Exception as e:
                 print(f"[Operator Welcome Email Notice] Failed to dispatch welcome email: {e}")
@@ -166,15 +210,17 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                 role = COALESCE(%s, role),
                 phone_number = %s,
                 is_active = COALESCE(%s, is_active),
+                updated_by = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
-            RETURNING id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at;
+            RETURNING id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by;
         """, (
             payload.first_name.strip() if payload.first_name else None,
             payload.last_name.strip() if payload.last_name else None,
             payload.role,
             payload.phone_number.strip() if payload.phone_number else None,
             payload.is_active,
+            current_user.get("id"),
             user_id
         ))
         row = cur.fetchone()
@@ -186,6 +232,12 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
         d["id"] = str(d["id"])
         if d.get("organization_id"):
             d["organization_id"] = str(d["organization_id"])
+        if d.get("created_by"):
+            d["created_by"] = str(d["created_by"])
+        if d.get("updated_by"):
+            d["updated_by"] = str(d["updated_by"])
+        if d.get("deleted_by"):
+            d["deleted_by"] = str(d["deleted_by"])
         return UserResponse(**d)
 
 @router.delete("/{user_id}")
@@ -207,10 +259,11 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
             UPDATE users
             SET is_deleted = TRUE,
                 deleted_at = CURRENT_TIMESTAMP,
+                deleted_by = %s,
                 is_active = FALSE
             WHERE id = %s AND is_deleted IS NOT TRUE
             RETURNING id, email, first_name, last_name;
-        """, (user_id,))
+        """, (current_user.get("id"), user_id))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")

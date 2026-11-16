@@ -41,6 +41,7 @@ export interface Organization {
   is_deleted?: boolean;
   deleted_at?: string;
   created_by?: string;
+  updated_by?: string;
   deleted_by?: string;
   created_at: string;
   updated_at: string;
@@ -99,6 +100,9 @@ export interface User {
   company_name?: string | null;
   client_code?: string | null;
   last_login_at?: string | null;
+  created_by?: string;
+  updated_by?: string;
+  deleted_by?: string;
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +175,7 @@ export interface Machine {
   is_deleted?: boolean;
   deleted_at?: string;
   created_by?: string;
+  updated_by?: string;
   deleted_by?: string;
   created_at?: string;
   updated_at?: string;
@@ -251,4 +256,36 @@ export interface DashboardStats {
   attention_machines: AttentionMachine[];
   upcoming_maintenance: UpcomingMaintenanceItem[];
   recent_clients: RecentClientItem[];
+}
+
+export interface OperatorMachineAssignment {
+  id: string;
+  organization_id: string;
+  operator_id: string;
+  operator_name?: string | null;
+  operator_email?: string | null;
+  machine_id: string;
+  machine_code?: string | null;
+  serial_number?: string | null;
+  model?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  location?: string | null;
+  created_by?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+  revoked_by?: string | null;
+  revoked_at?: string | null;
+  status: 'Active' | 'Revoked';
+  created_at?: string | null;
+}
+
+export interface OperatorMachineAssignmentCreateData {
+  operator_id: string;
+  machine_id: string;
+  start_date?: string;
+  end_date?: string;
+  location?: string;
 }

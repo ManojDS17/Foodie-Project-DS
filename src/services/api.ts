@@ -1,19 +1,18 @@
-import type { Site, User, UserCreateData, Organization, Machine, MachineModel, OrganizationCreateData, DashboardStats } from '../types';
+import type {
+  Site,
+  User,
+  UserCreateData,
+  Organization,
+  Machine,
+  MachineModel,
+  OrganizationCreateData,
+  DashboardStats,
+  OperatorMachineAssignment,
+  OperatorMachineAssignmentCreateData,
+} from '../types';
 
 const getApiBaseUrl = (): string => {
-  if (typeof window !== 'undefined' && window.location) {
-    const { protocol, hostname } = window.location;
-    if (hostname === '127.0.0.1') {
-      return `${protocol}//127.0.0.1:5000/api`;
-    }
-    if (hostname === 'localhost') {
-      return `${protocol}//localhost:5000/api`;
-    }
-    if (hostname) {
-      return `${protocol}//${hostname}:5000/api`;
-    }
-  }
-  return 'http://127.0.0.1:5000/api';
+  return '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -46,10 +45,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     });
   } catch (fetchErr: any) {
     let fallbackUrl: string | null = null;
-    if (primaryUrl.includes('localhost:5000')) {
-      fallbackUrl = primaryUrl.replace('localhost:5000', '127.0.0.1:5000');
-    } else if (primaryUrl.includes('127.0.0.1:5000')) {
-      fallbackUrl = primaryUrl.replace('127.0.0.1:5000', 'localhost:5000');
+    if (primaryUrl.startsWith('/api') && typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fallbackUrl = `http://127.0.0.1:5000${primaryUrl}`;
     }
 
     if (fallbackUrl) {
@@ -66,7 +63,6 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     }
   }
 
-  // Safely parse JSON or text bodies without failing on empty responses or 204 No Content
   let data: any = null;
   try {
     const text = await response.text();
@@ -295,16 +291,44 @@ export const machinesApi = {
     return await request<{ success: boolean; message: string }>(`/machines/${id}`, { method: 'DELETE' });
   },
 
-  unassign: async (id: string): Promise<{ success: boolean; message: string; id: string }> => {
+  unassign: async (id: string, termination_remark?: string): Promise<{ success: boolean; message: string; id: string }> => {
     return await request<{ success: boolean; message: string; id: string }>(`/machines/${id}/unassign`, {
+      method: 'POST',
+      body: JSON.stringify({ termination_remark: termination_remark || null }),
+    });
+  },
+
+  terminateLease: async (id: string, termination_remark?: string): Promise<{ success: boolean; message: string; id: string }> => {
+    return await request<{ success: boolean; message: string; id: string }>(`/machines/${id}/unassign`, {
+      method: 'POST',
+      body: JSON.stringify({ termination_remark: termination_remark || null }),
+    });
+  },
+};
+
+export const operatorAssignmentsApi = {
+  getAll: async (params?: { organization_id?: string; operator_id?: string }): Promise<OperatorMachineAssignment[]> => {
+    const q = new URLSearchParams();
+    if (params?.organization_id) q.set('organization_id', params.organization_id);
+    if (params?.operator_id) q.set('operator_id', params.operator_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await request<OperatorMachineAssignment[]>(`/machines/operator-assignments${qs}`);
+  },
+
+  assign: async (data: OperatorMachineAssignmentCreateData): Promise<OperatorMachineAssignment> => {
+    return await request<OperatorMachineAssignment>('/machines/operator-assignments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  revoke: async (assignmentId: string): Promise<{ success: boolean; message: string }> => {
+    return await request<{ success: boolean; message: string }>(`/machines/operator-assignments/${assignmentId}/revoke`, {
       method: 'POST',
     });
   },
 };
 
-// ----------------------------------------------------------------------------
-// DASHBOARD API (Live Dynamic Telemetry & Fleet Overview)
-// ----------------------------------------------------------------------------
 export const dashboardApi = {
   getStats: async (): Promise<DashboardStats> => {
     return await request<DashboardStats>('/dashboard/stats');

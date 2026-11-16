@@ -38,7 +38,7 @@ if allowed_origins_env:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?" if not is_production else None,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.devtunnels\.ms|.*\.ngrok-free\.app|.*\.loca\.lt)(:\d+)?" if not is_production else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

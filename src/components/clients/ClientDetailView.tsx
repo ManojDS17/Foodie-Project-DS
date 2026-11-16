@@ -16,7 +16,11 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { MachineDetailView } from '../machines/MachineDetailView';
-import type { Organization, Machine, User } from '../../types';
+import { TerminateLeaseModal } from './TerminateLeaseModal';
+import { AssignOperatorMachineModal } from '../operators/AssignOperatorMachineModal';
+import { RowActionMenu } from '../common/RowActionMenu';
+import { operatorAssignmentsApi } from '../../services/api';
+import type { Organization, Machine, User, OperatorMachineAssignment } from '../../types';
 
 export interface ClientDetailViewProps {
   client: Organization;
@@ -25,7 +29,7 @@ export interface ClientDetailViewProps {
   onBack: () => void;
   onEdit: () => void;
   onAssignMachine: () => void;
-  onUnassignMachine: (machineId: string) => Promise<void>;
+  onUnassignMachine: (machineId: string, terminationRemark?: string) => Promise<void>;
   onDeleteClient: () => void;
   onToggleStatus: () => Promise<void>;
 }
@@ -46,6 +50,33 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [activeMachineMenuId, setActiveMachineMenuId] = useState<string | null>(null);
   const [viewingMachine, setViewingMachine] = useState<Machine | null>(null);
+  const [terminatingMachine, setTerminatingMachine] = useState<Machine | null>(null);
+  const [managingOperator, setManagingOperator] = useState<User | null>(null);
+  const [operatorAssignments, setOperatorAssignments] = useState<OperatorMachineAssignment[]>([]);
+
+  const fetchAssignments = async () => {
+    if (!client?.id) return;
+    try {
+      const data = await operatorAssignmentsApi.getAll({ organization_id: client.id });
+      setOperatorAssignments(data);
+    } catch (err) {
+      console.error('Failed to load operator assignments:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchAssignments();
+  }, [client.id]);
+
+  const handleAssignOperatorMachine = async (data: { operator_id: string; machine_id: string; location?: string }) => {
+    await operatorAssignmentsApi.assign(data);
+    await fetchAssignments();
+  };
+
+  const handleRevokeOperatorMachine = async (assignmentId: string) => {
+    await operatorAssignmentsApi.revoke(assignmentId);
+    await fetchAssignments();
+  };
 
   const headerMenuRef = useRef<HTMLDivElement>(null);
 
@@ -53,10 +84,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
         setIsHeaderMenuOpen(false);
-      }
-      const target = e.target as HTMLElement | null;
-      if (!target?.closest('[data-machine-menu]')) {
-        setActiveMachineMenuId(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -176,7 +203,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] mx-auto select-none">
-      {/* 1. Breadcrumbs */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-[#6B7280] pt-1">
         <button
           type="button"
@@ -189,7 +215,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         <span className="font-bold text-[#111827]">{client.company_name}</span>
       </nav>
 
-      {/* 2. Client Profile Card */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-xl bg-[#F3F4F6] text-[#111827] font-bold text-xl flex items-center justify-center border border-[#E5E7EB] shrink-0">
@@ -276,6 +301,11 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                     type="button"
                     onClick={() => {
                       setIsHeaderMenuOpen(false);
+                      const isCurrentlyActive = client.is_active && client.status !== 'Inactive' && client.status !== 'Archived';
+                      if (isCurrentlyActive && clientMachines.length > 0) {
+                        alert(`Cannot deactivate client: ${client.company_name} currently has ${clientMachines.length} machine(s) leased. Please terminate all machine leases before deactivating.`);
+                        return;
+                      }
                       onToggleStatus();
                     }}
                     className="w-full px-3.5 py-2 text-left text-xs text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer"
@@ -312,9 +342,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         </div>
       </div>
 
-      {/* 3. 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Machines Metric */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Machines</span>
@@ -330,7 +358,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         </div>
 
-        {/* Users Metric */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Users</span>
@@ -346,7 +373,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         </div>
 
-        {/* Open Alerts Metric */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Open alerts</span>
@@ -362,7 +388,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         </div>
 
-        {/* Energy Consumed Metric */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Energy consumed</span>
@@ -380,9 +405,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Client Details & Contact Details Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Left Card: Client details */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
           <h2 className="text-sm font-bold text-[#111827] mb-5 tracking-tight">
             Client details
@@ -447,7 +470,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         </div>
 
-        {/* Right Card: Contact details */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
           <h2 className="text-sm font-bold text-[#111827] mb-5 tracking-tight">
             Contact details
@@ -506,9 +528,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         </div>
       </div>
 
-      {/* 5. Tabs & Tables Card */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden shadow-2xs">
-        {/* Tab Headers */}
         <div className="border-b border-[#E5E7EB] px-6 flex items-center gap-8">
           <button
             type="button"
@@ -555,7 +575,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </button>
         </div>
 
-        {/* Tab 1: Machines */}
         {activeTab === 'MACHINES' && (
           <div>
             <div className="p-6 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -568,11 +587,8 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
               <button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (false && onAssignMachine) onAssignMachine();
-                }}
-                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#E32032] text-white flex items-center gap-1.5 shadow-2xs self-start sm:self-auto cursor-default select-none"
+                onClick={onAssignMachine}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#E32032] hover:bg-[#C1121F] text-white flex items-center gap-1.5 shadow-2xs self-start sm:self-auto cursor-pointer transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Assign machine</span>
@@ -590,7 +606,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto pb-16">
                 <table className="w-full text-xs text-left min-w-[700px]">
                   <thead>
                     <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[#6B7280] font-semibold">
@@ -611,7 +627,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
                       return (
                         <tr key={m.id} className="hover:bg-[#F9FAFB] transition-colors">
-                          {/* Serial Number */}
                           <td className="py-4 px-6 font-bold text-[#E32032]">
                             <button
                               type="button"
@@ -622,7 +637,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                             </button>
                           </td>
 
-                          {/* Model */}
                           <td className="py-4 px-6">
                             <div className="font-bold text-[#111827]">{m.model}</div>
                             <div className="text-[11px] text-[#6B7280]">
@@ -630,17 +644,14 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                             </div>
                           </td>
 
-                          {/* Location */}
                           <td className="py-4 px-6 text-[#111827]">
                             {m.location_label || m.site_name || 'Site A'}
                           </td>
 
-                          {/* Lease start date */}
                           <td className="py-4 px-6 text-[#111827]">
                             {formatDate(m.lease_start_date || m.created_at)}
                           </td>
 
-                          {/* Machine status */}
                           <td className="py-4 px-6">
                             <span
                               className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${
@@ -658,7 +669,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                             </span>
                           </td>
 
-                          {/* Connectivity */}
                           <td className="py-4 px-6">
                             <span
                               className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${
@@ -676,46 +686,39 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                             </span>
                           </td>
 
-                          {/* Actions */}
-                          <td className="py-4 px-6 text-right relative">
-                            <div className="inline-block relative" data-machine-menu>
+                          <td className="py-4 px-6 text-right">
+                            <RowActionMenu
+                              isOpen={activeMachineMenuId === m.id}
+                              onToggle={() =>
+                                setActiveMachineMenuId(
+                                  activeMachineMenuId === m.id ? null : m.id
+                                )
+                              }
+                              onClose={() => setActiveMachineMenuId(null)}
+                              width="w-44"
+                              buttonAriaLabel={`Actions for ${m.machine_code || m.serial_number}`}
+                            >
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setActiveMachineMenuId(
-                                    activeMachineMenuId === m.id ? null : m.id
-                                  )
-                                }
-                                className="p-1 rounded-md text-[#6B7280] hover:text-[#111827] hover:bg-[#F3F4F6] transition-colors cursor-pointer"
+                                onClick={() => {
+                                  setActiveMachineMenuId(null);
+                                  setViewingMachine(m);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#374151] hover:bg-[#F9FAFB] transition-colors cursor-pointer"
                               >
-                                <MoreHorizontal className="w-4 h-4" />
+                                View machine
                               </button>
-
-                              {activeMachineMenuId === m.id && (
-                                <div className="absolute right-0 mt-1 w-44 bg-white border border-[#E5E7EB] rounded-xl shadow-lg z-30 py-1 text-left">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveMachineMenuId(null);
-                                      setViewingMachine(m);
-                                    }}
-                                    className="w-full px-3.5 py-2 text-left text-xs text-[#374151] hover:bg-[#F9FAFB] cursor-pointer"
-                                  >
-                                    View machine
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveMachineMenuId(null);
-                                      onUnassignMachine(m.id);
-                                    }}
-                                    className="w-full px-3.5 py-2 text-left text-xs text-[#E32032] hover:bg-[#FEF2F2] cursor-pointer"
-                                  >
-                                    Unassign from client
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMachineMenuId(null);
+                                  setTerminatingMachine(m);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#E32032] hover:bg-[#FEF2F2] transition-colors cursor-pointer"
+                              >
+                                Terminate lease
+                              </button>
+                            </RowActionMenu>
                           </td>
                         </tr>
                       );
@@ -727,7 +730,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         )}
 
-        {/* Tab 2: Users */}
         {activeTab === 'USERS' && (
           <div>
             <div className="p-6 pb-4">
@@ -749,41 +751,87 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left min-w-[700px]">
+                <table className="w-full text-xs text-left min-w-[750px]">
                   <thead>
                     <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[#6B7280] font-semibold">
                       <th className="py-3 px-6">Name</th>
                       <th className="py-3 px-6">Email</th>
                       <th className="py-3 px-6">Phone number</th>
                       <th className="py-3 px-6">Role</th>
+                      <th className="py-3 px-6">Assigned machines</th>
                       <th className="py-3 px-6">Status</th>
+                      <th className="py-3 px-6 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E5E7EB]">
-                    {clientUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-[#F9FAFB] transition-colors">
-                        <td className="py-4 px-6 font-bold text-[#111827]">
-                          {u.first_name} {u.last_name}
-                        </td>
-                        <td className="py-4 px-6 text-[#6B7280]">{u.email}</td>
-                        <td className="py-4 px-6 text-[#6B7280]">{u.phone_number || '—'}</td>
-                        <td className="py-4 px-6">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB]">
-                            {u.role === 'SITE_ADMIN'
-                              ? 'Site Admin'
-                              : u.role === 'OPERATOR'
-                              ? 'Operator'
-                              : u.role}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
-                            <span>Active</span>
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {clientUsers.map((u) => {
+                      const userAssignments = operatorAssignments.filter(
+                        (a) => a.operator_id === u.id && a.status === 'Active'
+                      );
+
+                      return (
+                        <tr key={u.id} className="hover:bg-[#F9FAFB] transition-colors">
+                          <td className="py-4 px-6 font-bold text-[#111827]">
+                            {u.first_name} {u.last_name}
+                          </td>
+                          <td className="py-4 px-6 text-[#6B7280]">{u.email}</td>
+                          <td className="py-4 px-6 text-[#6B7280]">{u.phone_number || '—'}</td>
+                          <td className="py-4 px-6">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB]">
+                              {u.role === 'SITE_ADMIN'
+                                ? 'Site Admin'
+                                : u.role === 'OPERATOR'
+                                ? 'Operator'
+                                : u.role}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6">
+                            {u.role === 'OPERATOR' ? (
+                              userAssignments.length === 0 ? (
+                                <span className="text-[#9CA3AF] text-xs">No machines assigned</span>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {userAssignments.map((a) => (
+                                    <span
+                                      key={a.id}
+                                      className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-red-50 text-[#E32032] border border-red-100"
+                                    >
+                                      {a.machine_code || a.serial_number}
+                                    </span>
+                                  ))}
+                                </div>
+                              )
+                            ) : (
+                              <span className="text-[#6B7280] text-xs font-medium">All fleet access</span>
+                            )}
+                          </td>
+                          <td className="py-4 px-6">
+                            {u.is_active ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                                <span>Active</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[#F3F4F6] text-[#6B7280] border border-[#E5E7EB]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#9CA3AF]" />
+                                <span>Inactive</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-4 px-6 text-right">
+                            {u.role === 'OPERATOR' && (
+                              <button
+                                type="button"
+                                onClick={() => setManagingOperator(u)}
+                                className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] text-xs font-semibold text-[#374151] transition-colors cursor-pointer"
+                              >
+                                Manage machines
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -791,6 +839,27 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         )}
       </div>
+
+      <TerminateLeaseModal
+        isOpen={Boolean(terminatingMachine)}
+        machine={terminatingMachine}
+        clientName={client.company_name}
+        onClose={() => setTerminatingMachine(null)}
+        onConfirm={async (id, remark) => {
+          await onUnassignMachine(id, remark);
+          setTerminatingMachine(null);
+        }}
+      />
+
+      <AssignOperatorMachineModal
+        isOpen={Boolean(managingOperator)}
+        operator={managingOperator}
+        clientMachines={clientMachines}
+        existingAssignments={operatorAssignments}
+        onClose={() => setManagingOperator(null)}
+        onAssign={handleAssignOperatorMachine}
+        onRevoke={handleRevokeOperatorMachine}
+      />
     </div>
   );
 };

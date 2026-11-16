@@ -1,4 +1,5 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
+import secrets
 import re
 from typing import List
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -89,6 +90,8 @@ def get_organization(org_id: str, current_user: dict = Depends(get_current_user)
 
         if d.get("created_by"):
             d["created_by"] = str(d["created_by"])
+        if d.get("updated_by"):
+            d["updated_by"] = str(d["updated_by"])
         if d.get("deleted_by"):
             d["deleted_by"] = str(d["deleted_by"])
         if d.get("onboarding_date"):
@@ -196,6 +199,8 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         d["id"] = new_org_id
         if d.get("created_by"):
             d["created_by"] = str(d["created_by"])
+        if d.get("updated_by"):
+            d["updated_by"] = str(d["updated_by"])
         if d.get("deleted_by"):
             d["deleted_by"] = str(d["deleted_by"])
         if d.get("onboarding_date"):
@@ -217,21 +222,28 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
             first_name = name_parts[0]
             last_name = name_parts[1] if len(name_parts) > 1 else ""
 
+            welcome_token = secrets.token_urlsafe(32)
+            welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
+
             if existing_user:
                 cur.execute("""
                     UPDATE users
                     SET organization_id = %s,
                         password_hash = %s,
                         role = 'SITE_ADMIN',
+                        reset_token = %s,
+                        reset_token_expires_at = %s,
                         is_active = TRUE
                     WHERE id = %s;
-                """, (new_org_id, pw_hash, existing_user[0]))
+                """, (new_org_id, pw_hash, welcome_token, welcome_token_expires, existing_user[0]))
             else:
                 cur.execute("""
                     INSERT INTO users (
-                        organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active
+                        organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active,
+                        reset_token, reset_token_expires_at, created_by
                     ) VALUES (
-                        %s, %s, %s, %s, %s, 'SITE_ADMIN', %s, TRUE
+                        %s, %s, %s, %s, %s, 'SITE_ADMIN', %s, TRUE,
+                        %s, %s, %s
                     );
                 """, (
                     new_org_id,
@@ -239,17 +251,20 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                     pw_hash,
                     first_name,
                     last_name,
-                    payload.phone_number.strip() if payload.phone_number else None
+                    payload.phone_number.strip() if payload.phone_number else None,
+                    welcome_token,
+                    welcome_token_expires,
+                    current_user.get("id")
                 ))
 
-            # Dispatch welcome email with credentials & direct login button
             try:
                 send_client_welcome_email(
                     to_email=clean_email,
                     raw_password=raw_password,
                     company_name=company,
                     client_code=code,
-                    recipient_name=poc_name
+                    recipient_name=poc_name,
+                    reset_token=welcome_token
                 )
             except Exception as e:
                 print(f"[Welcome Email Notice] Failed to dispatch welcome email: {e}")
@@ -370,6 +385,8 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
             else:
                 set_clauses.append(f"{k} = %s")
                 params.append(v)
+        set_clauses.append("updated_by = %s")
+        params.append(current_user.get("id"))
         params.append(real_org_id)
 
         # Check uniqueness of company_name if updated
@@ -397,6 +414,25 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
                         detail=f"Tax ID (ABN) '{str(update_data['tax_id']).strip()}' is already registered to client '{dup_abn[2]}' ({dup_abn[1]})."
                     )
 
+        is_becoming_inactive = (
+            ('is_active' in update_data and update_data['is_active'] is False) or
+            ('status' in update_data and str(update_data['status']).lower() in ('inactive', 'archived'))
+        )
+        if is_becoming_inactive:
+            cur.execute("SELECT COUNT(*) FROM machines WHERE organization_id = %s AND (is_deleted IS NOT TRUE);", (real_org_id,))
+            mach_count = cur.fetchone()[0]
+            if mach_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot deactivate client: This client still has {mach_count} active machine(s) assigned. Please terminate all machine leases before deactivating the client."
+                )
+
+            cur.execute("""
+                UPDATE users
+                SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+                WHERE organization_id = %s AND role = 'OPERATOR';
+            """, (real_org_id,))
+
         cur.execute(f"""
             UPDATE organizations
             SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP
@@ -411,6 +447,8 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
         d["id"] = str(d["id"])
         if d.get("created_by"):
             d["created_by"] = str(d["created_by"])
+        if d.get("updated_by"):
+            d["updated_by"] = str(d["updated_by"])
         if d.get("deleted_by"):
             d["deleted_by"] = str(d["deleted_by"])
         if d.get("onboarding_date"):

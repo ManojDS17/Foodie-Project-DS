@@ -11,15 +11,14 @@ from ..email_service import send_password_reset_email
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
-# In-memory security rate-limiting caches
-_FAILED_LOGINS = collections.defaultdict(list)    # email -> list of attempt timestamps
-_FORGOT_REQUESTS = collections.defaultdict(list)  # email -> list of request timestamps
+_FAILED_LOGINS = collections.defaultdict(list)
+_FORGOT_REQUESTS = collections.defaultdict(list)
 
 MAX_FAILED_LOGINS = 5
-LOCKOUT_WINDOW_SECONDS = 900   # 15 minutes
+LOCKOUT_WINDOW_SECONDS = 900
 
 MAX_FORGOT_REQUESTS = 3
-FORGOT_WINDOW_SECONDS = 600   # 10 minutes
+FORGOT_WINDOW_SECONDS = 600
 
 def _is_login_rate_limited(email: str) -> bool:
     return False
@@ -42,7 +41,6 @@ def _record_forgot_request(email: str):
 def login(payload: LoginRequest):
     email = payload.email.strip().lower()
 
-    # Rate limiting protection against brute-force password guessing
     if _is_login_rate_limited(email):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -62,28 +60,27 @@ def login(payload: LoginRequest):
         if not user_dict.get("is_active"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
 
-        # Strict bcrypt hash verification — rejects old password immediately
         if not verify_password(payload.password, user_dict.get("password_hash", "")):
             _record_failed_login(email)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
-        # Clear failed login counter upon successful authentication
         _clear_failed_logins(email)
 
-        # Update last_login_at
         cur.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = %s;", (user_dict["id"],))
 
-        # Fetch client organization details if user is linked to a client
         user_dict["company_name"] = None
         user_dict["client_code"] = None
         if user_dict.get("organization_id"):
-            cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s;", (user_dict["organization_id"],))
+            cur.execute("SELECT company_name, client_code, is_active, status FROM organizations WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_dict["organization_id"],))
             org_row = cur.fetchone()
-            if org_row:
-                user_dict["company_name"] = org_row[0]
-                user_dict["client_code"] = org_row[1]
+            if not org_row or org_row[2] is False or str(org_row[3]).lower() in ('inactive', 'archived'):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Your company account is inactive. Please contact your administrator."
+                )
+            user_dict["company_name"] = org_row[0]
+            user_dict["client_code"] = org_row[1]
 
-        # Generate JWT token
         token_data = {
             "id": str(user_dict["id"]),
             "email": user_dict["email"],
@@ -98,7 +95,6 @@ def login(payload: LoginRequest):
         }
         token = create_access_token(token_data)
 
-        # Remove sensitive password_hash before returning
         user_dict.pop("password_hash", None)
         user_dict["id"] = str(user_dict["id"])
         if user_dict.get("organization_id"):
@@ -133,7 +129,6 @@ def logout(current_user: dict = Depends(get_current_user)):
 def forgot_password(payload: ForgotPasswordRequest):
     email = payload.email.strip().lower()
 
-    # Rate limiting protection against email bombing / abuse
     if _is_forgot_rate_limited(email):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -153,9 +148,7 @@ def forgot_password(payload: ForgotPasswordRequest):
         if not is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
 
-        # Generate 32-byte secure URL-safe token
         token = secrets.token_urlsafe(32)
-        # 30-minute token expiration window
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
 
         cur.execute("""
@@ -168,7 +161,6 @@ def forgot_password(payload: ForgotPasswordRequest):
         email_result = send_password_reset_email(to_email=email, token=token, recipient_name=recipient_name)
 
         if not email_result.get("sent"):
-            # Clear reset token on email failure so user isn't stuck with unreachable token
             cur.execute("""
                 UPDATE users 
                 SET reset_token = NULL, reset_token_expires_at = NULL 
@@ -181,15 +173,12 @@ def forgot_password(payload: ForgotPasswordRequest):
 
         _record_forgot_request(email)
 
-        resp = {
+        return {
             "success": True,
             "message": "Password reset link sent to your email",
             "email": email,
             "expires_in_minutes": 30
         }
-        if email_result.get("reset_url"):
-            resp["reset_url"] = email_result.get("reset_url")
-        return resp
 
 @router.post("/verify-reset-token")
 def verify_reset_token(payload: dict):
@@ -209,7 +198,7 @@ def verify_reset_token(payload: dict):
 
         user_id, email, expires_at = row
         if expires_at and expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link has expired (valid for 30 minutes). Please request a new one.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This link has expired. Please request a new one or contact your administrator.")
 
         return {"valid": True, "email": email}
 
@@ -230,19 +219,16 @@ def reset_password(payload: ResetPasswordRequest):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
 
         if expires_at and expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link has expired. Please request a new one.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This link has expired. Please request a new one.")
 
-        # Prevent reusing current password
         if verify_password(payload.new_password, current_hash):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="New password cannot be the same as your current password. Please choose a different password."
             )
 
-        # Hash new password with bcrypt (12 salt rounds)
         new_hash = get_password_hash(payload.new_password)
 
-        # Clear reset token, update password and reset failed login attempts
         cur.execute("""
             UPDATE users 
             SET password_hash = %s, reset_token = NULL, reset_token_expires_at = NULL, updated_at = CURRENT_TIMESTAMP

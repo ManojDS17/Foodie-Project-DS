@@ -23,7 +23,7 @@ import { orgsApi, machinesApi, usersApi } from '../services/api';
 import { AddClientView } from '../components/clients/AddClientView';
 import { EditClientView } from '../components/clients/EditClientView';
 import { DeleteClientModal } from '../components/clients/DeleteClientModal';
-import { AssignMachineModal } from '../components/clients/AssignMachineModal';
+import { AssignMachineView } from '../components/clients/AssignMachineView';
 import { ClientDetailView } from '../components/clients/ClientDetailView';
 import { RowActionMenu } from '../components/common/RowActionMenu';
 import { Button } from '../components/common/ui';
@@ -346,18 +346,18 @@ export const ClientsPage: React.FC = () => {
     });
   };
 
-  const handleUnassignMachine = async (machineId: string) => {
+  const handleUnassignMachine = async (machineId: string, terminationRemark?: string) => {
     try {
-      await machinesApi.unassign(machineId);
+      await machinesApi.unassign(machineId, terminationRemark);
       await fetchData();
       setToast({
-        message: 'Machine successfully unassigned from client and returned to available fleet.',
+        message: 'Machine lease successfully terminated and returned to available fleet.',
         type: 'success',
       });
     } catch (err: any) {
-      console.error('Failed to unassign machine:', err);
+      console.error('Failed to terminate machine lease:', err);
       setToast({
-        message: err?.message || 'Failed to unassign machine.',
+        message: err?.message || 'Failed to terminate machine lease.',
         type: 'error',
       });
     }
@@ -368,6 +368,18 @@ export const ClientsPage: React.FC = () => {
     const isCurrentlyInactive = !selectedClient.is_active || selectedClient.status === 'Inactive' || selectedClient.status === 'Archived';
     const nextIsActive = isCurrentlyInactive;
     const nextStatus = nextIsActive ? 'Active' : 'Inactive';
+
+    if (!nextIsActive) {
+      const clientMachines = machines.filter((m) => m.organization_id === selectedClient.id);
+      if (clientMachines.length > 0) {
+        setToast({
+          message: `Cannot deactivate client: ${clientMachines.length} machine(s) are currently leased. Please terminate all machine leases first.`,
+          type: 'error',
+        });
+        return;
+      }
+    }
+
     try {
       const updated = await orgsApi.update(selectedClient.id, {
         is_active: nextIsActive,
@@ -394,6 +406,17 @@ export const ClientsPage: React.FC = () => {
     const isCurrentlyInactive = !client.is_active || client.status === 'Inactive' || client.status === 'Archived';
     const nextIsActive = isCurrentlyInactive;
     const nextStatus = nextIsActive ? 'Active' : 'Inactive';
+
+    if (!nextIsActive) {
+      const clientMachines = machines.filter((m) => m.organization_id === client.id);
+      if (clientMachines.length > 0) {
+        setToast({
+          message: `Cannot deactivate client: ${clientMachines.length} machine(s) are currently leased. Please terminate all machine leases first.`,
+          type: 'error',
+        });
+        return;
+      }
+    }
 
     try {
       await orgsApi.update(client.id, {
@@ -487,8 +510,35 @@ export const ClientsPage: React.FC = () => {
     );
   }
 
-  if (selectedClient) {
+  if (isAssignMachineOpen && selectedClient) {
     const clientMachines = machines.filter((m) => m.organization_id === selectedClient.id);
+    return (
+      <div className="select-none">
+        <AssignMachineView
+          client={selectedClient}
+          assignedMachinesCount={clientMachines.length}
+          onBack={() => setIsAssignMachineOpen(false)}
+          onSuccess={() => {
+            fetchData();
+            setIsAssignMachineOpen(false);
+            setToast({
+              message: 'Machine(s) assigned to client successfully!',
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (selectedClient) {
     return (
       <div className="select-none">
         <ClientDetailView
@@ -504,20 +554,6 @@ export const ClientsPage: React.FC = () => {
           onUnassignMachine={handleUnassignMachine}
           onDeleteClient={() => setDeletingClient(selectedClient)}
           onToggleStatus={handleToggleSelectedClientStatus}
-        />
-
-        <AssignMachineModal
-          isOpen={isAssignMachineOpen}
-          client={selectedClient}
-          assignedMachinesCount={clientMachines.length}
-          onClose={() => setIsAssignMachineOpen(false)}
-          onSuccess={() => {
-            fetchData();
-            setToast({
-              message: 'Machine(s) assigned to client successfully!',
-              type: 'success',
-            });
-          }}
         />
 
         <DeleteClientModal
@@ -684,26 +720,28 @@ export const ClientsPage: React.FC = () => {
 
         {/* 3. Selection Banner */}
         {selectedIds.length > 0 && (
-          <div className="bg-[#FFF0F0] border border-[#FECACA] rounded-xl px-4 py-2.5 flex items-center justify-between text-xs my-4 animate-in fade-in duration-150">
-            <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-[#E32032] text-white flex items-center justify-center text-[10px] font-bold">
-                ✓
-              </span>
-              <span className="font-bold text-[#171717]">
-                {selectedIds.length === 1
-                  ? `1 client selected · ${organizations.find((o) => o.id === selectedIds[0])?.company_name || 'Client'}`
-                  : `${selectedIds.length} clients selected`}
-              </span>
+          <div className="bg-[#FFF0F0] border border-[#FECACA] rounded-xl p-3 sm:px-4 sm:py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs my-4 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-4 h-4 rounded bg-[#E32032] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                  ✓
+                </span>
+                <span className="font-bold text-[#171717] truncate">
+                  {selectedIds.length === 1
+                    ? `1 client selected · ${organizations.find((o) => o.id === selectedIds[0])?.company_name || 'Client'}`
+                    : `${selectedIds.length} clients selected`}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setSelectedIds([])}
-                className="text-[#E32032] underline font-bold hover:text-[#C1121F] cursor-pointer ml-1"
+                className="text-[#E32032] underline font-bold hover:text-[#C1121F] cursor-pointer whitespace-nowrap shrink-0"
               >
                 Clear selection
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="secondary"
                 size="sm"
@@ -956,106 +994,94 @@ export const ClientsPage: React.FC = () => {
         </div>
 
         {/* 5. Pagination Footer */}
-        <div className="pt-4 mt-3 border-t border-[#F3F4F6] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B7280]">
-          {/* Left: Page X of Y */}
-          <div className="flex items-center gap-2">
-            <span>Page</span>
-            <input
-              type="number"
-              min={1}
-              max={totalPages}
-              value={currentPage}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                if (val >= 1 && val <= totalPages) setCurrentPage(val);
-              }}
-              className="w-12 px-2 py-1 border border-[#D1D5DB] rounded-lg text-center font-bold text-[#171717] focus:outline-none focus:border-[#171717]"
-            />
-            <span>of {totalPages}</span>
+        <div className="pt-3.5 mt-3 border-t border-[#E5E7EB] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#6B7280] select-none">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span>Page</span>
+              <span className="font-semibold text-[#171717] px-2 py-0.5 rounded border border-[#E5E7EB] bg-[#F9FAFB]">
+                {currentPage}
+              </span>
+              <span>of {totalPages}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span>Rows per page</span>
+              <select
+                value={rowsPerPage}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setRowsPerPage(val);
+                  setCurrentPage(1);
+                  try {
+                    localStorage.setItem('foodie_rows_per_page', String(val));
+                  } catch {}
+                }}
+                className="px-2 py-0.5 rounded border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+
+            <div className="text-[11px] text-[#888888]">
+              Showing {totalItems > 0 ? startIndex + 1 : 0}–{endIndex} of {totalItems} clients
+            </div>
           </div>
 
-          {/* Rows per page dropdown */}
-          <div className="flex items-center gap-2">
-            <span>Rows per page</span>
-            <select
-              value={rowsPerPage}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                setRowsPerPage(val);
-                setCurrentPage(1);
-                try {
-                  localStorage.setItem('foodie_rows_per_page', String(val));
-                } catch {}
-              }}
-              className="px-2 py-1 border border-[#D1D5DB] rounded-lg font-bold text-[#171717] bg-white cursor-pointer focus:outline-none"
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </div>
-
-          {/* Center Summary */}
-          <div>
-            Showing {totalItems > 0 ? startIndex + 1 : 0}–{endIndex} of {totalItems} clients
-          </div>
-
-          {/* Right: Page Navigation Buttons */}
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setCurrentPage(1)}
               disabled={currentPage === 1}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] hover:bg-slate-100 disabled:opacity-40 transition-colors cursor-pointer"
-              title="First Page"
+              onClick={() => setCurrentPage(1)}
+              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronsLeft className="w-3.5 h-3.5" />
             </button>
+
             <button
               type="button"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] hover:bg-slate-100 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Previous Page"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
 
-            {/* Page number buttons */}
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .slice(Math.max(0, currentPage - 3), Math.min(totalPages, currentPage + 2))
-              .map((pageNum) => (
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
+              const isActive = pageNum === currentPage;
+              return (
                 <button
                   key={pageNum}
                   type="button"
                   onClick={() => setCurrentPage(pageNum)}
-                  className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    pageNum === currentPage
-                      ? 'bg-[#FFE4E6] text-[#E32032]'
-                      : 'hover:bg-slate-100 text-[#171717]'
+                  className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-red-50 text-[#E32032] border border-red-200'
+                      : 'border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB]'
                   }`}
                 >
                   {pageNum}
                 </button>
-              ))}
+              );
+            })}
 
             <button
               type="button"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] hover:bg-slate-100 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Next Page"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
+
             <button
               type="button"
-              onClick={() => setCurrentPage(totalPages)}
               disabled={currentPage === totalPages}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] hover:bg-slate-100 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Last Page"
+              onClick={() => setCurrentPage(totalPages)}
+              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronsRight className="w-3.5 h-3.5" />
             </button>

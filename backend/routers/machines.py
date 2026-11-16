@@ -3,7 +3,16 @@ import re
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
-from ..schemas import MachineCreate, MachineUpdate, MachineResponse, MachineModelResponse, VALID_MACHINE_MODELS
+from ..schemas import (
+    MachineCreate,
+    MachineUpdate,
+    MachineResponse,
+    MachineModelResponse,
+    VALID_MACHINE_MODELS,
+    TerminateLeaseRequest,
+    OperatorMachineAssignmentCreate,
+    OperatorMachineAssignmentResponse,
+)
 from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/machines", tags=["Machines"], dependencies=[Depends(get_current_user)])
@@ -21,7 +30,7 @@ SQL_SELECT_MACHINE_JOINED = """
         ml.lease_reference,
         m.connectivity_status, 
         COALESCE(m.operational_status, 'Idle') AS operational_status, m.is_active,
-        m.created_by, m.deleted_by,
+        m.created_by, m.updated_by, m.deleted_by,
         m.created_at, m.updated_at
     FROM machines m
     LEFT JOIN organizations o ON m.organization_id = o.id
@@ -37,6 +46,8 @@ def row_to_machine_dict(cols, row) -> dict:
         d["organization_id"] = str(d["organization_id"])
     if d.get("created_by"):
         d["created_by"] = str(d["created_by"])
+    if d.get("updated_by"):
+        d["updated_by"] = str(d["updated_by"])
     if d.get("deleted_by"):
         d["deleted_by"] = str(d["deleted_by"])
     return d
@@ -90,6 +101,16 @@ def get_all_machines(current_user: dict = Depends(get_current_user)):
     with get_db_cursor() as cur:
         if user_role == "OEM_MANAGER":
             cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.is_deleted IS NOT TRUE) ORDER BY m.created_at DESC, m.machine_code DESC;")
+        elif user_role == "OPERATOR":
+            cur.execute(f"""
+                {SQL_SELECT_MACHINE_JOINED}
+                JOIN machine_assign_to_operators mato 
+                  ON m.id = mato.machine_id 
+                 AND mato.operator_id = %s 
+                 AND mato.status = 'Active'
+                WHERE (m.is_deleted IS NOT TRUE)
+                ORDER BY m.created_at DESC, m.machine_code DESC;
+            """, (current_user.get("id"),))
         else:
             user_org_id = current_user.get("organization_id")
             if not user_org_id:
@@ -102,13 +123,232 @@ def get_all_machines(current_user: dict = Depends(get_current_user)):
         cols = [desc[0] for desc in cur.description]
         return [MachineResponse(**row_to_machine_dict(cols, r)) for r in rows]
 
+@router.get("/operator-assignments", response_model=List[OperatorMachineAssignmentResponse])
+def get_operator_machine_assignments(
+    organization_id: Optional[str] = None,
+    operator_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    user_role = current_user.get("role")
+    with get_db_cursor() as cur:
+        query = """
+            SELECT 
+                mato.id, mato.organization_id, mato.operator_id,
+                TRIM(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) AS operator_name,
+                u.email AS operator_email,
+                mato.machine_id, m.machine_code, m.serial_number, m.model,
+                TO_CHAR(mato.start_date, 'YYYY-MM-DD') AS start_date,
+                TO_CHAR(mato.end_date, 'YYYY-MM-DD') AS end_date,
+                COALESCE(mato.location, m.location_label) AS location,
+                mato.created_by, mato.assigned_by, mato.assigned_at,
+                mato.updated_by, mato.updated_at,
+                mato.revoked_by, mato.revoked_at,
+                mato.status, mato.created_at
+            FROM machine_assign_to_operators mato
+            JOIN users u ON mato.operator_id = u.id AND (u.is_deleted IS NOT TRUE)
+            JOIN machines m ON mato.machine_id = m.id AND (m.is_deleted IS NOT TRUE)
+            WHERE 1=1
+        """
+        params = []
+
+        if user_role != "OEM_MANAGER":
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                return []
+            query += " AND mato.organization_id = %s"
+            params.append(user_org_id)
+        elif organization_id:
+            query += " AND mato.organization_id = %s"
+            params.append(organization_id)
+
+        if operator_id:
+            query += " AND mato.operator_id = %s"
+            params.append(operator_id)
+
+        query += " ORDER BY mato.created_at DESC;"
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+        cols = [desc[0] for desc in cur.description]
+        result = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            d["id"] = str(d["id"])
+            d["organization_id"] = str(d["organization_id"])
+            d["operator_id"] = str(d["operator_id"])
+            d["machine_id"] = str(d["machine_id"])
+            if d.get("created_by"):
+                d["created_by"] = str(d["created_by"])
+            if d.get("assigned_by"):
+                d["assigned_by"] = str(d["assigned_by"])
+            if d.get("updated_by"):
+                d["updated_by"] = str(d["updated_by"])
+            if d.get("revoked_by"):
+                d["revoked_by"] = str(d["revoked_by"])
+            result.append(OperatorMachineAssignmentResponse(**d))
+        return result
+
+@router.post("/operator-assignments", response_model=OperatorMachineAssignmentResponse, status_code=status.HTTP_201_CREATED)
+def assign_machine_to_operator(
+    payload: OperatorMachineAssignmentCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot assign machines.")
+
+    with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT id, organization_id, role, first_name, last_name, email FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (payload.operator_id,))
+        op_row = cur.fetchone()
+        if not op_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operator user not found.")
+        if op_row[2] != "OPERATOR":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must have the OPERATOR role.")
+        op_org_id = str(op_row[1])
+
+        cur.execute("SELECT id, organization_id, machine_code, serial_number, model, location_label FROM machines WHERE id = %s AND (is_deleted IS NOT TRUE);", (payload.machine_id,))
+        mach_row = cur.fetchone()
+        if not mach_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.")
+        if not mach_row[1] or str(mach_row[1]) != op_org_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Machine is not leased to this operator's client organization.")
+
+        cur.execute("""
+            SELECT mato.id, u.first_name, u.last_name, u.email
+            FROM machine_assign_to_operators mato
+            JOIN users u ON mato.operator_id = u.id
+            WHERE mato.machine_id = %s 
+              AND mato.operator_id != %s 
+              AND mato.status = 'Active'
+              AND (u.is_deleted IS NOT TRUE);
+        """, (payload.machine_id, payload.operator_id))
+        existing_assigned = cur.fetchone()
+        if existing_assigned:
+            other_name = f"{existing_assigned[1]} {existing_assigned[2] or ''}".strip()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Machine '{mach_row[2]}' is already assigned to operator {other_name} ({existing_assigned[3]}). Please revoke it first before reassigning."
+            )
+
+        if user_role != "OEM_MANAGER":
+            user_org_id = str(current_user.get("organization_id") or "")
+            if user_org_id != op_org_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot assign machines outside your organization.")
+
+        s_date = payload.start_date.strip() if payload.start_date and payload.start_date.strip() else date.today().strftime("%Y-%m-%d")
+        if payload.end_date and payload.end_date.strip():
+            e_date = payload.end_date.strip()
+        else:
+            try:
+                s_obj = datetime.strptime(s_date, "%Y-%m-%d").date()
+                e_date = s_obj.replace(year=s_obj.year + 5).strftime("%Y-%m-%d")
+            except Exception:
+                e_date = (date.today().replace(year=date.today().year + 5)).strftime("%Y-%m-%d")
+
+        location = payload.location.strip() if payload.location and payload.location.strip() else (mach_row[5] or None)
+
+        cur.execute("""
+            INSERT INTO machine_assign_to_operators (
+                organization_id, operator_id, machine_id,
+                start_date, end_date, location, created_by, assigned_by, status
+            ) VALUES (
+                %s, %s, %s,
+                %s::DATE, %s::DATE, %s, %s, %s, 'Active'
+            )
+            ON CONFLICT (operator_id, machine_id) DO UPDATE
+            SET status = 'Active',
+                start_date = EXCLUDED.start_date,
+                end_date = EXCLUDED.end_date,
+                location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
+                revoked_at = NULL,
+                revoked_by = NULL,
+                updated_by = EXCLUDED.assigned_by,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING id, organization_id, operator_id, machine_id, TO_CHAR(start_date, 'YYYY-MM-DD'), TO_CHAR(end_date, 'YYYY-MM-DD'), location, created_by, assigned_by, assigned_at, updated_by, updated_at, revoked_by, revoked_at, status, created_at;
+        """, (op_org_id, payload.operator_id, payload.machine_id, s_date, e_date, location, current_user.get("id"), current_user.get("id")))
+        row = cur.fetchone()
+
+        return OperatorMachineAssignmentResponse(
+            id=str(row[0]),
+            organization_id=str(row[1]),
+            operator_id=str(row[2]),
+            operator_name=f"{op_row[3]} {op_row[4] or ''}".strip(),
+            operator_email=op_row[5],
+            machine_id=str(row[3]),
+            machine_code=mach_row[2],
+            serial_number=mach_row[3],
+            model=mach_row[4],
+            start_date=row[4],
+            end_date=row[5],
+            location=row[6],
+            created_by=str(row[7]) if row[7] else None,
+            assigned_by=str(row[8]) if row[8] else None,
+            assigned_at=row[9],
+            updated_by=str(row[10]) if row[10] else None,
+            updated_at=row[11],
+            revoked_by=str(row[12]) if row[12] else None,
+            revoked_at=row[13],
+            status=row[14],
+            created_at=row[15]
+        )
+
+@router.post("/operator-assignments/{assignment_id}/revoke")
+def revoke_operator_machine_assignment(
+    assignment_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot revoke machine assignments.")
+
+    with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT id, organization_id FROM machine_assign_to_operators WHERE id = %s;", (assignment_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment record not found.")
+
+        if user_role != "OEM_MANAGER":
+            user_org_id = str(current_user.get("organization_id") or "")
+            if user_org_id != str(row[1]):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot modify assignments outside your organization.")
+
+        cur.execute("""
+            UPDATE machine_assign_to_operators
+            SET status = 'Revoked',
+                revoked_at = CURRENT_TIMESTAMP,
+                revoked_by = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s;
+        """, (current_user.get("id"), assignment_id))
+
+        return {"success": True, "message": "Operator machine assignment revoked successfully."}
+
 @router.get("/{machine_id}", response_model=MachineResponse)
 def get_machine(machine_id: str, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
     with get_db_cursor() as cur:
-        cur.execute(
-            f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s)) AND (m.is_deleted IS NOT TRUE);",
-            (machine_id, machine_id, machine_id)
-        )
+        if user_role == "OPERATOR":
+            cur.execute(
+                f"""{SQL_SELECT_MACHINE_JOINED}
+                JOIN machine_assign_to_operators mato 
+                  ON m.id = mato.machine_id 
+                 AND mato.operator_id = %s 
+                 AND mato.status = 'Active'
+                WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s)) 
+                  AND (m.is_deleted IS NOT TRUE);
+                """,
+                (current_user.get("id"), machine_id, machine_id, machine_id)
+            )
+        elif user_role != "OEM_MANAGER":
+            user_org_id = current_user.get("organization_id")
+            cur.execute(
+                f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s)) AND m.organization_id = %s AND (m.is_deleted IS NOT TRUE);",
+                (machine_id, machine_id, machine_id, user_org_id)
+            )
+        else:
+            cur.execute(
+                f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s)) AND (m.is_deleted IS NOT TRUE);",
+                (machine_id, machine_id, machine_id)
+            )
         row = cur.fetchone()
         if not row:
             raise HTTPException(
@@ -119,7 +359,7 @@ def get_machine(machine_id: str, current_user: dict = Depends(get_current_user))
         mach_dict = row_to_machine_dict(cols, row)
 
         # Cross-tenant scoping check
-        if current_user.get("role") != "OEM_MANAGER":
+        if user_role != "OEM_MANAGER":
             user_org_id = str(current_user.get("organization_id") or "")
             mach_org_id = str(mach_dict.get("organization_id") or "")
             if not user_org_id or mach_org_id != user_org_id:
@@ -240,6 +480,43 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
         ))
         new_id = cur.fetchone()[0]
 
+        if payload.organization_id:
+            lease_ref = f"LSE-{new_id[:8]}"
+            today_str = date.today().strftime("%Y-%m-%d")
+            end_str = (date.today().replace(year=date.today().year + 5)).strftime("%Y-%m-%d")
+            cur.execute("""
+                INSERT INTO machine_leases (
+                    machine_id, organization_id, location_label,
+                    lease_start_date, lease_end_date, lease_status, lease_reference,
+                    created_by, assigned_by, assigned_at
+                ) VALUES (
+                    %s, %s, %s,
+                    %s::DATE, %s::DATE, 'Active', %s,
+                    %s, %s, CURRENT_TIMESTAMP
+                ) ON CONFLICT (lease_reference) DO UPDATE
+                SET lease_status = 'Active';
+            """, (new_id, payload.organization_id, payload.location_label, today_str, end_str, lease_ref, current_user.get("id"), current_user.get("id")))
+
+            cur.execute("""
+                SELECT id FROM users
+                WHERE organization_id = %s
+                  AND role = 'OPERATOR'
+                  AND is_active = TRUE
+                  AND (is_deleted IS NOT TRUE);
+            """, (payload.organization_id,))
+            ops = cur.fetchall()
+            if len(ops) == 1:
+                cur.execute("""
+                    INSERT INTO machine_assign_to_operators (
+                        organization_id, operator_id, machine_id,
+                        start_date, end_date, location, created_by, assigned_by, status
+                    ) VALUES (
+                        %s, %s, %s,
+                        %s::DATE, %s::DATE, %s, %s, %s, 'Active'
+                    ) ON CONFLICT (operator_id, machine_id) DO UPDATE
+                    SET status = 'Active', revoked_at = NULL, revoked_by = NULL;
+                """, (payload.organization_id, ops[0][0], new_id, today_str, end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
+
         cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE m.id = %s;", (new_id,))
         row = cur.fetchone()
         cols = [desc[0] for desc in cur.description]
@@ -340,17 +617,48 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                 cur.execute("""
                     INSERT INTO machine_leases (
                         machine_id, organization_id, location_label,
-                        lease_start_date, lease_end_date, lease_status, lease_reference
+                        lease_start_date, lease_end_date, lease_status, lease_reference,
+                        created_by, assigned_by, assigned_at
                     ) VALUES (
                         %s, %s, %s,
-                        %s::DATE, %s::DATE, 'Active', %s
+                        %s::DATE, %s::DATE, 'Active', %s,
+                        %s, %s, CURRENT_TIMESTAMP
                     ) ON CONFLICT (lease_reference) DO UPDATE
                     SET organization_id = EXCLUDED.organization_id,
                         location_label = COALESCE(EXCLUDED.location_label, machine_leases.location_label),
                         lease_start_date = EXCLUDED.lease_start_date,
                         lease_end_date = EXCLUDED.lease_end_date,
-                        lease_status = 'Active';
-                """, (real_machine_id, payload.organization_id, payload.location_label, l_start_str, l_end_str, lease_ref))
+                        lease_status = 'Active',
+                        updated_by = EXCLUDED.assigned_by,
+                        updated_at = CURRENT_TIMESTAMP;
+                """, (real_machine_id, payload.organization_id, payload.location_label, l_start_str, l_end_str, lease_ref, current_user.get("id"), current_user.get("id")))
+
+                cur.execute("""
+                    SELECT id FROM users
+                    WHERE organization_id = %s
+                      AND role = 'OPERATOR'
+                      AND is_active = TRUE
+                      AND (is_deleted IS NOT TRUE);
+                """, (payload.organization_id,))
+                ops = cur.fetchall()
+                if len(ops) == 1:
+                    cur.execute("""
+                        INSERT INTO machine_assign_to_operators (
+                            organization_id, operator_id, machine_id,
+                            start_date, end_date, location, created_by, assigned_by, status
+                        ) VALUES (
+                            %s, %s, %s,
+                            %s::DATE, %s::DATE, %s, %s, %s, 'Active'
+                        ) ON CONFLICT (operator_id, machine_id) DO UPDATE
+                        SET status = 'Active',
+                            start_date = EXCLUDED.start_date,
+                            end_date = EXCLUDED.end_date,
+                            location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
+                            revoked_at = NULL,
+                            revoked_by = NULL,
+                            updated_by = EXCLUDED.assigned_by,
+                            updated_at = CURRENT_TIMESTAMP;
+                    """, (payload.organization_id, ops[0][0], real_machine_id, l_start_str, l_end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
 
         cur.execute("""
             UPDATE machines SET
@@ -370,6 +678,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                 connectivity_status = COALESCE(%s, connectivity_status),
                 operational_status = COALESCE(%s, operational_status),
                 is_active = COALESCE(%s, is_active),
+                updated_by = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s;
         """, (
@@ -389,6 +698,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
             payload.connectivity_status,
             payload.operational_status,
             payload.is_active,
+            current_user.get("id"),
             real_machine_id
         ))
 
@@ -434,24 +744,42 @@ def delete_machine(machine_id: str, current_user: dict = Depends(get_current_use
         return {"success": True, "message": f"Machine '{code}' successfully removed from fleet inventory."}
 
 @router.post("/{machine_id}/unassign")
-def unassign_machine(machine_id: str, current_user: dict = Depends(get_current_user)):
-    """Unassign a machine from its client organization and return it to available fleet."""
+def unassign_machine(machine_id: str, payload: Optional[TerminateLeaseRequest] = None, current_user: dict = Depends(get_current_user)):
+    """Terminate machine lease from client organization and return to available fleet."""
     if current_user.get("role") != "OEM_MANAGER":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: Only OEM Managers can unassign machines."
+            detail="Access denied: Only OEM Managers can terminate machine leases."
         )
+
+    remark = payload.termination_remark.strip() if payload and payload.termination_remark and payload.termination_remark.strip() else None
+
     with get_db_cursor(commit=True) as cur:
         cur.execute("SELECT id, serial_number, organization_id FROM machines WHERE id = %s AND (is_deleted IS NOT TRUE);", (machine_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.")
 
-        # Clear organization mapping from machine
-        cur.execute("UPDATE machines SET organization_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING serial_number;", (machine_id,))
+        cur.execute("UPDATE machines SET organization_id = NULL, location_label = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING serial_number;", (machine_id,))
         serial = cur.fetchone()[0]
 
-        # Terminate active lease record in machine_leases
-        cur.execute("UPDATE machine_leases SET lease_status = 'Terminated' WHERE machine_id = %s AND lease_status = 'Active';", (machine_id,))
+        cur.execute("""
+            UPDATE machine_leases 
+            SET lease_status = 'Terminated',
+                terminated_at = CURRENT_TIMESTAMP,
+                terminated_by = %s,
+                termination_remark = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE machine_id = %s AND lease_status = 'Active';
+        """, (current_user.get("id"), remark, machine_id))
 
-        return {"success": True, "message": f"Machine '{serial}' unassigned successfully and returned to available fleet.", "id": machine_id}
+        cur.execute("""
+            UPDATE machine_assign_to_operators
+            SET status = 'Revoked',
+                revoked_at = CURRENT_TIMESTAMP,
+                revoked_by = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE machine_id = %s AND status = 'Active';
+        """, (current_user.get("id"), machine_id))
+
+        return {"success": True, "message": f"Machine '{serial}' lease terminated successfully and returned to fleet.", "id": machine_id}

@@ -60,6 +60,9 @@ class UserResponse(BaseModel):
     last_login_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
+    deleted_by: Optional[str] = None
 
 class LoginResponse(BaseModel):
     token: str
@@ -418,6 +421,7 @@ class OrganizationResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     created_by: Optional[str] = None
+    updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
 
 class BulkDeleteRequest(BaseModel):
@@ -496,8 +500,49 @@ class MachineLeaseResponse(BaseModel):
     lease_start_date: Optional[str] = None
     lease_end_date: Optional[str] = None
     lease_status: str
+    created_by: Optional[str] = None
+    assigned_by: Optional[str] = None
+    assigned_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    terminated_by: Optional[str] = None
+    terminated_at: Optional[datetime] = None
+    termination_remark: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+class TerminateLeaseRequest(BaseModel):
+    termination_remark: Optional[str] = None
+
+class OperatorMachineAssignmentCreate(BaseModel):
+    operator_id: str
+    machine_id: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    location: Optional[str] = None
+
+class OperatorMachineAssignmentResponse(BaseModel):
+    id: str
+    organization_id: str
+    operator_id: str
+    operator_name: Optional[str] = None
+    operator_email: Optional[str] = None
+    machine_id: str
+    machine_code: Optional[str] = None
+    serial_number: Optional[str] = None
+    model: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    location: Optional[str] = None
+    created_by: Optional[str] = None
+    assigned_by: Optional[str] = None
+    assigned_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    revoked_by: Optional[str] = None
+    revoked_at: Optional[datetime] = None
+    status: str
+    created_at: Optional[datetime] = None
 
 class MachineCreate(BaseModel):
     serial_number: Optional[str] = None
@@ -611,5 +656,6 @@ class MachineResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     created_by: Optional[str] = None
+    updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
 

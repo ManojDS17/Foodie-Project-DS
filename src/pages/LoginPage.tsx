@@ -31,7 +31,6 @@ export const LoginPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
-  // State management
   const [view, setView] = useState<AuthView>('SIGN_IN');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,7 +39,6 @@ export const LoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Password reset flow state
   const [resetToken, setResetToken] = useState<string>('');
   const [isVerifyingToken, setIsVerifyingToken] = useState(false);
   const [isTokenValid, setIsTokenValid] = useState<boolean | null>(null);
@@ -48,9 +46,7 @@ export const LoginPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
 
-  // Check URL params for special initial views (e.g. ?view=signed_out, ?view=expired, or reset link)
   useEffect(() => {
     const urlView = searchParams.get('view');
     const token = searchParams.get('token');
@@ -76,7 +72,6 @@ export const LoginPage: React.FC = () => {
       setIsVerifyingToken(true);
       setIsTokenValid(null);
       setErrorMessage(null);
-      // Verify token validity against backend database
       authApi.verifyResetToken(token)
         .then((res) => {
           setIsTokenValid(true);
@@ -102,7 +97,6 @@ export const LoginPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  // Handle standard login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -120,7 +114,6 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       await login(email.trim(), password);
-      // Pick up right where the user left off if returning from an expired session
       const redirectPath = sessionStorage.getItem('foodie_redirect_after_login') || '/';
       sessionStorage.removeItem('foodie_redirect_after_login');
       navigate(redirectPath);
@@ -133,7 +126,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  // Handle Forgot Password submission
   const handleSendResetLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
@@ -144,10 +136,7 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await authApi.forgotPassword(email.trim());
-      if (res?.reset_url) {
-        setDevResetUrl(res.reset_url);
-      }
+      await authApi.forgotPassword(email.trim());
       setView('CHECK_EMAIL');
     } catch (err: any) {
       setErrorMessage(err.message || 'No account found with this email address.');
@@ -156,7 +145,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  // Handle Update Password submission
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     const hasMinLen = newPassword.length >= 12;
@@ -187,7 +175,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  // Live password requirements calculation
   const hasMinLength = newPassword.length >= 12;
   const hasNumber = /\d/.test(newPassword);
   const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
@@ -434,21 +421,11 @@ export const LoginPage: React.FC = () => {
                 We sent a reset link to <span className="font-semibold text-[#111827]">{email}</span>. The link expires in 30 minutes.
               </p>
 
-              {devResetUrl && (
-                <div className="mt-4 p-3 bg-neutral-50 rounded-lg border border-neutral-200 text-left">
-                  <p className="text-[11px] font-semibold text-[#171717] mb-1">Reset link:</p>
-                  <a href={devResetUrl} className="text-xs text-[#E32032] underline break-all font-mono">
-                    Click here to set new password
-                  </a>
-                </div>
-              )}
-
               <div className="mt-5 space-y-2.5">
                 <button
                   type="button"
                   onClick={() => {
                     setView('SIGN_IN');
-                    setDevResetUrl(null);
                   }}
                   className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
                 >

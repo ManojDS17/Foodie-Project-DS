@@ -132,6 +132,9 @@ def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP WITH TIME ZONE;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
             ALTER TABLE users DROP COLUMN IF EXISTS assigned_site_id;
             ALTER TABLE organizations ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) DEFAULT 'Corporate';
             ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Active';
@@ -140,6 +143,7 @@ def init_db():
             ALTER TABLE organizations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
             ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
             ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE organizations ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
             ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
             ALTER TABLE organizations ALTER COLUMN contact_poc DROP NOT NULL;
             ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_client_code_key;
@@ -149,11 +153,45 @@ def init_db():
             ALTER TABLE machines ALTER COLUMN hardware_version DROP DEFAULT;
             ALTER TABLE machines ALTER COLUMN operational_status SET DEFAULT 'Idle';
             ALTER TABLE machines ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE machines ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
             ALTER TABLE machines ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
             ALTER TABLE machines DROP COLUMN IF EXISTS plc_ip;
             ALTER TABLE machines DROP COLUMN IF EXISTS site_id;
             ALTER TABLE machine_leases DROP COLUMN IF EXISTS site_id;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS assigned_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS terminated_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS terminated_by UUID REFERENCES users(id) ON DELETE SET NULL;
+            ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS termination_remark TEXT DEFAULT NULL;
             DROP TABLE IF EXISTS sites CASCADE;
+
+            CREATE TABLE IF NOT EXISTS machine_assign_to_operators (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+                operator_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                machine_id UUID REFERENCES machines(id) ON DELETE CASCADE,
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                location VARCHAR(100),
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                revoked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                revoked_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+                status VARCHAR(50) DEFAULT 'Active',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT unique_operator_active_machine UNIQUE (operator_id, machine_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_mato_org ON machine_assign_to_operators (organization_id);
+            CREATE INDEX IF NOT EXISTS idx_mato_operator ON machine_assign_to_operators (operator_id);
+            CREATE INDEX IF NOT EXISTS idx_mato_machine ON machine_assign_to_operators (machine_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_machine_assignment ON machine_assign_to_operators (machine_id) WHERE (status = 'Active');
+            ALTER TABLE machine_assign_to_operators ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
         """)
 
         # 4. Machines table setup for local development
@@ -180,6 +218,9 @@ def init_db():
                 is_deleted BOOLEAN DEFAULT FALSE,
                 deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                deleted_by UUID REFERENCES users(id) ON DELETE SET NULL,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
@@ -196,6 +237,14 @@ def init_db():
                 lease_start_date DATE NOT NULL,
                 lease_end_date DATE NOT NULL,
                 lease_status VARCHAR(50) DEFAULT 'Active',
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                terminated_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+                terminated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                termination_remark TEXT DEFAULT NULL,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
@@ -218,5 +267,50 @@ def init_db():
                 ('C002', 'C002', %s, 'Foodie F25', '25 kg/day', 'v2.1', %s, 'Carpark Bay 2', 'Offline', true),
                 ('C003', 'C003', %s, 'Foodie F25', '25 kg/day', 'v1.0', %s, 'Mawson Processing Hub', 'Offline', true);
             """, (f100_id, org_id, f25_id, org_id, f25_id, org_id))
+
+        cur.execute("""
+            INSERT INTO machine_leases (
+                machine_id, organization_id, location_label,
+                lease_start_date, lease_end_date, lease_status, lease_reference
+            )
+            SELECT 
+                m.id, m.organization_id, m.location_label,
+                CURRENT_DATE, CURRENT_DATE + INTERVAL '5 years', 'Active',
+                'LSE-' || SUBSTRING(m.id::text, 1, 8)
+            FROM machines m
+            WHERE m.organization_id IS NOT NULL 
+              AND (m.is_deleted IS NOT TRUE)
+              AND NOT EXISTS (
+                  SELECT 1 FROM machine_leases ml 
+                  WHERE ml.machine_id = m.id AND ml.lease_status = 'Active'
+              )
+            ON CONFLICT (lease_reference) DO UPDATE
+            SET lease_status = 'Active',
+                organization_id = EXCLUDED.organization_id;
+
+            INSERT INTO machine_assign_to_operators (
+                organization_id, operator_id, machine_id,
+                start_date, end_date, location, status
+            )
+            SELECT 
+                ml.organization_id,
+                u.id,
+                ml.machine_id,
+                ml.lease_start_date,
+                ml.lease_end_date,
+                COALESCE(ml.location_label, m.location_label),
+                'Active'
+            FROM machine_leases ml
+            JOIN machines m ON ml.machine_id = m.id AND (m.is_deleted IS NOT TRUE)
+            JOIN users u ON ml.organization_id = u.organization_id AND u.role = 'OPERATOR' AND u.is_active = TRUE AND (u.is_deleted IS NOT TRUE)
+            WHERE ml.lease_status = 'Active'
+              AND NOT EXISTS (
+                  SELECT 1 FROM machine_assign_to_operators mato
+                  JOIN users u2 ON mato.operator_id = u2.id AND (u2.is_deleted IS NOT TRUE) AND u2.is_active = TRUE
+                  WHERE mato.machine_id = ml.machine_id AND mato.status = 'Active'
+              )
+            ON CONFLICT (operator_id, machine_id) DO UPDATE
+            SET status = 'Active', revoked_at = NULL, revoked_by = NULL;
+        """)
 
     print("Database connection initialized and verified successfully.")
