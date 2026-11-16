@@ -31,13 +31,11 @@ export const FoodieLogo: React.FC<FoodieLogoProps> = ({
         {showEndorsement && (
           <div className="flex items-center gap-1.5 sm:gap-2 pl-2 sm:pl-2.5 border-l border-[#E3E4E6] shrink-0">
             <span className="text-[11px] text-[#6B7280] font-medium hidden sm:inline">by</span>
-            {/* Full banner logo on desktop (>= md) */}
             <img
               src={BRAND_ASSETS.powertechFullLogo}
               alt="PowerTech Energy"
               className="h-5 sm:h-5.5 md:h-6 w-auto object-contain opacity-95 hidden md:block shrink-0"
             />
-            {/* Compact swirl icon on mobile (< md) */}
             <img
               src={BRAND_ASSETS.powertechIcon}
               alt="PowerTech Energy"
@@ -49,7 +47,6 @@ export const FoodieLogo: React.FC<FoodieLogoProps> = ({
     );
   }
 
-  // Fallback SVG representation
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
       <div

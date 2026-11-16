@@ -59,7 +59,7 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
     ...(userRole !== 'OPERATOR' ? [{ to: '/sustainability', label: 'Sustainability', icon: Leaf, badge: 'P2' }] : []),
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/alerts', label: 'Alerts', icon: Bell, alertCount: 2 },
-    { to: '/settings', label: 'Settings', icon: Settings },
+    ...(isOem ? [{ to: '/settings', label: 'Settings', icon: Settings }] : []),
     { to: '/profile', label: 'Profile', icon: User },
   ];
 

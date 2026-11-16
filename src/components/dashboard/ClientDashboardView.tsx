@@ -7,7 +7,6 @@ import {
   Leaf,
   ArrowRight,
   Cpu,
-  CheckCircle2,
   Building2,
   ShieldCheck,
   RefreshCw,
@@ -71,7 +70,9 @@ export const ClientDashboardView: React.FC = () => {
   const offlineMachines = totalMachines - onlineMachines;
 
   const attentionMachines = dashboardStats?.attention_machines || [];
+  const upcomingMaintenance = dashboardStats?.upcoming_maintenance || [];
   const openAlerts = dashboardStats?.open_alerts_count || 0;
+  const isOperator = user?.role === 'OPERATOR';
 
   if (selectedMachine) {
     return (
@@ -407,39 +408,40 @@ export const ClientDashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column (4 cols): Attention Items & Facility Profile Card */}
+        {/* Right Column (4 cols): Attention Items & Maintenance Card */}
         <div className="lg:col-span-4 flex flex-col gap-5">
-          {/* 1. Equipment Attention & Health */}
+          {/* 1. Machines Needing Attention */}
           <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
             <div className="flex items-center justify-between pb-3 border-b border-[#F3F4F6]">
               <h2 className="text-sm font-bold text-[#171717]">
-                Equipment health &amp; attention
+                Machines needing attention
               </h2>
               <button
                 type="button"
                 onClick={() => navigate('/alerts')}
-                className="text-xs font-bold text-[#E32032] hover:underline cursor-pointer"
+                className="text-xs font-bold text-[#E32032] hover:underline flex items-center gap-1 cursor-pointer"
               >
-                Alerts
+                <span>Alerts</span>
+                <span className="text-sm">→</span>
               </button>
             </div>
 
             {attentionMachines.length === 0 ? (
-              <div className="py-6 px-4 text-center text-xs text-[#16A34A] bg-emerald-50/60 rounded-xl border border-emerald-100 my-2">
-                <CheckCircle2 className="w-5 h-5 mx-auto mb-1 text-[#16A34A]" />
-                <span className="font-semibold block">All composter units nominal</span>
-                <span className="text-[11px] text-[#6B7280] mt-0.5 block">
-                  Thermal digestion, agitator motors, and Victron power meters operating without faults.
-                </span>
+              <div className="py-6 text-center text-xs text-[#16A34A] bg-emerald-50/50 rounded-xl border border-emerald-100 my-2">
+                ✓ All assigned machines operating normally. No active alerts.
               </div>
             ) : (
               <div className="divide-y divide-[#F3F4F6] mt-1">
                 {attentionMachines.map((m) => (
                   <div key={m.id} className="py-3 flex items-center justify-between text-xs">
                     <div className="min-w-0 pr-2">
-                      <span className="font-bold text-[#E32032] block">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/machines')}
+                        className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left cursor-pointer"
+                      >
                         {m.machine_code}
-                      </span>
+                      </button>
                       <div className="text-[11px] text-[#6B7280] mt-0.5 truncate">
                         {m.issue}
                       </div>
@@ -453,41 +455,80 @@ export const ClientDashboardView: React.FC = () => {
             )}
           </div>
 
-          {/* 2. Facility Account & Service Details */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
-            <div className="flex items-center gap-2 pb-3 border-b border-[#F3F4F6]">
-              <Building2 className="w-4 h-4 text-[#171717]" />
-              <h2 className="text-sm font-bold text-[#171717]">
-                Facility profile
-              </h2>
-            </div>
-
-            <div className="mt-3.5 space-y-3 text-xs">
-              <div>
-                <span className="text-[11px] text-[#888888] font-medium block">Organization Name</span>
-                <span className="font-bold text-[#171717]">{user?.company_name || 'Green Valley Foods'}</span>
+          {/* 2. Right Card: Upcoming Maintenance for Operator / Facility Profile for Site Admin */}
+          {isOperator ? (
+            <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
+              <div className="pb-3 border-b border-[#F3F4F6]">
+                <h2 className="text-sm font-bold text-[#171717]">
+                  Upcoming maintenance
+                </h2>
               </div>
 
-              {user?.client_code && (
-                <div>
-                  <span className="text-[11px] text-[#888888] font-medium block">Account Client Code</span>
-                  <span className="font-mono font-bold text-[#E32032]">{user.client_code}</span>
+              {upcomingMaintenance.length === 0 ? (
+                <div className="py-6 text-center text-xs text-[#888888] bg-gray-50/50 rounded-xl border border-gray-100 my-2">
+                  No maintenance scheduled for the next 30 days.
+                </div>
+              ) : (
+                <div className="divide-y divide-[#F3F4F6] mt-1">
+                  {upcomingMaintenance.map((item) => (
+                    <div key={item.id} className="py-3 flex items-center justify-between text-xs">
+                      <div className="min-w-0 pr-2">
+                        <button
+                          type="button"
+                          onClick={() => navigate('/machines')}
+                          className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left cursor-pointer"
+                        >
+                          {item.machine_code}
+                        </button>
+                        <div className="text-[11px] text-[#6B7280] mt-0.5 truncate">
+                          {item.task}
+                        </div>
+                      </div>
+
+                      <span className="text-[11px] font-bold text-[#171717] shrink-0">
+                        {item.date}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
-
-              <div>
-                <span className="text-[11px] text-[#888888] font-medium block">Registered Account Email</span>
-                <span className="text-[#171717] break-all">{user?.email || 'client@example.com'}</span>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
+              <div className="flex items-center gap-2 pb-3 border-b border-[#F3F4F6]">
+                <Building2 className="w-4 h-4 text-[#171717]" />
+                <h2 className="text-sm font-bold text-[#171717]">
+                  Facility profile
+                </h2>
               </div>
 
-              <div className="pt-2 border-t border-[#F3F4F6]">
-                <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-[11px] font-semibold">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Lease &amp; SLA Active · PowerTech Energy 24/7 Monitoring</span>
+              <div className="mt-3.5 space-y-3 text-xs">
+                <div>
+                  <span className="text-[11px] text-[#888888] font-medium block">Organization Name</span>
+                  <span className="font-bold text-[#171717]">{user?.company_name || 'Green Valley Foods'}</span>
+                </div>
+
+                {user?.client_code && (
+                  <div>
+                    <span className="text-[11px] text-[#888888] font-medium block">Account Client Code</span>
+                    <span className="font-mono font-bold text-[#E32032]">{user.client_code}</span>
+                  </div>
+                )}
+
+                <div>
+                  <span className="text-[11px] text-[#888888] font-medium block">Registered Account Email</span>
+                  <span className="text-[#171717] break-all">{user?.email || 'client@example.com'}</span>
+                </div>
+
+                <div className="pt-2 border-t border-[#F3F4F6]">
+                  <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-[11px] font-semibold">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Lease &amp; SLA Active · PowerTech Energy 24/7 Monitoring</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

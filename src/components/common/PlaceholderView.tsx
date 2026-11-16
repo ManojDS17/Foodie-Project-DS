@@ -6,12 +6,14 @@ export interface PlaceholderViewProps {
   title: string;
   subtitle: string;
   tag?: string;
+  footerText?: string;
 }
 
 export const PlaceholderView: React.FC<PlaceholderViewProps> = ({
   title,
   subtitle,
   tag = 'Phase 2 Milestone',
+  footerText = 'Scheduled in the product development roadmap.',
 }) => {
   const navigate = useNavigate();
 
@@ -43,7 +45,7 @@ export const PlaceholderView: React.FC<PlaceholderViewProps> = ({
 
       <div className="mt-6 pt-4 border-t border-[#F2F2F2] flex items-center justify-center gap-1.5 text-[11px] text-[#888888]">
         <Clock className="w-3.5 h-3.5" />
-        <span>Scheduled in the PowerTech Energy product development roadmap.</span>
+        <span>{footerText}</span>
       </div>
     </div>
   );

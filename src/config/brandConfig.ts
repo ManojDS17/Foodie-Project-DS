@@ -1,18 +1,10 @@
-/**
- * Centralized Brand & Visual Assets Configuration
- * Easily swap image paths, logos, and hero text here in the future without editing UI code.
- */
-
 export const BRAND_ASSETS = {
-  // Authentication hero background image (Left 50% column)
   authHeroBg: '/assets/brand/auth-hero.png',
-
-  // Official Foodie logo
-  foodieLogo: '/assets/brand/foodie-logo.png',
-
-  // PowerTech Energy logos
-  powertechFullLogo: '/assets/brand/powertech-full-logo.png',
-  powertechIcon: '/assets/brand/powertech-icon.png',
+  foodieLogo: '/assets/brand/foodie-logo.svg',
+  foodieLogoWhite: '/assets/brand/foodie-logo-white.svg',
+  powertechFullLogo: '/assets/brand/powertech-full-logo.svg',
+  powertechFullLogoWhite: '/assets/brand/powertech-full-logo-white.svg',
+  powertechIcon: '/assets/brand/powertech-icon.svg',
 };
 
 export const BRAND_COPY = {

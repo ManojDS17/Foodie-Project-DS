@@ -10,6 +10,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { BRAND_ASSETS } from '../../config/brandConfig';
 
 interface NavItem {
   to: string;
@@ -36,7 +37,7 @@ export const Sidebar: React.FC = () => {
     ...(userRole !== 'OPERATOR' ? [{ to: '/sustainability', label: 'Sustainability', icon: Leaf, badge: 'P2' }] : []),
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/alerts', label: 'Alerts', icon: Bell },
-    { to: '/settings', label: 'Settings', icon: Settings },
+    ...(userRole === 'OEM_MANAGER' ? [{ to: '/settings', label: 'Settings', icon: Settings }] : []),
   ];
 
   return (
@@ -99,10 +100,9 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      {/* Bottom: PowerTech Energy Brand Swirl */}
       <div className="flex flex-col items-center justify-center py-3 border-t border-[#E3E4E6] w-full px-2">
         <img
-          src="/assets/brand/powertech-icon.png"
+          src={BRAND_ASSETS.powertechIcon}
           alt="PowerTech Energy"
           className="w-7 h-7 object-contain opacity-95 hover:opacity-100 transition-opacity"
           onError={(e) => {

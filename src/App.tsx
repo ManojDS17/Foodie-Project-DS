@@ -38,6 +38,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
 };
 
 export const AppContent: React.FC = () => {
+  const { user } = useAuth();
+  const isOem = user?.role === 'OEM_MANAGER';
+
   return (
     <Routes>
       {/* Public Authentication Route */}
@@ -126,11 +129,16 @@ export const AppContent: React.FC = () => {
           path="settings"
           element={
             <ProtectedRoute>
-              <PlaceholderView
-                title="OEM Workspace & System Configuration"
-                subtitle="Manage API keys, Modbus network gateways, email relay providers, and enterprise security policies."
-                tag="System Admin"
-              />
+              {isOem ? (
+                <PlaceholderView
+                  title="OEM Workspace & System Configuration"
+                  subtitle="Manage API keys, Modbus network gateways, email relay providers, and enterprise security policies."
+                  tag="System Admin"
+                  footerText="Scheduled in the PowerTech Energy product development roadmap."
+                />
+              ) : (
+                <Navigate to="/profile" replace />
+              )}
             </ProtectedRoute>
           }
         />

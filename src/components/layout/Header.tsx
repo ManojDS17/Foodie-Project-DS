@@ -29,6 +29,7 @@ export interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const isOem = user?.role === 'OEM_MANAGER';
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -126,8 +127,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
           </button>
         )}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <FoodieLogo size="sm" showEndorsement={true} className="sm:hidden" />
-          <FoodieLogo size="md" showEndorsement={true} className="hidden sm:flex" />
+          <FoodieLogo size="sm" showEndorsement={true} />
           <div className="h-6 w-px bg-[#E3E4E6] hidden lg:block" />
           <div className="hidden lg:flex flex-col">
             <span className="text-[10px] text-[#888888] font-bold uppercase leading-tight">
@@ -437,17 +437,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
                           <span>Profile</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsUserMenuOpen(false);
-                            navigate('/settings');
-                          }}
-                          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] transition-colors cursor-pointer text-left"
-                        >
-                          <Settings className="w-4 h-4 text-[#171717]" />
-                          <span>Settings</span>
-                        </button>
+                        {isOem && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsUserMenuOpen(false);
+                              navigate('/settings');
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] transition-colors cursor-pointer text-left"
+                          >
+                            <Settings className="w-4 h-4 text-[#171717]" />
+                            <span>Settings</span>
+                          </button>
+                        )}
 
                         <div
                           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold text-[#171717] cursor-default select-none text-left"
