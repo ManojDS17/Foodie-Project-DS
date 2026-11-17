@@ -16,6 +16,7 @@ import { AddMachineView } from '../machines/AddMachineView';
 import { AddOperatorView } from '../operators/AddOperatorView';
 import { Toast } from '../common/Toast';
 import { useAuth } from '../../context/AuthContext';
+import { useSilentRefresh } from '../../hooks';
 import { dashboardApi, orgsApi, machinesApi } from '../../services/api';
 import type { Organization, Machine, DashboardStats } from '../../types';
 
@@ -35,9 +36,9 @@ export const OemDashboardView: React.FC = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
     try {
-      setIsLoading(true);
+      if (!isSilent) setIsLoading(true);
       const [stats, orgList, machineList] = await Promise.all([
         dashboardApi.getStats().catch((err) => {
           console.error('Failed to load live dashboard stats:', err);
@@ -53,13 +54,18 @@ export const OemDashboardView: React.FC = () => {
     } catch (err) {
       console.error('Error fetching OEM dashboard data:', err);
     } finally {
-      setIsLoading(false);
+      if (!isSilent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
   }, []);
+
+  useSilentRefresh(() => fetchData(true), {
+    intervalMs: 12000,
+    enabled: !isAddClientOpen && !isAddMachineOpen && !isAddOperatorOpen,
+  });
 
   const recentClients = dashboardStats?.recent_clients || [];
   const attentionMachines = (dashboardStats?.attention_machines || []).slice().sort((a, b) =>
@@ -149,9 +155,18 @@ export const OemDashboardView: React.FC = () => {
       {/* Top Welcome Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
-            Welcome, {user ? `${user.first_name} ${user.last_name}` : 'PowerTech Admin'}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
+              Welcome, {user ? `${user.first_name} ${user.last_name}` : 'PowerTech Admin'}
+            </h1>
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#059669]"></span>
+              </span>
+              <span>Live fleet</span>
+            </div>
+          </div>
           <p className="text-xs text-[#888888] mt-0.5">
             Fleet overview across all clients · Live database &amp; telemetry
           </p>

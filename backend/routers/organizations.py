@@ -337,6 +337,33 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                                 lease_status = 'Active';
                         """, (mach_uuid, new_org_id, loc, l_start_str, l_end_str, lease_ref))
 
+                        cur.execute("""
+                            SELECT id FROM users
+                            WHERE organization_id = %s
+                              AND role = 'OPERATOR'
+                              AND is_active = TRUE
+                              AND (is_deleted IS NOT TRUE);
+                        """, (new_org_id,))
+                        ops = cur.fetchall()
+                        for op in ops:
+                            cur.execute("""
+                                INSERT INTO machine_assign_to_operators (
+                                    organization_id, operator_id, machine_id,
+                                    start_date, end_date, location, created_by, assigned_by, status
+                                ) VALUES (
+                                    %s, %s, %s,
+                                    %s::DATE, %s::DATE, %s, %s, %s, 'Active'
+                                ) ON CONFLICT (operator_id, machine_id) DO UPDATE
+                                SET status = 'Active',
+                                    start_date = EXCLUDED.start_date,
+                                    end_date = EXCLUDED.end_date,
+                                    location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
+                                    revoked_at = NULL,
+                                    revoked_by = NULL,
+                                    updated_by = EXCLUDED.assigned_by,
+                                    updated_at = CURRENT_TIMESTAMP;
+                            """, (new_org_id, op[0], mach_uuid, l_start_str, l_end_str, loc, current_user.get("id"), current_user.get("id")))
+
         return OrganizationResponse(**d)
 
 @router.put("/{org_id}", response_model=OrganizationResponse)

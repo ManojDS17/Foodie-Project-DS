@@ -505,7 +505,7 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
                   AND (is_deleted IS NOT TRUE);
             """, (payload.organization_id,))
             ops = cur.fetchall()
-            if len(ops) == 1:
+            for op in ops:
                 cur.execute("""
                     INSERT INTO machine_assign_to_operators (
                         organization_id, operator_id, machine_id,
@@ -514,8 +514,15 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
                         %s, %s, %s,
                         %s::DATE, %s::DATE, %s, %s, %s, 'Active'
                     ) ON CONFLICT (operator_id, machine_id) DO UPDATE
-                    SET status = 'Active', revoked_at = NULL, revoked_by = NULL;
-                """, (payload.organization_id, ops[0][0], new_id, today_str, end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
+                    SET status = 'Active',
+                        start_date = EXCLUDED.start_date,
+                        end_date = EXCLUDED.end_date,
+                        location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
+                        revoked_at = NULL,
+                        revoked_by = NULL,
+                        updated_by = EXCLUDED.assigned_by,
+                        updated_at = CURRENT_TIMESTAMP;
+                """, (payload.organization_id, op[0], new_id, today_str, end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
 
         cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE m.id = %s;", (new_id,))
         row = cur.fetchone()
@@ -641,7 +648,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                       AND (is_deleted IS NOT TRUE);
                 """, (payload.organization_id,))
                 ops = cur.fetchall()
-                if len(ops) == 1:
+                for op in ops:
                     cur.execute("""
                         INSERT INTO machine_assign_to_operators (
                             organization_id, operator_id, machine_id,
@@ -658,7 +665,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                             revoked_by = NULL,
                             updated_by = EXCLUDED.assigned_by,
                             updated_at = CURRENT_TIMESTAMP;
-                    """, (payload.organization_id, ops[0][0], real_machine_id, l_start_str, l_end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
+                    """, (payload.organization_id, op[0], real_machine_id, l_start_str, l_end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
 
         cur.execute("""
             UPDATE machines SET

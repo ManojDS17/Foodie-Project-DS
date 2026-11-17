@@ -190,7 +190,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mato_org ON machine_assign_to_operators (organization_id);
             CREATE INDEX IF NOT EXISTS idx_mato_operator ON machine_assign_to_operators (operator_id);
             CREATE INDEX IF NOT EXISTS idx_mato_machine ON machine_assign_to_operators (machine_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_machine_assignment ON machine_assign_to_operators (machine_id) WHERE (status = 'Active');
+            DROP INDEX IF EXISTS idx_unique_active_machine_assignment;
             ALTER TABLE machine_assign_to_operators ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
         """)
 
@@ -304,11 +304,6 @@ def init_db():
             JOIN machines m ON ml.machine_id = m.id AND (m.is_deleted IS NOT TRUE)
             JOIN users u ON ml.organization_id = u.organization_id AND u.role = 'OPERATOR' AND u.is_active = TRUE AND (u.is_deleted IS NOT TRUE)
             WHERE ml.lease_status = 'Active'
-              AND NOT EXISTS (
-                  SELECT 1 FROM machine_assign_to_operators mato
-                  JOIN users u2 ON mato.operator_id = u2.id AND (u2.is_deleted IS NOT TRUE) AND u2.is_active = TRUE
-                  WHERE mato.machine_id = ml.machine_id AND mato.status = 'Active'
-              )
             ON CONFLICT (operator_id, machine_id) DO UPDATE
             SET status = 'Active', revoked_at = NULL, revoked_by = NULL;
         """)

@@ -145,15 +145,10 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
                 FROM machines m
                 JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
                 WHERE m.organization_id = %s 
-                  AND (m.is_deleted IS NOT TRUE)
-                  AND NOT EXISTS (
-                      SELECT 1 FROM machine_assign_to_operators mato
-                      JOIN users u ON mato.operator_id = u.id AND (u.is_deleted IS NOT TRUE) AND u.is_active = TRUE
-                      WHERE mato.machine_id = m.id AND mato.status = 'Active'
-                  );
+                  AND (m.is_deleted IS NOT TRUE);
             """, (org_id,))
-            unassigned_leased_machines = cur.fetchall()
-            for lm in unassigned_leased_machines:
+            org_leased_machines = cur.fetchall()
+            for lm in org_leased_machines:
                 mach_id, loc, s_dt, e_dt = lm[0], lm[1], lm[2], lm[3]
                 cur.execute("""
                     INSERT INTO machine_assign_to_operators (
@@ -163,7 +158,14 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
                         %s, %s, %s,
                         %s, %s, %s, %s, %s, 'Active'
                     ) ON CONFLICT (operator_id, machine_id) DO UPDATE
-                    SET status = 'Active', revoked_at = NULL, revoked_by = NULL;
+                    SET status = 'Active',
+                        start_date = EXCLUDED.start_date,
+                        end_date = EXCLUDED.end_date,
+                        location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
+                        revoked_at = NULL,
+                        revoked_by = NULL,
+                        updated_by = EXCLUDED.assigned_by,
+                        updated_at = CURRENT_TIMESTAMP;
                 """, (org_id, d["id"], mach_id, s_dt, e_dt, loc, current_user.get("id"), current_user.get("id")))
 
         if payload.role == "OPERATOR":
@@ -267,4 +269,13 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+        cur.execute("""
+            UPDATE machine_assign_to_operators
+            SET status = 'Revoked',
+                revoked_at = CURRENT_TIMESTAMP,
+                revoked_by = %s
+            WHERE operator_id = %s AND status = 'Active';
+        """, (current_user.get("id"), user_id))
+
         return {"message": "User deleted successfully.", "id": str(row[0]), "email": row[1]}

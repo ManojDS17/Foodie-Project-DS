@@ -12,6 +12,7 @@ import { MetricCard } from '../common/MetricCard';
 import { FleetEnergyChart } from './FleetEnergyChart';
 import { MachineDetailView } from '../machines/MachineDetailView';
 import { useAuth } from '../../context/AuthContext';
+import { useSilentRefresh } from '../../hooks';
 import { dashboardApi, machinesApi } from '../../services/api';
 import type { Machine, DashboardStats } from '../../types';
 
@@ -25,9 +26,9 @@ export const ClientDashboardView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
     try {
-      setIsLoading(true);
+      if (!isSilent) setIsLoading(true);
       const [stats, machineList] = await Promise.all([
         dashboardApi.getStats().catch((err) => {
           console.error('Failed to load client stats:', err);
@@ -51,13 +52,18 @@ export const ClientDashboardView: React.FC = () => {
     } catch (err) {
       console.error('Error fetching client dashboard data:', err);
     } finally {
-      setIsLoading(false);
+      if (!isSilent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
   }, []);
+
+  useSilentRefresh(() => fetchData(true), {
+    intervalMs: 12000,
+    enabled: !selectedMachine,
+  });
 
   const totalMachines = machines.length;
 
@@ -94,11 +100,20 @@ export const ClientDashboardView: React.FC = () => {
       {/* Top Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-[#E3E4E6] pb-4 min-w-0">
         <div className="min-w-0">
-          <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
-            Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Operator')}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
+              Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Operator')}
+            </h1>
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#059669]"></span>
+              </span>
+              <span>Live telemetry</span>
+            </div>
+          </div>
           <p className="text-xs text-[#666666] mt-0.5">
-            {user?.company_name || 'Green Valley Foods Pty Ltd'} · Last updated 30 min ago
+            {user?.company_name || 'Assigned Facility'} · Real-time operational data
           </p>
         </div>
       </div>
