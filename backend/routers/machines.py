@@ -212,23 +212,6 @@ def assign_machine_to_operator(
         if not mach_row[1] or str(mach_row[1]) != op_org_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Machine is not leased to this operator's client organization.")
 
-        cur.execute("""
-            SELECT mato.id, u.first_name, u.last_name, u.email
-            FROM machine_assign_to_operators mato
-            JOIN users u ON mato.operator_id = u.id
-            WHERE mato.machine_id = %s 
-              AND mato.operator_id != %s 
-              AND mato.status = 'Active'
-              AND (u.is_deleted IS NOT TRUE);
-        """, (payload.machine_id, payload.operator_id))
-        existing_assigned = cur.fetchone()
-        if existing_assigned:
-            other_name = f"{existing_assigned[1]} {existing_assigned[2] or ''}".strip()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Machine '{mach_row[2]}' is already assigned to operator {other_name} ({existing_assigned[3]}). Please revoke it first before reassigning."
-            )
-
         if user_role != "OEM_MANAGER":
             user_org_id = str(current_user.get("organization_id") or "")
             if user_org_id != op_org_id:
@@ -632,7 +615,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                         %s, %s, CURRENT_TIMESTAMP
                     ) ON CONFLICT (lease_reference) DO UPDATE
                     SET organization_id = EXCLUDED.organization_id,
-                        location_label = COALESCE(EXCLUDED.location_label, machine_leases.location_label),
+                        location_label = EXCLUDED.location_label,
                         lease_start_date = EXCLUDED.lease_start_date,
                         lease_end_date = EXCLUDED.lease_end_date,
                         lease_status = 'Active',
@@ -660,7 +643,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                         SET status = 'Active',
                             start_date = EXCLUDED.start_date,
                             end_date = EXCLUDED.end_date,
-                            location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
+                            location = EXCLUDED.location,
                             revoked_at = NULL,
                             revoked_by = NULL,
                             updated_by = EXCLUDED.assigned_by,
@@ -674,7 +657,7 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                 model = COALESCE(%s, model),
                 capacity = COALESCE(%s, capacity),
                 hardware_version = COALESCE(%s, hardware_version),
-                location_label = COALESCE(%s, location_label),
+                location_label = CASE WHEN %s IS TRUE THEN %s ELSE location_label END,
                 location_description = COALESCE(%s, location_description),
                 plc_software_version = COALESCE(%s, plc_software_version),
                 energy_meter_model = COALESCE(%s, energy_meter_model),
@@ -694,7 +677,8 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
             model_name,
             capacity,
             payload.hardware_version,
-            payload.location_label.strip() if payload.location_label else None,
+            'location_label' in payload.model_fields_set,
+            payload.location_label.strip() if payload.location_label and payload.location_label.strip() else None,
             payload.location_description.strip() if payload.location_description else None,
             payload.plc_software_version.strip() if payload.plc_software_version else None,
             payload.energy_meter_model.strip() if payload.energy_meter_model else None,

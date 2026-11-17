@@ -31,7 +31,18 @@ export const LoginPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
-  const [view, setView] = useState<AuthView>('SIGN_IN');
+  const [view, setView] = useState<AuthView>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlView = params.get('view');
+    const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
+    const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+
+    if (params.get('token')) return 'SET_NEW_PASSWORD';
+    if (urlView === 'expired' || isSessionExpired) return 'SESSION_EXPIRED';
+    if (urlView === 'signed_out' || isSignedOut) return 'SIGNED_OUT';
+    if (urlView === 'forgot') return 'FORGOT_PASSWORD';
+    return 'SIGN_IN';
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -52,6 +63,7 @@ export const LoginPage: React.FC = () => {
     const token = searchParams.get('token');
     const queryEmail = searchParams.get('email');
     const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
+    const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
     const storedExpiredEmail = sessionStorage.getItem('foodie_expired_email');
 
     const queryPassword = searchParams.get('password') || searchParams.get('p');
@@ -86,12 +98,16 @@ export const LoginPage: React.FC = () => {
         .finally(() => {
           setIsVerifyingToken(false);
         });
-    } else if (urlView === 'signed_out') {
-      setView('SIGNED_OUT');
     } else if (urlView === 'expired' || isSessionExpired) {
       sessionStorage.removeItem('foodie_session_expired');
       sessionStorage.removeItem('foodie_expired_email');
+      sessionStorage.removeItem('foodie_signed_out');
       setView('SESSION_EXPIRED');
+    } else if (urlView === 'signed_out' || isSignedOut) {
+      sessionStorage.removeItem('foodie_signed_out');
+      sessionStorage.removeItem('foodie_session_expired');
+      sessionStorage.removeItem('foodie_expired_email');
+      setView('SIGNED_OUT');
     } else if (urlView === 'forgot') {
       setView('FORGOT_PASSWORD');
     }
@@ -640,6 +656,7 @@ export const LoginPage: React.FC = () => {
               onSignInAgain={() => {
                 setErrorMessage(null);
                 setPassword('');
+                sessionStorage.removeItem('foodie_signed_out');
                 setView('SIGN_IN');
                 navigate('/login', { replace: true });
               }}

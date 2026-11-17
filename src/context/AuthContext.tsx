@@ -7,7 +7,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: (reason?: 'manual' | 'session_expired') => void;
   switchRole: (role: UserRole) => void;
   updateUser: (updatedFields: Partial<User>) => void;
 }
@@ -49,13 +49,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = (reason?: 'manual' | 'session_expired') => {
+    if (reason === 'session_expired' || sessionStorage.getItem('foodie_session_expired') === 'true') {
+      sessionStorage.setItem('foodie_session_expired', 'true');
+      sessionStorage.removeItem('foodie_signed_out');
+    } else {
+      sessionStorage.removeItem('foodie_session_expired');
+      sessionStorage.removeItem('foodie_expired_email');
+      sessionStorage.setItem('foodie_signed_out', 'true');
+    }
     authApi.logout();
     setToken(null);
     setUser(null);
-    if (sessionStorage.getItem('foodie_session_expired') !== 'true') {
-      sessionStorage.setItem('foodie_signed_out', 'true');
-    }
   };
 
   const switchRole = (newRole: UserRole) => {

@@ -14,12 +14,18 @@ import {
   Download,
   Archive,
   RotateCcw,
+  Eye,
 } from 'lucide-react';
 import { MachineDetailView } from '../machines/MachineDetailView';
 import { TerminateLeaseModal } from './TerminateLeaseModal';
 import { AssignOperatorMachineModal } from '../operators/AssignOperatorMachineModal';
+import { UserDetailView } from '../team/UserDetailView';
+import { EditUserView } from '../team/EditUserView';
+import { RemoveUserModal } from '../team/RemoveUserModal';
+import { Toast } from '../common/Toast';
 import { RowActionMenu } from '../common/RowActionMenu';
-import { operatorAssignmentsApi } from '../../services/api';
+import { operatorAssignmentsApi, usersApi } from '../../services/api';
+import { useSilentRefresh } from '../../hooks';
 import type { Organization, Machine, User, OperatorMachineAssignment } from '../../types';
 
 export interface ClientDetailViewProps {
@@ -54,6 +60,58 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   const [managingOperator, setManagingOperator] = useState<User | null>(null);
   const [operatorAssignments, setOperatorAssignments] = useState<OperatorMachineAssignment[]>([]);
 
+  const [localUsers, setLocalUsers] = useState<User[]>(users);
+  const [viewingUser, setViewingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [removingUser, setRemovingUser] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [activeUserMenuId, setActiveUserMenuId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
+
+  const userActionMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLocalUsers(users);
+  }, [users]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userActionMenuRef.current && !userActionMenuRef.current.contains(e.target as Node)) {
+        setActiveUserMenuId(null);
+      }
+    };
+    if (activeUserMenuId) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [activeUserMenuId]);
+
+  const refreshUsers = async () => {
+    try {
+      const allUsers = await usersApi.getAll();
+      setLocalUsers(allUsers);
+    } catch (err) {
+      console.error('Failed to refresh users:', err);
+    }
+  };
+
+  const handleConfirmRemoveUser = async () => {
+    if (!removingUser) return;
+    try {
+      setIsDeletingUser(true);
+      await usersApi.update(removingUser.id, { is_active: false });
+      setToast({ message: 'User marked as inactive.', type: 'success' });
+      setRemovingUser(null);
+      refreshUsers();
+    } catch (err: any) {
+      setToast({ message: err.message || 'Failed to update user status.', type: 'error' });
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
   const fetchAssignments = async () => {
     if (!client?.id) return;
     try {
@@ -66,7 +124,28 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
   useEffect(() => {
     fetchAssignments();
+    refreshUsers();
   }, [client.id]);
+
+  useEffect(() => {
+    if (activeTab === 'USERS') {
+      refreshUsers();
+      fetchAssignments();
+    }
+  }, [activeTab]);
+
+  useSilentRefresh(
+    async () => {
+      await Promise.all([
+        refreshUsers(),
+        fetchAssignments(),
+      ]);
+    },
+    {
+      intervalMs: 8000,
+      enabled: !editingUser && !removingUser && !terminatingMachine && !managingOperator,
+    }
+  );
 
   const handleAssignOperatorMachine = async (data: { operator_id: string; machine_id: string; location?: string }) => {
     await operatorAssignmentsApi.assign(data);
@@ -133,7 +212,13 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   };
 
   const clientMachines = machines.filter((m) => m.organization_id === client.id);
-  const clientUsers = users.filter((u) => u.organization_id === client.id);
+  const clientUsers = localUsers.filter(
+    (u) =>
+      u.organization_id &&
+      client?.id &&
+      String(u.organization_id).trim().toLowerCase() === String(client.id).trim().toLowerCase() &&
+      !u.is_deleted
+  );
 
   const runningMachines = clientMachines.filter(
     (m) =>
@@ -185,6 +270,77 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   };
 
   const clientStatus = client.status || (client.is_active ? 'Active' : 'Inactive');
+
+  if (editingUser) {
+    return (
+      <div className="select-none">
+        <EditUserView
+          user={editingUser}
+          organizationName={client.company_name}
+          backLabel={client.company_name}
+          onBack={() => setEditingUser(null)}
+          onSuccess={(updated) => {
+            setEditingUser(null);
+            if (viewingUser?.id === updated.id) {
+              setViewingUser(updated);
+            }
+            refreshUsers();
+            setToast({ message: 'User updated successfully.', type: 'success' });
+          }}
+          onError={(msg) => setToast({ message: msg, type: 'error' })}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (viewingUser) {
+    const operatorActiveAssignments = operatorAssignments
+      .filter(
+        (a) =>
+          String(a.operator_id || '').trim().toLowerCase() === String(viewingUser.id || '').trim().toLowerCase() &&
+          a.status === 'Active'
+      )
+      .map((a) => a.machine_code || a.serial_number || '')
+      .filter(Boolean);
+
+    return (
+      <div className="select-none">
+        <UserDetailView
+          user={viewingUser}
+          organizationName={client.company_name}
+          backLabel={client.company_name}
+          assignedMachines={operatorActiveAssignments}
+          onBack={() => setViewingUser(null)}
+          onEdit={(u) => setEditingUser(u)}
+          onRemove={(u) => setRemovingUser(u)}
+          onToast={(msg, type) => setToast({ message: msg, type })}
+        />
+        {removingUser && (
+          <RemoveUserModal
+            user={removingUser}
+            isOpen={Boolean(removingUser)}
+            onClose={() => setRemovingUser(null)}
+            onConfirm={handleConfirmRemoveUser}
+            isDeleting={isDeletingUser}
+          />
+        )}
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (viewingMachine) {
     return (
@@ -645,7 +801,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                           </td>
 
                           <td className="py-4 px-6 text-[#111827]">
-                            {m.location_label || m.site_name || 'Site A'}
+                            {m.location_label || m.site_name || '—'}
                           </td>
 
                           <td className="py-4 px-6 text-[#111827]">
@@ -766,13 +922,21 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                   <tbody className="divide-y divide-[#E5E7EB]">
                     {clientUsers.map((u) => {
                       const userAssignments = operatorAssignments.filter(
-                        (a) => a.operator_id === u.id && a.status === 'Active'
+                        (a) =>
+                          String(a.operator_id || '').trim().toLowerCase() === String(u.id || '').trim().toLowerCase() &&
+                          a.status === 'Active'
                       );
 
                       return (
                         <tr key={u.id} className="hover:bg-[#F9FAFB] transition-colors">
                           <td className="py-4 px-6 font-bold text-[#111827]">
-                            {u.first_name} {u.last_name}
+                            <button
+                              type="button"
+                              onClick={() => setViewingUser(u)}
+                              className="hover:underline text-left cursor-pointer font-bold text-[#111827]"
+                            >
+                              {u.first_name} {u.last_name}
+                            </button>
                           </td>
                           <td className="py-4 px-6 text-[#6B7280]">{u.email}</td>
                           <td className="py-4 px-6 text-[#6B7280]">{u.phone_number || '—'}</td>
@@ -818,16 +982,77 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                               </span>
                             )}
                           </td>
-                          <td className="py-4 px-6 text-right">
-                            {u.role === 'OPERATOR' && (
-                              <button
-                                type="button"
-                                onClick={() => setManagingOperator(u)}
-                                className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] text-xs font-semibold text-[#374151] transition-colors cursor-pointer"
+                          <td className="py-4 px-6 text-right relative">
+                            <div className="inline-flex items-center gap-2 text-left justify-end">
+                              {u.role === 'OPERATOR' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setManagingOperator(u)}
+                                  className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] text-xs font-semibold text-[#374151] transition-colors cursor-pointer"
+                                >
+                                  Manage machines
+                                </button>
+                              )}
+
+                              <div
+                                className="relative inline-block text-left"
+                                ref={activeUserMenuId === u.id ? userActionMenuRef : null}
                               >
-                                Manage machines
-                              </button>
-                            )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveUserMenuId((prev) => (prev === u.id ? null : u.id));
+                                  }}
+                                  className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#111827] hover:bg-[#F3F4F6] transition-colors cursor-pointer inline-flex items-center justify-center border border-transparent hover:border-[#E5E7EB]"
+                                  aria-label="User actions"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+
+                                {activeUserMenuId === u.id && (
+                                  <div className="absolute right-0 top-full mt-1 w-44 rounded-xl bg-white border border-[#E5E7EB] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveUserMenuId(null);
+                                        setViewingUser(u);
+                                      }}
+                                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                                      <span>View user</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveUserMenuId(null);
+                                        setEditingUser(u);
+                                      }}
+                                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
+                                      <span>Edit user</span>
+                                    </button>
+
+                                    <div className="my-1 border-t border-[#F3F4F6]" />
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveUserMenuId(null);
+                                        setRemovingUser(u);
+                                      }}
+                                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DC2626] hover:bg-[#FEF2F2] flex items-center gap-2 cursor-pointer transition-colors"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />
+                                      <span>Remove from team</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -860,6 +1085,24 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         onAssign={handleAssignOperatorMachine}
         onRevoke={handleRevokeOperatorMachine}
       />
+
+      {removingUser && (
+        <RemoveUserModal
+          user={removingUser}
+          isOpen={Boolean(removingUser)}
+          onClose={() => setRemovingUser(null)}
+          onConfirm={handleConfirmRemoveUser}
+          isDeleting={isDeletingUser}
+        />
+      )}
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 };

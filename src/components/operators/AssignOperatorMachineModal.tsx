@@ -22,7 +22,6 @@ export const AssignOperatorMachineModal: React.FC<AssignOperatorMachineModalProp
   onAssign,
   onRevoke,
 }) => {
-  const [selectedMachineId, setSelectedMachineId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -32,25 +31,19 @@ export const AssignOperatorMachineModal: React.FC<AssignOperatorMachineModalProp
     (a) => a.operator_id === operator.id && a.status === 'Active'
   );
 
-  const allAssignedMachineIds = new Set(
-    existingAssignments.filter((a) => a.status === 'Active').map((a) => a.machine_id)
-  );
-  const availableToAssign = clientMachines.filter((m) => !allAssignedMachineIds.has(m.id));
+  const activeMachineIds = new Set(activeAssignments.map((a) => a.machine_id));
+  const availableToAssign = clientMachines.filter((m) => !activeMachineIds.has(m.id));
 
-  const handleAssignSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedMachineId) return;
-
+  const handleDirectAssign = async (machineId: string) => {
     setIsSubmitting(true);
     setActionError(null);
     try {
-      const selectedMachine = clientMachines.find((m) => m.id === selectedMachineId);
+      const selectedMachine = clientMachines.find((m) => m.id === machineId);
       await onAssign({
         operator_id: operator.id,
-        machine_id: selectedMachineId,
+        machine_id: machineId,
         location: selectedMachine?.location_label || undefined,
       });
-      setSelectedMachineId('');
     } catch (err: any) {
       setActionError(err?.message || 'Failed to assign machine to operator.');
     } finally {
@@ -146,40 +139,41 @@ export const AssignOperatorMachineModal: React.FC<AssignOperatorMachineModalProp
 
           <div>
             <h4 className="text-xs font-bold text-[#111827] uppercase tracking-wider mb-2.5">
-              Assign Additional Machine
+              Available Machines to Assign ({availableToAssign.length})
             </h4>
             {availableToAssign.length === 0 ? (
               <div className="p-3.5 rounded-xl bg-[#F9FAFB] border border-[#E5E7EB] text-xs text-[#6B7280] flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-[#059669] shrink-0" />
-                <span>All active client machines are currently assigned to operators.</span>
+                <span>All client machines are currently assigned to this operator.</span>
               </div>
             ) : (
-              <form onSubmit={handleAssignSubmit} className="flex flex-col sm:flex-row gap-2">
-                <select
-                  value={selectedMachineId}
-                  onChange={(e) => setSelectedMachineId(e.target.value)}
-                  className="flex-1 px-3 py-2 text-xs rounded-lg border border-[#D1D5DB] bg-white text-[#111827] focus:outline-none focus:border-[#111827]"
-                  disabled={isSubmitting}
-                >
-                  <option value="">Select a client machine...</option>
-                  {availableToAssign.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.serial_number || m.machine_code} ({m.model}{m.location_label ? ` · ${m.location_label}` : ''})
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-2">
+                {availableToAssign.map((m) => (
+                  <div
+                    key={m.id}
+                    className="p-3 rounded-xl border border-dashed border-[#D1D5DB] bg-white flex items-center justify-between gap-3 text-xs hover:border-[#9CA3AF] transition-colors"
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-[#111827] block">
+                        {m.machine_code || m.serial_number}
+                      </span>
+                      <span className="text-[#6B7280] text-[11px] block">
+                        {m.model} {m.location_label ? `· ${m.location_label}` : ''}
+                      </span>
+                    </div>
 
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={!selectedMachineId || isSubmitting}
-                  isLoading={isSubmitting}
-                  leftIcon={<Plus className="w-3.5 h-3.5" />}
-                >
-                  Assign
-                </Button>
-              </form>
+                    <button
+                      type="button"
+                      onClick={() => handleDirectAssign(m.id)}
+                      disabled={isSubmitting}
+                      className="px-3 py-1.5 rounded-lg bg-[#E32032] hover:bg-[#C71828] text-white font-semibold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-white" />
+                      <span>Assign</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

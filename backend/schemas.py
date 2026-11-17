@@ -63,6 +63,7 @@ class UserResponse(BaseModel):
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
+    created_by_name: Optional[str] = None
 
 class LoginResponse(BaseModel):
     token: str
@@ -160,10 +161,21 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    email: Optional[str] = None
     role: Optional[str] = None
     phone_number: Optional[str] = None
     assigned_site_id: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @field_validator('email')
+    @classmethod
+    def check_email_update(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip().lower()
+            if not re.match(EMAIL_REGEX, clean):
+                raise ValueError('Please enter a valid business email address.')
+            return clean
+        return v
 
     @field_validator('first_name', 'last_name')
     @classmethod
@@ -423,6 +435,7 @@ class OrganizationResponse(BaseModel):
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
+    created_by_name: Optional[str] = None
 
 class BulkDeleteRequest(BaseModel):
     ids: List[str]
@@ -658,4 +671,5 @@ class MachineResponse(BaseModel):
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
+    created_by_name: Optional[str] = None
 

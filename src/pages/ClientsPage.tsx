@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { orgsApi, machinesApi, usersApi } from '../services/api';
+import { useSilentRefresh } from '../hooks';
 import { AddClientView } from '../components/clients/AddClientView';
 import { EditClientView } from '../components/clients/EditClientView';
 import { DeleteClientModal } from '../components/clients/DeleteClientModal';
@@ -81,8 +82,8 @@ export const ClientsPage: React.FC = () => {
   const [isAssignMachineOpen, setIsAssignMachineOpen] = useState(false);
 
   // Load live data from PostgreSQL API
-  const fetchData = async () => {
-    setIsLoading(true);
+  const fetchData = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const [orgList, machineList, userList] = await Promise.all([
         orgsApi.getAll().catch(() => []),
@@ -95,13 +96,18 @@ export const ClientsPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load clients data:', err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useSilentRefresh(() => fetchData(true), {
+    intervalMs: 10000,
+    enabled: !isAddClientOpen && !editingClient && !deletingClient && !isAssignMachineOpen,
+  });
 
   useEffect(() => {
     if (!selectedClientIdFromUrl) return;
@@ -595,7 +601,9 @@ export const ClientsPage: React.FC = () => {
             </h1>
             <button
               type="button"
-              onClick={fetchData}
+              onClick={() => {
+                fetchData();
+              }}
               disabled={isLoading}
               title="Refresh clients list from PostgreSQL"
               className="p-1 rounded-lg text-[#888888] hover:text-[#171717] hover:bg-slate-100 transition-colors cursor-pointer"

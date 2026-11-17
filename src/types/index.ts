@@ -18,6 +18,8 @@ export interface MachineModel {
   display_name: string;
   capacity: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
 }
 
 export interface Organization {
@@ -41,6 +43,7 @@ export interface Organization {
   is_deleted?: boolean;
   deleted_at?: string;
   created_by?: string;
+  created_by_name?: string | null;
   updated_by?: string;
   deleted_by?: string;
   created_at: string;
@@ -83,6 +86,8 @@ export interface Site {
   longitude?: number | null;
   timezone: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -97,10 +102,13 @@ export interface User {
   role: UserRole;
   phone_number?: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
   company_name?: string | null;
   client_code?: string | null;
   last_login_at?: string | null;
   created_by?: string;
+  created_by_name?: string | null;
   updated_by?: string;
   deleted_by?: string;
   created_at: string;
@@ -127,6 +135,8 @@ export interface SiteFormData {
   longitude?: string;
   timezone: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
 }
 
 export interface UserFormData {
@@ -175,6 +185,7 @@ export interface Machine {
   is_deleted?: boolean;
   deleted_at?: string;
   created_by?: string;
+  created_by_name?: string | null;
   updated_by?: string;
   deleted_by?: string;
   created_at?: string;

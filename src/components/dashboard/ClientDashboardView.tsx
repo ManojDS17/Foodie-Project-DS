@@ -7,10 +7,12 @@ import {
   Leaf,
   Cpu,
   RefreshCw,
+  Eye,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
 import { FleetEnergyChart } from './FleetEnergyChart';
 import { MachineDetailView } from '../machines/MachineDetailView';
+import { RowActionMenu } from '../common/RowActionMenu';
 import { useAuth } from '../../context/AuthContext';
 import { useSilentRefresh } from '../../hooks';
 import { dashboardApi, machinesApi } from '../../services/api';
@@ -25,6 +27,7 @@ export const ClientDashboardView: React.FC = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
   const fetchData = async (isSilent = false) => {
     try {
@@ -237,14 +240,32 @@ export const ClientDashboardView: React.FC = () => {
                               />
                               <span>{opStatus}</span>
                             </span>
-                            <span className="text-[#9CA3AF] cursor-default select-none font-bold text-sm tracking-widest">
-                              •••
-                            </span>
+                            <RowActionMenu
+                              isOpen={activeMenuId === `mob-${m.id}`}
+                              onToggle={() =>
+                                setActiveMenuId(activeMenuId === `mob-${m.id}` ? null : `mob-${m.id}`)
+                              }
+                              onClose={() => setActiveMenuId(null)}
+                              width="w-40"
+                              buttonAriaLabel={`Actions for ${m.machine_code || m.serial_number}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  setSelectedMachine(m);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <span>View machine</span>
+                              </button>
+                            </RowActionMenu>
                           </div>
                         </div>
 
                         <div className="flex items-center justify-between text-xs text-[#6B7280] pt-0.5">
-                          <span>Location: <strong className="text-[#171717]">{m.location_label || m.site_name || 'Site A'}</strong></span>
+                          <span>Location: <strong className="text-[#171717]">{m.location_label || m.site_name || '—'}</strong></span>
                           <span>Total batches: <strong className="text-[#171717]">{batches}</strong></span>
                         </div>
                       </div>
@@ -292,7 +313,7 @@ export const ClientDashboardView: React.FC = () => {
                               {batches}
                             </td>
                             <td className="py-2.5 px-3 text-[#171717]">
-                              {m.location_label || m.site_name || 'Site A'}
+                              {m.location_label || m.site_name || '—'}
                             </td>
                             <td className="py-2.5 px-3">
                               <span
@@ -316,8 +337,30 @@ export const ClientDashboardView: React.FC = () => {
                                 <span>{opStatus}</span>
                               </span>
                             </td>
-                            <td className="py-2.5 px-3 text-center text-[#9CA3AF] cursor-default select-none font-bold text-sm tracking-widest">
-                              •••
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="flex items-center justify-center">
+                                <RowActionMenu
+                                  isOpen={activeMenuId === m.id}
+                                  onToggle={() =>
+                                    setActiveMenuId(activeMenuId === m.id ? null : m.id)
+                                  }
+                                  onClose={() => setActiveMenuId(null)}
+                                  width="w-40"
+                                  buttonAriaLabel={`Actions for ${m.machine_code || m.serial_number}`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveMenuId(null);
+                                      setSelectedMachine(m);
+                                    }}
+                                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                                    <span>View machine</span>
+                                  </button>
+                                </RowActionMenu>
+                              </div>
                             </td>
                           </tr>
                         );

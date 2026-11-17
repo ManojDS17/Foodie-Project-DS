@@ -21,20 +21,30 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
     with get_db_cursor() as cur:
         if user_role == "OEM_MANAGER":
             cur.execute("""
-                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by
-                FROM users
-                WHERE is_deleted IS NOT TRUE
-                ORDER BY first_name ASC;
+                SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
+                       u.is_active, u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by, u.deleted_by,
+                       o.company_name, o.client_code,
+                       TRIM(CONCAT(cb.first_name, ' ', COALESCE(cb.last_name, ''))) as created_by_name
+                FROM users u
+                LEFT JOIN organizations o ON u.organization_id = o.id
+                LEFT JOIN users cb ON u.created_by = cb.id
+                WHERE u.is_deleted IS NOT TRUE
+                ORDER BY u.first_name ASC;
             """)
         else:
             user_org_id = current_user.get("organization_id")
             if not user_org_id:
                 return []
             cur.execute("""
-                SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by
-                FROM users
-                WHERE is_deleted IS NOT TRUE AND organization_id = %s
-                ORDER BY first_name ASC;
+                SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
+                       u.is_active, u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by, u.deleted_by,
+                       o.company_name, o.client_code,
+                       TRIM(CONCAT(cb.first_name, ' ', COALESCE(cb.last_name, ''))) as created_by_name
+                FROM users u
+                LEFT JOIN organizations o ON u.organization_id = o.id
+                LEFT JOIN users cb ON u.created_by = cb.id
+                WHERE u.is_deleted IS NOT TRUE AND u.organization_id = %s
+                ORDER BY u.first_name ASC;
             """, (user_org_id,))
 
         rows = cur.fetchall()
@@ -45,8 +55,115 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
             d["id"] = str(d["id"])
             if d.get("organization_id"):
                 d["organization_id"] = str(d["organization_id"])
+            if d.get("created_by"):
+                d["created_by"] = str(d["created_by"])
+            if d.get("updated_by"):
+                d["updated_by"] = str(d["updated_by"])
+            if d.get("deleted_by"):
+                d["deleted_by"] = str(d["deleted_by"])
+            if not d.get("created_by_name"):
+                d["created_by_name"] = None
             results.append(UserResponse(**d))
         return results
+
+@router.get("/{user_id}", response_model=UserResponse)
+def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    with get_db_cursor() as cur:
+        cur.execute("""
+            SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
+                   u.is_active, u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by, u.deleted_by,
+                   o.company_name, o.client_code,
+                   TRIM(CONCAT(cb.first_name, ' ', COALESCE(cb.last_name, ''))) as created_by_name
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            LEFT JOIN users cb ON u.created_by = cb.id
+            WHERE u.id = %s AND (u.is_deleted IS NOT TRUE);
+        """, (user_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+        cols = [desc[0] for desc in cur.description]
+        d = dict(zip(cols, row))
+        d["id"] = str(d["id"])
+        if d.get("organization_id"):
+            d["organization_id"] = str(d["organization_id"])
+        if d.get("created_by"):
+            d["created_by"] = str(d["created_by"])
+        if d.get("updated_by"):
+            d["updated_by"] = str(d["updated_by"])
+        if d.get("deleted_by"):
+            d["deleted_by"] = str(d["deleted_by"])
+        if not d.get("created_by_name"):
+            d["created_by_name"] = None
+
+        if user_role != "OEM_MANAGER":
+            user_org_id = str(current_user.get("organization_id") or "")
+            target_org_id = str(d.get("organization_id") or "")
+            if not user_org_id or target_org_id != user_org_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+        return UserResponse(**d)
+
+@router.post("/{user_id}/resend-invite")
+def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role not in ("OEM_MANAGER", "SITE_ADMIN"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT id, organization_id, email, first_name, last_name, role FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        u = cur.fetchone()
+        if not u:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+        if user_role == "SITE_ADMIN":
+            if str(current_user.get("organization_id")) != str(u[1]):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+        welcome_token = secrets.token_urlsafe(32)
+        welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
+
+        cur.execute("""
+            UPDATE users
+            SET reset_token = %s,
+                reset_token_expires_at = %s,
+                updated_at = CURRENT_TIMESTAMP,
+                updated_by = %s
+            WHERE id = %s;
+        """, (welcome_token, welcome_token_expires, current_user.get("id"), user_id))
+
+        return {"message": f"Invitation link successfully resent to {u[2]}."}
+
+@router.post("/{user_id}/reset-password")
+def trigger_password_reset(user_id: str, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role not in ("OEM_MANAGER", "SITE_ADMIN"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT id, organization_id, email, first_name, last_name FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        u = cur.fetchone()
+        if not u:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+        if user_role == "SITE_ADMIN":
+            if str(current_user.get("organization_id")) != str(u[1]):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+        reset_token = secrets.token_urlsafe(32)
+        reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+
+        cur.execute("""
+            UPDATE users
+            SET reset_token = %s,
+                reset_token_expires_at = %s,
+                updated_at = CURRENT_TIMESTAMP,
+                updated_by = %s
+            WHERE id = %s;
+        """, (reset_token, reset_token_expires, current_user.get("id"), user_id))
+
+        return {"message": f"Password reset instructions generated for {u[2]}."}
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, current_user: dict = Depends(get_current_user)):
@@ -205,10 +322,25 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Access denied: Cannot modify users of another organization."
                 )
+
+        clean_email = None
+        if payload.email:
+            clean_email = payload.email.strip().lower()
+            cur.execute("""
+                SELECT id FROM users
+                WHERE LOWER(email) = %s AND id != %s AND (is_deleted IS NOT TRUE);
+            """, (clean_email, user_id))
+            if cur.fetchone():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f'An account with email "{clean_email}" is already registered. Email must be unique.'
+                )
+
         cur.execute("""
             UPDATE users
             SET first_name = COALESCE(%s, first_name),
                 last_name = COALESCE(%s, last_name),
+                email = COALESCE(%s, email),
                 role = COALESCE(%s, role),
                 phone_number = %s,
                 is_active = COALESCE(%s, is_active),
@@ -219,6 +351,7 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
         """, (
             payload.first_name.strip() if payload.first_name else None,
             payload.last_name.strip() if payload.last_name else None,
+            clean_email,
             payload.role,
             payload.phone_number.strip() if payload.phone_number else None,
             payload.is_active,
@@ -244,19 +377,33 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
 
 @router.delete("/{user_id}")
 def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") != "OEM_MANAGER":
+    user_role = current_user.get("role")
+    if user_role not in ["OEM_MANAGER", "SITE_ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: Only OEM Managers can delete user accounts."
+            detail="Access denied: Only OEM Managers and Site Admins can remove team members."
         )
 
     if str(current_user.get("id")) == str(user_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Operation rejected: You cannot delete your currently active account."
+            detail="Operation rejected: You cannot remove your currently active account."
         )
 
     with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT id, organization_id, role, first_name, last_name, email FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        target_user = cur.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+        if user_role == "SITE_ADMIN":
+            site_admin_org = str(current_user.get("organization_id") or "")
+            target_org = str(target_user[1] or "")
+            if not site_admin_org or site_admin_org != target_org:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot remove team members outside your organization.")
+            if target_user[2] == "OEM_MANAGER":
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot remove OEM Managers.")
+
         cur.execute("""
             UPDATE users
             SET is_deleted = TRUE,
@@ -267,15 +414,5 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
             RETURNING id, email, first_name, last_name;
         """, (current_user.get("id"), user_id))
         row = cur.fetchone()
-        if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
-        cur.execute("""
-            UPDATE machine_assign_to_operators
-            SET status = 'Revoked',
-                revoked_at = CURRENT_TIMESTAMP,
-                revoked_by = %s
-            WHERE operator_id = %s AND status = 'Active';
-        """, (current_user.get("id"), user_id))
-
-        return {"message": "User deleted successfully.", "id": str(row[0]), "email": row[1]}
+        return {"message": "User removed successfully.", "id": str(row[0]), "email": row[1]}

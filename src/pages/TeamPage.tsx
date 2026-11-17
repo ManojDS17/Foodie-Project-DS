@@ -1,14 +1,20 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Search,
   Plus,
   MoreHorizontal,
   Users,
+  Eye,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usersApi, orgsApi } from '../services/api';
 import { useSilentRefresh } from '../hooks';
 import { AddOperatorView } from '../components/operators/AddOperatorView';
+import { UserDetailView } from '../components/team/UserDetailView';
+import { EditUserView } from '../components/team/EditUserView';
+import { RemoveUserModal } from '../components/team/RemoveUserModal';
 import { Toast } from '../components/common/Toast';
 import type { User, Organization } from '../types';
 
@@ -19,6 +25,28 @@ export const TeamPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOperatorOpen, setIsAddOperatorOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
+
+  const [viewingUser, setViewingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [removingUser, setRemovingUser] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
+
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setOpenMenuUserId(null);
+      }
+    };
+    if (openMenuUserId) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openMenuUserId]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,6 +62,10 @@ export const TeamPage: React.FC = () => {
       ]);
       setUsers(userList);
       setOrganizations(orgList);
+      if (viewingUser) {
+        const refreshed = userList.find((u) => u.id === viewingUser.id);
+        if (refreshed) setViewingUser(refreshed);
+      }
     } catch (err) {
       console.error('Failed to load team members:', err);
     } finally {
@@ -47,7 +79,7 @@ export const TeamPage: React.FC = () => {
 
   useSilentRefresh(() => fetchUsers(true), {
     intervalMs: 12000,
-    enabled: !isAddOperatorOpen,
+    enabled: !isAddOperatorOpen && !editingUser && !removingUser,
   });
 
   const getInitials = (firstName?: string, lastName?: string, email?: string): string => {
@@ -88,9 +120,29 @@ export const TeamPage: React.FC = () => {
     );
   };
 
+  const handleConfirmRemove = async () => {
+    if (!removingUser) return;
+    try {
+      setIsDeletingUser(true);
+      await usersApi.update(removingUser.id, { is_active: false });
+      setToast({ message: 'User marked as inactive.', type: 'success' });
+      setRemovingUser(null);
+      fetchUsers(true);
+    } catch (err: any) {
+      setToast({ message: err.message || 'Failed to remove user.', type: 'error' });
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
   // Filter pipeline
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
+      // Exclude logged-in Site Admin from team list
+      if (user?.id && u.id === user.id) {
+        return false;
+      }
+
       // 1. Search Query
       const q = searchQuery.toLowerCase().trim();
       if (q) {
@@ -151,7 +203,71 @@ export const TeamPage: React.FC = () => {
     );
   }
 
-  const clientName = user?.company_name || 'Green Valley Foods Pty Ltd';
+  const clientName =
+    user?.company_name ||
+    organizations.find((o) => o.id === user?.organization_id)?.company_name ||
+    'Green Valley Foods Pty Ltd';
+
+  if (editingUser) {
+    return (
+      <div className="select-none">
+        <EditUserView
+          user={editingUser}
+          organizationName={clientName}
+          onBack={() => setEditingUser(null)}
+          onSuccess={(updated) => {
+            setEditingUser(null);
+            if (viewingUser?.id === updated.id) {
+              setViewingUser(updated);
+            }
+            fetchUsers(true);
+            setToast({ message: 'User updated successfully.', type: 'success' });
+          }}
+          onError={(msg) => setToast({ message: msg, type: 'error' })}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (viewingUser) {
+    return (
+      <div className="select-none">
+        <UserDetailView
+          user={viewingUser}
+          organizationName={clientName}
+          onBack={() => setViewingUser(null)}
+          onEdit={(u) => setEditingUser(u)}
+          onRemove={(u) => setRemovingUser(u)}
+          onToast={(msg, type) => setToast({ message: msg, type })}
+        />
+
+        {removingUser && (
+          <RemoveUserModal
+            user={removingUser}
+            isOpen={Boolean(removingUser)}
+            onClose={() => setRemovingUser(null)}
+            onConfirm={handleConfirmRemove}
+            isDeleting={isDeletingUser}
+          />
+        )}
+
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 max-w-[1400px] w-full min-w-0 mx-auto pb-12 select-none">
@@ -277,14 +393,18 @@ export const TeamPage: React.FC = () => {
                     >
                       {/* Name with initials avatar */}
                       <td className="py-3.5 px-4 sm:px-6">
-                        <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setViewingUser(u)}
+                          className="flex items-center gap-3 text-left hover:underline cursor-pointer"
+                        >
                           <div className="w-8 h-8 rounded-full bg-[#F3F4F6] text-[#374151] font-semibold text-xs flex items-center justify-center shrink-0 border border-[#E5E7EB]">
                             {initials}
                           </div>
                           <span className="font-semibold text-[#111827]">
                             {fullName}
                           </span>
-                        </div>
+                        </button>
                       </td>
 
                       {/* Email */}
@@ -316,14 +436,65 @@ export const TeamPage: React.FC = () => {
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 sm:px-6 text-right">
-                        <button
-                          type="button"
-                          className="p-1 rounded-md text-[#9CA3AF] hover:text-[#111827] hover:bg-[#F3F4F6] transition-colors cursor-pointer inline-flex items-center justify-center"
-                          aria-label="Actions"
+                      <td className="py-3.5 px-4 sm:px-6 text-right relative">
+                        <div
+                          className="inline-block text-left"
+                          ref={openMenuUserId === u.id ? actionMenuRef : null}
                         >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuUserId((prev) => (prev === u.id ? null : u.id));
+                            }}
+                            className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#111827] hover:bg-[#F3F4F6] transition-colors cursor-pointer inline-flex items-center justify-center"
+                            aria-label="Actions"
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+
+                          {openMenuUserId === u.id && (
+                            <div className="absolute right-4 top-10 w-44 rounded-xl bg-white border border-[#E5E7EB] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuUserId(null);
+                                  setViewingUser(u);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <span>View user</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuUserId(null);
+                                  setEditingUser(u);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <span>Edit user</span>
+                              </button>
+
+                              <div className="my-1 border-t border-[#F3F4F6]" />
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuUserId(null);
+                                  setRemovingUser(u);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DC2626] hover:bg-[#FEF2F2] flex items-center gap-2 cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />
+                                <span>Remove from team</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -333,6 +504,16 @@ export const TeamPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {removingUser && (
+        <RemoveUserModal
+          user={removingUser}
+          isOpen={Boolean(removingUser)}
+          onClose={() => setRemovingUser(null)}
+          onConfirm={handleConfirmRemove}
+          isDeleting={isDeletingUser}
+        />
+      )}
 
       {toast && (
         <Toast

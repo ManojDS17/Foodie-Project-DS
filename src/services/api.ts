@@ -85,7 +85,17 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         localStorage.removeItem('foodie_auth_user');
       } catch {}
       if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
+        const isExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
+        const expiredEmail = sessionStorage.getItem('foodie_expired_email');
+        const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+
+        if (isExpired) {
+          window.location.href = `/login?view=expired${expiredEmail ? `&email=${encodeURIComponent(expiredEmail)}` : ''}`;
+        } else if (isSignedOut) {
+          window.location.href = '/login?view=signed_out';
+        } else {
+          window.location.href = '/login';
+        }
       }
     }
     const errorMsg =
@@ -174,6 +184,10 @@ export const usersApi = {
     return await request<User[]>('/users');
   },
 
+  getById: async (id: string): Promise<User> => {
+    return await request<User>(`/users/${id}`);
+  },
+
   create: async (userData: UserCreateData): Promise<User> => {
     return await request<User>('/users', {
       method: 'POST',
@@ -190,6 +204,18 @@ export const usersApi = {
 
   delete: async (id: string): Promise<void> => {
     await request(`/users/${id}`, { method: 'DELETE' });
+  },
+
+  resendInvite: async (id: string): Promise<{ message: string }> => {
+    return await request<{ message: string }>(`/users/${id}/resend-invite`, {
+      method: 'POST',
+    });
+  },
+
+  resetPassword: async (id: string): Promise<{ message: string }> => {
+    return await request<{ message: string }>(`/users/${id}/reset-password`, {
+      method: 'POST',
+    });
   },
 };
 

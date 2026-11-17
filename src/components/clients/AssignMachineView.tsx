@@ -164,7 +164,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
         selectedRows.map((row) =>
           machinesApi.update(row.machine_id, {
             organization_id: client.id,
-            location_label: row.location.trim() || undefined,
+            location_label: row.location.trim() ? row.location.trim() : null,
             lease_start_date: row.lease_start_date || undefined,
             lease_end_date: row.lease_end_date || undefined,
             lease_status: 'Active',

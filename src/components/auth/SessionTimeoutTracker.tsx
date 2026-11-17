@@ -35,11 +35,12 @@ export const SessionTimeoutTracker: React.FC = () => {
         sessionStorage.setItem('foodie_redirect_after_login', location.pathname + location.search);
       }
       sessionStorage.setItem('foodie_session_expired', 'true');
+      sessionStorage.removeItem('foodie_signed_out');
       if (userEmail) {
         sessionStorage.setItem('foodie_expired_email', userEmail);
       }
       localStorage.removeItem(LAST_ACTIVE_KEY);
-      logout();
+      logout('session_expired');
       navigate(`/login?view=expired${userEmail ? `&email=${encodeURIComponent(userEmail)}` : ''}`, {
         replace: true,
       });

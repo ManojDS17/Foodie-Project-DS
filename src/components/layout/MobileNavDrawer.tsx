@@ -198,7 +198,7 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
             type="button"
             onClick={() => {
               onClose();
-              logout();
+              logout('manual');
               navigate('/login?view=signed_out', { replace: true });
             }}
             className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-[#DC2626] hover:bg-red-50 transition-colors w-full cursor-pointer"

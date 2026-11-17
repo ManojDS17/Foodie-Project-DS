@@ -31,7 +31,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
     }
     const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
     if (isSignedOut) {
-      sessionStorage.removeItem('foodie_signed_out');
       return <Navigate to="/login?view=signed_out" replace />;
     }
     return <Navigate to="/login" replace />;
