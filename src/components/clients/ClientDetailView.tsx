@@ -12,9 +12,10 @@ import {
   Plus,
   Trash2,
   Download,
-  ShieldCheck,
+  Archive,
+  RotateCcw,
 } from 'lucide-react';
-import { MachineDetailDrawer } from '../machines/MachineDetailDrawer';
+import { MachineDetailView } from '../machines/MachineDetailView';
 import type { Organization, Machine, User } from '../../types';
 
 export interface ClientDetailViewProps {
@@ -158,6 +159,21 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
   const clientStatus = client.status || (client.is_active ? 'Active' : 'Inactive');
 
+  if (viewingMachine) {
+    return (
+      <div className="select-none">
+        <MachineDetailView
+          machine={viewingMachine}
+          onBack={() => setViewingMachine(null)}
+          onEdit={(m) => {
+            navigate(`/machines?search=${encodeURIComponent(m.serial_number || m.machine_code)}`);
+          }}
+          onDelete={() => {}}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] mx-auto select-none">
       {/* 1. Breadcrumbs */}
@@ -264,8 +280,17 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                     }}
                     className="w-full px-3.5 py-2 text-left text-xs text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer"
                   >
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#6B7280]" />
-                    <span>{client.is_active ? 'Deactivate account' : 'Activate account'}</span>
+                    {!client.is_active || client.status === 'Inactive' || client.status === 'Archived' ? (
+                      <>
+                        <RotateCcw className="w-3.5 h-3.5 text-[#00C951]" />
+                        <span>Active</span>
+                      </>
+                    ) : (
+                      <>
+                        <Archive className="w-3.5 h-3.5 text-[#6B7280]" />
+                        <span>Inactive</span>
+                      </>
+                    )}
                   </button>
                 </div>
                 <div className="py-1">
@@ -288,68 +313,68 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
       </div>
 
       {/* 3. 4 Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Machines Metric */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Machines</span>
-            <div className="w-8 h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#4B5563]">
-              <LayoutGrid className="w-4 h-4" />
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#4B5563]">
+              <LayoutGrid className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-[#111827] mt-2">
+          <div className="text-2xl sm:text-3xl font-bold text-[#111827] mt-2">
             {clientMachines.length}
           </div>
-          <div className="text-xs text-[#6B7280] mt-1">
+          <div className="text-[11px] sm:text-xs text-[#6B7280] mt-1 truncate">
             {runningCount} running · {idleCount} idle
           </div>
         </div>
 
         {/* Users Metric */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Users</span>
-            <div className="w-8 h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#4B5563]">
-              <Users className="w-4 h-4" />
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#4B5563]">
+              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-[#111827] mt-2">
+          <div className="text-2xl sm:text-3xl font-bold text-[#111827] mt-2">
             {clientUsers.length}
           </div>
-          <div className="text-xs text-[#6B7280] mt-1">
+          <div className="text-[11px] sm:text-xs text-[#6B7280] mt-1 truncate">
             {adminCount} Site Admin · {operatorCount} Operators
           </div>
         </div>
 
         {/* Open Alerts Metric */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Open alerts</span>
-            <div className="w-8 h-8 rounded-lg bg-[#FEE2E2] flex items-center justify-center text-[#E32032]">
-              <Bell className="w-4 h-4 text-[#E32032]" />
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#FEE2E2] flex items-center justify-center text-[#E32032]">
+              <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#E32032]" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-[#E32032] mt-2">
+          <div className="text-2xl sm:text-3xl font-bold text-[#E32032] mt-2">
             {openAlertsCount}
           </div>
-          <div className="text-xs text-[#6B7280] mt-1">
+          <div className="text-[11px] sm:text-xs text-[#6B7280] mt-1 truncate">
             {openAlertsCount > 0 ? 'Action required on offline unit' : 'No active alerts'}
           </div>
         </div>
 
         {/* Energy Consumed Metric */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3.5 sm:p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#6B7280]">Energy consumed</span>
-            <div className="w-8 h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#4B5563]">
-              <Zap className="w-4 h-4" />
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#4B5563]">
+              <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
           <div className="flex items-baseline mt-2">
-            <span className="text-3xl font-bold text-[#111827]">{totalEnergyKwh}</span>
-            <span className="text-sm font-semibold text-[#111827] ml-1.5">kWh</span>
+            <span className="text-2xl sm:text-3xl font-bold text-[#111827]">{totalEnergyKwh}</span>
+            <span className="text-xs sm:text-sm font-semibold text-[#111827] ml-1.5">kWh</span>
           </div>
-          <div className="text-xs text-[#6B7280] mt-1">
+          <div className="text-[11px] sm:text-xs text-[#6B7280] mt-1 truncate">
             {clientMachines.length === 2 ? 'Today, both machines' : 'Today, across assigned fleet'}
           </div>
         </div>
@@ -474,7 +499,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
             <div>
               <span className="block text-xs text-[#6B7280]">Shipping address</span>
               <span className="block text-xs sm:text-sm font-semibold text-[#111827] mt-1">
-                {client.shipping_address || 'Same as billing'}
+                {client.shipping_address || '—'}
               </span>
             </div>
           </div>
@@ -543,8 +568,11 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
               <button
                 type="button"
-                onClick={onAssignMachine}
-                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#E32032] hover:bg-[#C1121F] text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs self-start sm:self-auto"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (false && onAssignMachine) onAssignMachine();
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#E32032] text-white flex items-center gap-1.5 shadow-2xs self-start sm:self-auto cursor-default select-none"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Assign machine</span>
@@ -563,7 +591,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
+                <table className="w-full text-xs text-left min-w-[700px]">
                   <thead>
                     <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[#6B7280] font-semibold">
                       <th className="py-3 px-6">Serial Number</th>
@@ -587,7 +615,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                           <td className="py-4 px-6 font-bold text-[#E32032]">
                             <button
                               type="button"
-                              onClick={() => navigate(`/machines?search=${m.serial_number}`)}
+                              onClick={() => navigate(`/machines?select=${m.id}`)}
                               className="underline hover:text-[#C1121F] cursor-pointer"
                             >
                               {m.serial_number || m.machine_code}
@@ -721,7 +749,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
+                <table className="w-full text-xs text-left min-w-[700px]">
                   <thead>
                     <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[#6B7280] font-semibold">
                       <th className="py-3 px-6">Name</th>
@@ -763,18 +791,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           </div>
         )}
       </div>
-
-      {/* Machine Detail Drawer for viewing assigned machine */}
-      <MachineDetailDrawer
-        isOpen={Boolean(viewingMachine)}
-        machine={viewingMachine}
-        onClose={() => setViewingMachine(null)}
-        onEdit={(m) => {
-          setViewingMachine(null);
-          navigate(`/machines?serial=${encodeURIComponent(m.serial_number || m.machine_code)}`);
-        }}
-        onDelete={() => {}}
-      />
     </div>
   );
 };

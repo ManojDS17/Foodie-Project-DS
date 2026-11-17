@@ -11,38 +11,75 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  end?: boolean;
+  badge?: string;
+  disabled?: boolean;
+}
+
 export const Sidebar: React.FC = () => {
   const { user } = useAuth();
   const userRole = user?.role || 'OPERATOR';
 
-  // Navigation Items: Clients view gets Home, Machines, Sustainability, Reports, Alerts, Settings
-  // OEM Manager also gets Clients view to manage fleet clients
-  const navItems = [
+  // Navigation Items per role:
+  // - OEM_MANAGER: Home, Clients, Machines, Sustainability (P2), Reports, Alerts, Settings
+  // - SITE_ADMIN: Home, Machines, Team (Disabled for now), Sustainability (P2), Reports, Alerts, Settings
+  // - OPERATOR: Home, Machines, Reports, Alerts, Settings
+  const navItems: NavItem[] = [
     { to: '/', label: 'Home', icon: Home, end: true },
     ...(userRole === 'OEM_MANAGER' ? [{ to: '/clients', label: 'Clients', icon: Users }] : []),
     { to: '/machines', label: 'Machines', icon: LayoutGrid },
-    { to: '/sustainability', label: 'Sustainability', icon: Leaf, badge: 'P2' },
+    ...(userRole === 'SITE_ADMIN' ? [{ to: '#', label: 'Team', icon: Users, disabled: true }] : []),
+    ...(userRole !== 'OPERATOR' ? [{ to: '/sustainability', label: 'Sustainability', icon: Leaf, badge: 'P2' }] : []),
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/alerts', label: 'Alerts', icon: Bell },
     { to: '/settings', label: 'Settings', icon: Settings },
   ];
 
   return (
-    <aside className="w-[70px] sm:w-[84px] bg-white border-r border-[#E3E4E6] flex flex-col items-center justify-between py-3 sm:py-4 h-screen sticky top-0 flex-shrink-0 z-40 select-none">
+    <aside className="w-[70px] sm:w-[84px] bg-white border-r border-[#E3E4E6] flex flex-col items-center justify-between py-3 sm:py-4 h-screen sticky top-0 flex-shrink-0 z-[60] select-none">
       {/* Navigation Items (Stacked vertically with icons above labels) */}
       <nav className="flex flex-col items-center gap-3 w-full px-2 overflow-y-auto pt-1">
         {navItems.map((item) => {
           const Icon = item.icon;
+
+          if (item.disabled) {
+            return (
+              <div
+                key={item.label}
+                title="Team management (Disabled)"
+                className="w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-not-allowed border border-transparent text-[#9CA3AF] opacity-50 select-none hover:bg-transparent"
+              >
+                <div className="relative">
+                  <Icon className="w-5 h-5 text-[#9CA3AF]" />
+                </div>
+                <span className="text-[10px] font-semibold mt-1 tracking-tight text-center leading-tight">
+                  {item.label}
+                </span>
+              </div>
+            );
+          }
+
           return (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === '/'}
+              onClick={() => {
+                if (item.to === '/clients') {
+                  window.dispatchEvent(new CustomEvent('foodie:reset-clients-view'));
+                }
+                if (item.to === '/machines') {
+                  window.dispatchEvent(new CustomEvent('foodie:reset-machines-view'));
+                }
+              }}
               className={({ isActive }) =>
-                `w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-pointer border ${
-                  isActive
-                    ? 'bg-red-50 text-[#E32032] border-red-200 shadow-2xs'
-                    : 'border-transparent text-[#666666] hover:text-[#171717] hover:bg-[#F8F9FA]'
+                `w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-pointer border ${isActive
+                  ? 'bg-red-50 text-[#E32032] border-red-200 shadow-2xs'
+                  : 'border-transparent text-[#666666] hover:text-[#171717] hover:bg-[#F8F9FA]'
                 }`
               }
             >

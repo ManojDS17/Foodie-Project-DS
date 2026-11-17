@@ -8,7 +8,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  MoreHorizontal,
   Eye,
   Edit2,
   Trash2,
@@ -18,17 +17,19 @@ import {
 } from 'lucide-react';
 import { machinesApi, orgsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { AddMachineDrawer } from '../components/machines/AddMachineDrawer';
-import { MachineDetailDrawer } from '../components/machines/MachineDetailDrawer';
-import { EditMachineDrawer } from '../components/machines/EditMachineDrawer';
+import { AddMachineView } from '../components/machines/AddMachineView';
+import { MachineDetailView } from '../components/machines/MachineDetailView';
+import { EditMachineView } from '../components/machines/EditMachineView';
 import { DeleteMachineModal } from '../components/machines/DeleteMachineModal';
+import { RowActionMenu } from '../components/common/RowActionMenu';
+import { Button } from '../components/common/ui';
 import { Toast } from '../components/common/Toast';
 import type { Machine, Organization } from '../types';
 
 export const MachinesPage: React.FC = () => {
   const { user } = useAuth();
   const isOem = user?.role === 'OEM_MANAGER';
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Live PostgreSQL Data States
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -41,12 +42,21 @@ export const MachinesPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [clientFilter, setClientFilter] = useState<string>('All clients');
   const [locationFilter, setLocationFilter] = useState<string>('All locations');
-  const [showMoreFilters, setShowMoreFilters] = useState<boolean>(false);
+  const [showMoreFilters] = useState<boolean>(false);
   const [modelFilter, setModelFilter] = useState<string>('All');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('foodie_rows_per_page');
+      if (saved) {
+        const parsed = Number(saved);
+        if ([5, 10, 20, 25, 50, 100].includes(parsed)) return parsed;
+      }
+    } catch {}
+    return 10;
+  });
 
   // Row Actions Dropdown Menu State
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -80,26 +90,94 @@ export const MachinesPage: React.FC = () => {
     fetchData();
   }, []);
 
+  // Reset drawer views to show the machines list when clicking Machines in left menu
   useEffect(() => {
-    const q = searchParams.get('search') || searchParams.get('serial') || searchParams.get('q');
+    const handleResetView = () => {
+      setSelectedMachine(null);
+      setEditingMachine(null);
+      setIsAddMachineOpen(false);
+      setDeletingMachine(null);
+      setSearchParams({});
+    };
+
+    window.addEventListener('foodie:reset-machines-view', handleResetView);
+    return () => window.removeEventListener('foodie:reset-machines-view', handleResetView);
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    const q = searchParams.get('search') || searchParams.get('q');
     if (q) {
       setSearchQuery(q);
     }
   }, [searchParams]);
 
+  const targetMachineParam = searchParams.get('select') || searchParams.get('serial');
+
   useEffect(() => {
-    const targetSerial = searchParams.get('serial') || searchParams.get('search');
-    if (targetSerial && machines.length > 0) {
-      const found = machines.find(
+    if (!targetMachineParam) return;
+
+    if (machines.length > 0) {
+      const cached = machines.find(
         (m) =>
-          (m.serial_number && m.serial_number.toLowerCase() === targetSerial.toLowerCase()) ||
-          (m.machine_code && m.machine_code.toLowerCase() === targetSerial.toLowerCase())
+          m.id === targetMachineParam ||
+          (m.serial_number && m.serial_number.toLowerCase() === targetMachineParam.toLowerCase()) ||
+          (m.machine_code && m.machine_code.toLowerCase() === targetMachineParam.toLowerCase())
       );
-      if (found) {
-        setSelectedMachine(found);
+      if (cached) {
+        setSelectedMachine(cached);
       }
     }
-  }, [searchParams, machines]);
+
+    machinesApi
+      .getById(targetMachineParam)
+      .then((verified) => {
+        setSelectedMachine(verified);
+        setMachines((prev) =>
+          prev.map((m) => (m.id === verified.id ? verified : m))
+        );
+      })
+      .catch((err: any) => {
+        setSelectedMachine(null);
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('select');
+          next.delete('serial');
+          return next;
+        });
+        setToast({
+          message: err?.message || 'Access denied: Machine not found or unauthorized.',
+          type: 'error',
+        });
+      });
+  }, [targetMachineParam]);
+
+  const handleSelectMachine = async (machine: Machine) => {
+    setSelectedMachine(machine);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('select', machine.id);
+      return next;
+    });
+    try {
+      const verified = await machinesApi.getById(machine.id);
+      setSelectedMachine(verified);
+      setMachines((prev) =>
+        prev.map((m) => (m.id === verified.id ? verified : m))
+      );
+    } catch (err: any) {
+      setSelectedMachine(null);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('select');
+        next.delete('serial');
+        return next;
+      });
+      setToast({
+        message: err?.message || 'Access denied or machine not found.',
+        type: 'error',
+      });
+    }
+  };
 
   // Click outside listener for the row action menu
   useEffect(() => {
@@ -252,6 +330,105 @@ export const MachinesPage: React.FC = () => {
     }
   };
 
+  if (isAddMachineOpen) {
+    return (
+      <div className="select-none">
+        <AddMachineView
+          onBack={() => setIsAddMachineOpen(false)}
+          onSuccess={(newMachine) => {
+            setMachines((prev) => [newMachine, ...prev]);
+            setIsAddMachineOpen(false);
+            setToast({
+              message: `Machine ${newMachine.serial_number || newMachine.machine_code} added successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (editingMachine) {
+    return (
+      <div className="select-none">
+        <EditMachineView
+          machine={editingMachine}
+          organizations={organizations}
+          onBack={() => setEditingMachine(null)}
+          onSuccess={(updated) => {
+            setMachines((prev) =>
+              prev.map((m) => (m.id === updated.id ? updated : m))
+            );
+            if (selectedMachine && selectedMachine.id === updated.id) {
+              setSelectedMachine(updated);
+            }
+            setEditingMachine(null);
+            setToast({
+              message: `Machine ${updated.serial_number || updated.machine_code} updated successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (selectedMachine) {
+    return (
+      <div className="select-none">
+        <MachineDetailView
+          machine={selectedMachine}
+          onBack={() => {
+            setSelectedMachine(null);
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete('select');
+              next.delete('serial');
+              return next;
+            });
+          }}
+          onEdit={(m) => setEditingMachine(m)}
+          onDelete={(m) => setDeletingMachine(m)}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+        <DeleteMachineModal
+          isOpen={!!deletingMachine}
+          machine={deletingMachine}
+          onClose={() => setDeletingMachine(null)}
+          onConfirm={async () => {
+            await handleConfirmDelete();
+            setSelectedMachine(null);
+            setToast({
+              message: 'Machine removed from fleet inventory successfully.',
+              type: 'info',
+            });
+          }}
+          isDeleting={isDeleting}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] mx-auto pb-10">
       {/* 1. Header Area */}
@@ -270,14 +447,14 @@ export const MachinesPage: React.FC = () => {
         {/* Action Button: + Add machine (OEM only) */}
         {isOem && (
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="md"
               onClick={() => setIsAddMachineOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all cursor-pointer shadow-2xs"
+              leftIcon={<Plus className="w-3.5 h-3.5 text-white" />}
             >
-              <Plus className="w-3.5 h-3.5 text-white" />
-              <span>Add machine</span>
-            </button>
+              Add machine
+            </Button>
           </div>
         )}
       </div>
@@ -372,7 +549,6 @@ export const MachinesPage: React.FC = () => {
                 <option value="Running">Running</option>
                 <option value="Idle">Idle</option>
                 <option value="Maintenance">Maintenance</option>
-                <option value="Offline">Offline</option>
               </select>
             </div>
 
@@ -419,18 +595,12 @@ export const MachinesPage: React.FC = () => {
             </div>
 
             {/* More filters Button */}
-            <button
-              type="button"
-              onClick={() => setShowMoreFilters(!showMoreFilters)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                showMoreFilters
-                  ? 'border-[#171717] bg-[#171717] text-white'
-                  : 'border-[#E5E7EB] bg-white text-[#171717] hover:bg-[#F9FAFB]'
-              }`}
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#171717] text-xs font-semibold shadow-2xs cursor-default select-none"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[#171717]" />
               <span>More filters</span>
-            </button>
+            </div>
           </div>
         </div>
 
@@ -484,10 +654,126 @@ export const MachinesPage: React.FC = () => {
         )}
       </div>
 
-      {/* 4. Machines Main Data Table */}
+      {/* 4. Machines Main Data Table & Mobile Cards */}
       <div className="bg-white rounded-xl border border-[#E3E4E6] shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+        {/* Mobile View: Dedicated Thumb-Friendly Machine Cards (< md) */}
+        <div className="md:hidden divide-y divide-[#F3F4F6]">
+          {isLoading ? (
+            <div className="py-10 text-center text-[#6B7280]">
+              <div className="flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-[#E32032]" />
+                <span>Loading fleet machines from database...</span>
+              </div>
+            </div>
+          ) : paginatedMachines.length === 0 ? (
+            <div className="py-10 text-center text-[#6B7280] px-4">
+              <Cpu className="w-8 h-8 text-[#CBD5E1] mx-auto mb-2" />
+              <p className="font-bold text-[#171717]">No machines match current filters</p>
+              <p className="text-xs text-[#888888] mt-1">
+                Try clearing search or adjusting your status, client, or location dropdowns.
+              </p>
+            </div>
+          ) : (
+            paginatedMachines.map((m) => {
+              const isOnline = m.connectivity_status?.toLowerCase() === 'online';
+              const opStatus = m.operational_status || 'Idle';
+
+              return (
+                <div
+                  key={m.id}
+                  className="p-3.5 hover:bg-[#F9FAFB] transition-colors flex flex-col gap-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectMachine(m)}
+                        className="font-mono font-bold text-sm text-[#E32032] underline hover:text-[#C1121F] cursor-pointer text-left"
+                      >
+                        {m.machine_code || m.serial_number}
+                      </button>
+                      <div className="text-xs font-semibold text-[#171717] mt-0.5">
+                        {m.model} {m.capacity ? `· ${m.capacity}` : ''}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          isOnline
+                            ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
+                            : 'bg-[#F3F4F6] text-[#4B5563] border-[#E5E7EB]'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            isOnline ? 'bg-[#00C951]' : 'bg-[#9CA3AF]'
+                          }`}
+                        />
+                        <span>{isOnline ? 'Online' : 'Offline'}</span>
+                      </span>
+
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          opStatus === 'Running'
+                            ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
+                            : opStatus === 'Idle'
+                            ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
+                            : opStatus === 'Maintenance'
+                            ? 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
+                            : 'bg-[#F3F4F6] text-[#4B5563] border-[#E5E7EB]'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            opStatus === 'Running'
+                              ? 'bg-[#00C951]'
+                              : opStatus === 'Idle'
+                              ? 'bg-amber-500'
+                              : opStatus === 'Maintenance'
+                              ? 'bg-blue-500'
+                              : 'bg-[#9CA3AF]'
+                          }`}
+                        />
+                        <span>{opStatus}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-[#6B7280]">
+                    <span>Client: <strong className="text-[#171717]">{m.company_name || 'Unassigned'}</strong></span>
+                    <span>{formatLocation(m)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#F3F4F6]">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectMachine(m)}
+                      className="px-3 py-1.5 rounded-lg border border-[#D1D5DB] text-xs font-semibold text-[#171717] hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                      <span>View details</span>
+                    </button>
+                    {isOem && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingMachine(m)}
+                        className="px-3 py-1.5 rounded-lg border border-[#D1D5DB] text-xs font-semibold text-[#171717] hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-[#6B7280]" />
+                        <span>Edit</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop / Tablet View: Full Table (>= md) */}
+        <div className="hidden md:block overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <table className="w-full text-left border-collapse text-xs min-w-[750px]">
             <thead>
               <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[11px] font-bold text-[#6B7280]">
                 <th className="py-3 px-4 font-semibold">Serial Number</th>
@@ -534,7 +820,7 @@ export const MachinesPage: React.FC = () => {
                       <td className="py-3 px-4 whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => setSelectedMachine(m)}
+                          onClick={() => handleSelectMachine(m)}
                           className="font-bold text-[#E32032] underline hover:text-[#C1121F] cursor-pointer whitespace-nowrap font-mono inline-block"
                         >
                           {m.machine_code || m.serial_number}
@@ -614,64 +900,55 @@ export const MachinesPage: React.FC = () => {
 
                       {/* Actions */}
                       <td className="py-3 px-4 text-right">
-                        <div className="relative inline-block text-left" ref={activeMenuId === m.id ? menuContainerRef : undefined}>
+                        <RowActionMenu
+                          isOpen={activeMenuId === m.id}
+                          onToggle={() => setActiveMenuId(activeMenuId === m.id ? null : m.id)}
+                          onClose={() => setActiveMenuId(null)}
+                          buttonAriaLabel={`Actions for ${m.machine_code || m.serial_number}`}
+                          width="w-44"
+                        >
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuId(activeMenuId === m.id ? null : m.id);
+                            onClick={() => {
+                              handleSelectMachine(m);
+                              setActiveMenuId(null);
                             }}
-                            className="p-1 rounded-md text-[#9CA3AF] hover:text-[#171717] hover:bg-[#F3F4F6] transition-colors cursor-pointer"
+                            className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2.5 cursor-pointer"
                           >
-                            <MoreHorizontal className="w-4 h-4" />
+                            <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                            <span>View details</span>
                           </button>
 
-                          {activeMenuId === m.id && (
-                            <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-[#E5E7EB] py-1 z-20 animate-in fade-in zoom-in-95 duration-150">
+                          {isOem && (
+                            <>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedMachine(m);
+                                  setEditingMachine(m);
                                   setActiveMenuId(null);
                                 }}
-                                className="w-full px-3 py-2 text-left text-xs font-medium text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer"
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2.5 cursor-pointer"
                               >
-                                <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
-                                <span>View details</span>
+                                <Edit2 className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <span>Edit machine</span>
                               </button>
 
-                              {isOem && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingMachine(m);
-                                      setActiveMenuId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-medium text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5 text-[#6B7280]" />
-                                    <span>Edit machine</span>
-                                  </button>
+                              <div className="border-t border-[#F3F4F6] my-1" />
 
-                                  <div className="border-t border-[#F3F4F6] my-1" />
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setDeletingMachine(m);
-                                      setActiveMenuId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-medium text-[#E32032] hover:bg-red-50 flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-[#E32032]" />
-                                    <span>Delete machine</span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeletingMachine(m);
+                                  setActiveMenuId(null);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#E32032] hover:bg-red-50 flex items-center gap-2.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-[#E32032]" />
+                                <span>Delete machine</span>
+                              </button>
+                            </>
                           )}
-                        </div>
+                        </RowActionMenu>
                       </td>
                     </tr>
                   );
@@ -698,14 +975,20 @@ export const MachinesPage: React.FC = () => {
               <select
                 value={rowsPerPage}
                 onChange={(e) => {
-                  setRowsPerPage(Number(e.target.value));
+                  const val = Number(e.target.value);
+                  setRowsPerPage(val);
                   setCurrentPage(1);
+                  try {
+                    localStorage.setItem('foodie_rows_per_page', String(val));
+                  } catch {}
                 }}
                 className="px-2 py-0.5 rounded border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none"
               >
                 <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={25}>25</option>
                 <option value={50}>50</option>
+                <option value={100}>100</option>
               </select>
             </div>
 
@@ -786,48 +1069,6 @@ export const MachinesPage: React.FC = () => {
           onClose={() => setToast(null)}
         />
       )}
-
-      {/* Drawers & Modals */}
-      <AddMachineDrawer
-        isOpen={isAddMachineOpen}
-        onClose={() => setIsAddMachineOpen(false)}
-        onSuccess={(newMachine) => {
-          setMachines((prev) => [newMachine, ...prev]);
-          setToast({
-            message: `Machine ${newMachine.serial_number || newMachine.machine_code} added successfully!`,
-            type: 'success',
-          });
-        }}
-      />
-
-      <MachineDetailDrawer
-        isOpen={!!selectedMachine}
-        machine={selectedMachine}
-        onClose={() => setSelectedMachine(null)}
-        onEdit={(m) => {
-          setSelectedMachine(null);
-          setEditingMachine(m);
-        }}
-        onDelete={(m) => {
-          setSelectedMachine(null);
-          setDeletingMachine(m);
-        }}
-      />
-
-      <EditMachineDrawer
-        isOpen={!!editingMachine}
-        machine={editingMachine}
-        onClose={() => setEditingMachine(null)}
-        onSuccess={(updated) => {
-          setMachines((prev) =>
-            prev.map((m) => (m.id === updated.id ? updated : m))
-          );
-          setToast({
-            message: `Machine ${updated.serial_number || updated.machine_code} updated successfully!`,
-            type: 'success',
-          });
-        }}
-      />
 
       <DeleteMachineModal
         isOpen={!!deletingMachine}

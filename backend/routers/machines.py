@@ -86,36 +86,65 @@ def get_machine_models():
 
 @router.get("", response_model=List[MachineResponse])
 def get_all_machines(current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
     with get_db_cursor() as cur:
-        if current_user.get("role") != "OEM_MANAGER" and current_user.get("organization_id"):
+        if user_role == "OEM_MANAGER":
+            cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.is_deleted IS NOT TRUE) ORDER BY m.created_at DESC, m.machine_code DESC;")
+        else:
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                return []
             cur.execute(
                 f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.is_deleted IS NOT TRUE) AND m.organization_id = %s ORDER BY m.created_at DESC, m.machine_code DESC;",
-                (current_user["organization_id"],)
+                (user_org_id,)
             )
-        else:
-            cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.is_deleted IS NOT TRUE) ORDER BY m.created_at DESC, m.machine_code DESC;")
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
         return [MachineResponse(**row_to_machine_dict(cols, r)) for r in rows]
 
 @router.get("/{machine_id}", response_model=MachineResponse)
-def get_machine(machine_id: str):
+def get_machine(machine_id: str, current_user: dict = Depends(get_current_user)):
     with get_db_cursor() as cur:
-        cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE m.id = %s AND (m.is_deleted IS NOT TRUE);", (machine_id,))
+        cur.execute(
+            f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s)) AND (m.is_deleted IS NOT TRUE);",
+            (machine_id, machine_id, machine_id)
+        )
         row = cur.fetchone()
         if not row:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Machine with ID '{machine_id}' not found."
+                detail=f"Machine '{machine_id}' not found."
             )
         cols = [desc[0] for desc in cur.description]
-        return MachineResponse(**row_to_machine_dict(cols, row))
+        mach_dict = row_to_machine_dict(cols, row)
+
+        # Cross-tenant scoping check
+        if current_user.get("role") != "OEM_MANAGER":
+            user_org_id = str(current_user.get("organization_id") or "")
+            mach_org_id = str(mach_dict.get("organization_id") or "")
+            if not user_org_id or mach_org_id != user_org_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: You do not have permission to access this machine."
+                )
+
+        return MachineResponse(**mach_dict)
 
 @router.post("", response_model=MachineResponse, status_code=status.HTTP_201_CREATED)
 def create_machine(payload: MachineCreate, current_user: dict = Depends(get_current_user)):
-    normalized_serial = payload.serial_number.strip().upper()
-    raw_code = payload.machine_code or payload.serial_number
-    normalized_code = raw_code.strip().upper()
+    if current_user.get("role") != "OEM_MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only OEM Managers can commission new machines."
+        )
+    if not payload.serial_number or not payload.serial_number.strip():
+        next_code = get_next_machine_code()["next_code"]
+        normalized_serial = next_code
+        normalized_code = next_code
+    else:
+        normalized_serial = payload.serial_number.strip().upper()
+        raw_code = payload.machine_code or payload.serial_number
+        normalized_code = raw_code.strip().upper()
 
     model_name = payload.model.strip()
     if model_name.upper() == 'F25':
@@ -161,10 +190,18 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
                     detail=f'Serial Number "{normalized_serial}" is already registered. It must be unique.'
                 )
 
-        # Look up model_id from machine_models
-        cur.execute("SELECT id FROM machine_models WHERE model_code = %s OR display_name = %s;", (payload.model.strip().upper(), model_name))
+        # Look up model_id, display_name and fallback capacity from machine_models
+        cur.execute(
+            "SELECT id, display_name, capacity FROM machine_models WHERE UPPER(model_code) = %s OR UPPER(display_name) = %s;",
+            (payload.model.strip().upper(), model_name.upper())
+        )
         model_row = cur.fetchone()
         resolved_model_id = model_row[0] if model_row else None
+        if model_row:
+            if model_row[1]:
+                model_name = model_row[1]
+            if not capacity and model_row[2]:
+                capacity = model_row[2]
 
         cur.execute("""
             INSERT INTO machines (
@@ -209,19 +246,39 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
         return MachineResponse(**row_to_machine_dict(cols, row))
 
 @router.put("/{machine_id}", response_model=MachineResponse)
-def update_machine(machine_id: str, payload: MachineUpdate):
+def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Operators cannot modify machine configurations."
+        )
+
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, model, capacity FROM machines WHERE id = %s;", (machine_id,))
+        cur.execute(
+            "SELECT id, model, capacity, organization_id FROM machines WHERE (id::text = %s OR UPPER(machine_code) = UPPER(%s) OR UPPER(serial_number) = UPPER(%s)) AND is_deleted IS NOT TRUE;",
+            (machine_id, machine_id, machine_id)
+        )
         existing = cur.fetchone()
         if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Machine with ID '{machine_id}' not found."
+                detail=f"Machine '{machine_id}' not found."
             )
+        real_machine_id = str(existing[0])
+
+        if user_role != "OEM_MANAGER":
+            user_org_id = str(current_user.get("organization_id") or "")
+            mach_org_id = str(existing[3] or "")
+            if not user_org_id or mach_org_id != user_org_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: You do not have permission to modify this machine."
+                )
 
         if payload.serial_number:
             normalized_serial = payload.serial_number.strip().upper()
-            cur.execute("SELECT id FROM machines WHERE UPPER(serial_number) = %s AND id != %s;", (normalized_serial, machine_id))
+            cur.execute("SELECT id FROM machines WHERE UPPER(serial_number) = %s AND id != %s;", (normalized_serial, real_machine_id))
             if cur.fetchone():
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -230,11 +287,24 @@ def update_machine(machine_id: str, payload: MachineUpdate):
 
         capacity = payload.capacity
         model_name = payload.model
+        resolved_model_id = None
+
+        if payload.model:
+            cur.execute(
+                "SELECT id, display_name, capacity FROM machine_models WHERE UPPER(model_code) = %s OR UPPER(display_name) = %s;",
+                (payload.model.strip().upper(), payload.model.strip().upper())
+            )
+            m_row = cur.fetchone()
+            if m_row:
+                resolved_model_id = m_row[0]
+                model_name = m_row[1]
+                if not capacity and m_row[2]:
+                    capacity = m_row[2]
 
         if "organization_id" in payload.model_fields_set:
-            cur.execute("UPDATE machines SET organization_id = %s WHERE id = %s;", (payload.organization_id, machine_id))
+            cur.execute("UPDATE machines SET organization_id = %s WHERE id = %s;", (payload.organization_id, real_machine_id))
             if payload.organization_id is None:
-                cur.execute("UPDATE machine_leases SET lease_status = 'Terminated' WHERE machine_id = %s AND lease_status = 'Active';", (machine_id,))
+                cur.execute("UPDATE machine_leases SET lease_status = 'Terminated' WHERE machine_id = %s AND lease_status = 'Active';", (real_machine_id,))
             else:
                 l_start = payload.lease_start_date.strip() if payload.lease_start_date and payload.lease_start_date.strip() else None
                 l_end = payload.lease_end_date.strip() if payload.lease_end_date and payload.lease_end_date.strip() else None
@@ -266,7 +336,7 @@ def update_machine(machine_id: str, payload: MachineUpdate):
                             end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 5)
                         l_end_str = end_dt.strftime("%Y-%m-%d")
 
-                lease_ref = f"LSE-{machine_id[:8]}"
+                lease_ref = f"LSE-{real_machine_id[:8]}"
                 cur.execute("""
                     INSERT INTO machine_leases (
                         machine_id, organization_id, location_label,
@@ -280,11 +350,12 @@ def update_machine(machine_id: str, payload: MachineUpdate):
                         lease_start_date = EXCLUDED.lease_start_date,
                         lease_end_date = EXCLUDED.lease_end_date,
                         lease_status = 'Active';
-                """, (machine_id, payload.organization_id, payload.location_label, l_start_str, l_end_str, lease_ref))
+                """, (real_machine_id, payload.organization_id, payload.location_label, l_start_str, l_end_str, lease_ref))
 
         cur.execute("""
             UPDATE machines SET
                 serial_number = COALESCE(%s, serial_number),
+                model_id = COALESCE(%s, model_id),
                 model = COALESCE(%s, model),
                 capacity = COALESCE(%s, capacity),
                 hardware_version = COALESCE(%s, hardware_version),
@@ -303,6 +374,7 @@ def update_machine(machine_id: str, payload: MachineUpdate):
             WHERE id = %s;
         """, (
             payload.serial_number.strip().upper() if payload.serial_number else None,
+            resolved_model_id,
             model_name,
             capacity,
             payload.hardware_version,
@@ -317,10 +389,10 @@ def update_machine(machine_id: str, payload: MachineUpdate):
             payload.connectivity_status,
             payload.operational_status,
             payload.is_active,
-            machine_id
+            real_machine_id
         ))
 
-        cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE m.id = %s;", (machine_id,))
+        cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE m.id = %s;", (real_machine_id,))
         row = cur.fetchone()
         cols = [desc[0] for desc in cur.description]
         return MachineResponse(**row_to_machine_dict(cols, row))
@@ -333,14 +405,17 @@ def delete_machine(machine_id: str, current_user: dict = Depends(get_current_use
             detail="Access denied: Only OEM Managers can delete machines."
         )
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT machine_code, organization_id FROM machines WHERE id = %s AND (is_deleted IS NOT TRUE);", (machine_id,))
+        cur.execute(
+            "SELECT id, machine_code, organization_id FROM machines WHERE (id::text = %s OR UPPER(machine_code) = UPPER(%s) OR UPPER(serial_number) = UPPER(%s)) AND (is_deleted IS NOT TRUE);",
+            (machine_id, machine_id, machine_id)
+        )
         row = cur.fetchone()
         if not row:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Machine with ID '{machine_id}' not found."
+                detail=f"Machine '{machine_id}' not found."
             )
-        code, org_id = row
+        real_machine_id, code, org_id = str(row[0]), row[1], row[2]
         # Ensure only available machines can be deleted
         if org_id is not None:
             raise HTTPException(
@@ -354,7 +429,8 @@ def delete_machine(machine_id: str, current_user: dict = Depends(get_current_use
                 deleted_by = %s,
                 is_active = FALSE
             WHERE id = %s;
-        """, (current_user.get("id"), machine_id))
+        """, (current_user.get("id"), real_machine_id))
+        cur.execute("UPDATE machine_leases SET lease_status = 'Terminated' WHERE machine_id = %s;", (real_machine_id,))
         return {"success": True, "message": f"Machine '{code}' successfully removed from fleet inventory."}
 
 @router.post("/{machine_id}/unassign")

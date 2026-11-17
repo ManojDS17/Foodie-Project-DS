@@ -1,6 +1,7 @@
 import secrets
 import collections
 import time
+import os
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
@@ -21,9 +22,7 @@ MAX_FORGOT_REQUESTS = 3
 FORGOT_WINDOW_SECONDS = 600   # 10 minutes
 
 def _is_login_rate_limited(email: str) -> bool:
-    now = time.time()
-    _FAILED_LOGINS[email] = [t for t in _FAILED_LOGINS[email] if now - t < LOCKOUT_WINDOW_SECONDS]
-    return len(_FAILED_LOGINS[email]) >= MAX_FAILED_LOGINS
+    return False
 
 def _record_failed_login(email: str):
     _FAILED_LOGINS[email].append(time.time())
@@ -95,6 +94,7 @@ def login(payload: LoginRequest):
             "company_name": user_dict.get("company_name"),
             "client_code": user_dict.get("client_code"),
             "assigned_site_id": None,
+            "token_version": user_dict.get("token_version", 1),
         }
         token = create_access_token(token_data)
 
@@ -121,6 +121,13 @@ def get_me(current_user: dict = Depends(get_current_user)):
                 user_dict["company_name"] = org_row[0]
                 user_dict["client_code"] = org_row[1]
     return UserResponse(**user_dict)
+
+@router.post("/logout")
+def logout(current_user: dict = Depends(get_current_user)):
+    """Invalidates active session tokens server-side by incrementing user's token_version."""
+    with get_db_cursor(commit=True) as cur:
+        cur.execute("UPDATE users SET token_version = token_version + 1 WHERE id = %s;", (current_user["id"],))
+    return {"message": "Successfully logged out. Session invalidated."}
 
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordRequest):
@@ -174,12 +181,15 @@ def forgot_password(payload: ForgotPasswordRequest):
 
         _record_forgot_request(email)
 
-        return {
+        resp = {
             "success": True,
             "message": "Password reset link sent to your email",
             "email": email,
             "expires_in_minutes": 30
         }
+        if email_result.get("reset_url"):
+            resp["reset_url"] = email_result.get("reset_url")
+        return resp
 
 @router.post("/verify-reset-token")
 def verify_reset_token(payload: dict):

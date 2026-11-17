@@ -82,22 +82,22 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
 
 
   return (
-    <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
+    <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
       {/* Header: Title + Subtitle + Time Dropdown */}
-      <div className="flex items-center justify-between pb-3">
+      <div className="flex items-center justify-between pb-3 gap-2">
         <div>
-          <h2 className="text-sm font-extrabold text-[#171717] tracking-tight">
+          <h2 className="text-xs sm:text-sm font-extrabold text-[#171717] tracking-tight">
             Energy usage
           </h2>
-          <p className="text-xs text-[#888888] mt-0.5">
+          <p className="text-[11px] sm:text-xs text-[#888888] mt-0.5">
             kWh per day, all machines
           </p>
         </div>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             type="button"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E3E4E6] text-xs font-semibold text-[#171717] bg-white hover:bg-[#F8F9FA] transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-[#E3E4E6] text-xs font-semibold text-[#171717] bg-white hover:bg-[#F8F9FA] transition-colors cursor-pointer"
           >
             <span>{timeRange}</span>
             <ChevronDown className="w-3.5 h-3.5 text-[#666666]" />

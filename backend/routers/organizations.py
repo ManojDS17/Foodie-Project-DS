@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
 from ..schemas import OrganizationCreate, OrganizationUpdate, OrganizationResponse, BulkDeleteRequest
 from ..auth import get_current_user, get_password_hash
+from ..email_service import send_client_welcome_email
 
 router = APIRouter(prefix="/api/organizations", tags=["Organizations"], dependencies=[Depends(get_current_user)])
 
@@ -30,9 +31,23 @@ def get_next_client_code():
         return {"next_code": f"CL-{next_num:04d}"}
 
 @router.get("", response_model=List[OrganizationResponse])
-def get_organizations():
+def get_organizations(current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Organizations are hidden for operators."
+        )
+
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM organizations WHERE is_deleted IS NOT TRUE ORDER BY created_at DESC, client_code DESC;")
+        if user_role == "OEM_MANAGER":
+            cur.execute("SELECT * FROM organizations WHERE is_deleted IS NOT TRUE ORDER BY created_at DESC, client_code DESC;")
+        else:
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                return []
+            cur.execute("SELECT * FROM organizations WHERE id = %s AND is_deleted IS NOT TRUE ORDER BY created_at DESC, client_code DESC;", (user_org_id,))
+
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
         results = []
@@ -49,15 +64,29 @@ def get_organizations():
         return results
 
 @router.get("/{org_id}", response_model=OrganizationResponse)
-def get_organization(org_id: str):
+def get_organization(org_id: str, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Organizations are hidden for operators.")
+
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM organizations WHERE id = %s AND is_deleted IS NOT TRUE;", (org_id,))
+        cur.execute(
+            "SELECT * FROM organizations WHERE (id::text = %s OR UPPER(client_code) = UPPER(%s)) AND is_deleted IS NOT TRUE;",
+            (org_id, org_id)
+        )
         row = cur.fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client organization not found.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client organization '{org_id}' not found.")
         cols = [desc[0] for desc in cur.description]
         d = dict(zip(cols, row))
         d["id"] = str(d["id"])
+
+        if user_role != "OEM_MANAGER" and str(current_user.get("organization_id")) != d["id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You do not have permission to access another client's organization."
+            )
+
         if d.get("created_by"):
             d["created_by"] = str(d["created_by"])
         if d.get("deleted_by"):
@@ -68,7 +97,14 @@ def get_organization(org_id: str):
 
 @router.post("", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
 def create_organization(payload: OrganizationCreate, current_user: dict = Depends(get_current_user)):
-    code = payload.client_code.strip().upper()
+    if current_user.get("role") != "OEM_MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only OEM Managers can register new client organizations."
+        )
+    code = (payload.client_code or "").strip().upper()
+    if not code:
+        code = get_next_client_code()["next_code"]
     company = payload.company_name.strip()
     
     # Safe date sanitization
@@ -95,6 +131,35 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         if cur.fetchone():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Company name '{company}' is already registered.")
 
+        # Check uniqueness of Tax ID (ABN) across active organizations
+        if payload.tax_id and payload.tax_id.strip():
+            raw_abn_digits = re.sub(r'\D', '', payload.tax_id.strip())
+            if raw_abn_digits:
+                cur.execute("""
+                    SELECT id, client_code, company_name 
+                    FROM organizations 
+                    WHERE REGEXP_REPLACE(tax_id, '[^0-9]', '', 'g') = %s 
+                      AND (is_deleted IS NOT TRUE);
+                """, (raw_abn_digits,))
+                dup_abn = cur.fetchone()
+                if dup_abn:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Tax ID (ABN) '{payload.tax_id.strip()}' is already registered to client '{dup_abn[2]}' ({dup_abn[1]})."
+                    )
+
+        billing_addr = payload.billing_address.strip() if payload.billing_address else None
+        if not billing_addr:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please enter the billing address."
+            )
+
+        raw_shipping = payload.shipping_address.strip() if payload.shipping_address else None
+        shipping_addr = None
+        if raw_shipping and raw_shipping.lower() not in ('same as billing', 'same as billing address'):
+            shipping_addr = raw_shipping
+
         cur.execute("""
             INSERT INTO organizations (
                 client_code, company_name, business_type, status, onboarding_date, tax_id, contact_poc, email, phone_number,
@@ -115,8 +180,8 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
             payload.email.strip() if payload.email else None,
             payload.phone_number.strip() if payload.phone_number else None,
             payload.website.strip() if payload.website else None,
-            payload.billing_address.strip() if payload.billing_address else None,
-            (payload.shipping_address or payload.billing_address or '').strip() or None,
+            billing_addr,
+            shipping_addr,
             payload.payment_terms or '30 days',
             payload.preferred_currency or 'AUD',
             payload.comms_preference or 'Email',
@@ -136,12 +201,17 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         if d.get("onboarding_date"):
             d["onboarding_date"] = str(d["onboarding_date"])
 
-        # Automatically create or link client login user account with default password '12345'
+        # Automatically create or link client login user account with custom password
         if payload.email and payload.email.strip():
             clean_email = payload.email.strip().lower()
             cur.execute("SELECT id FROM users WHERE LOWER(email) = %s;", (clean_email,))
             existing_user = cur.fetchone()
-            pw_hash = get_password_hash("12345")
+
+            raw_password = (payload.password or "").strip()
+            if not raw_password:
+                raw_password = "Password@123"
+            pw_hash = get_password_hash(raw_password)
+
             poc_name = (payload.contact_poc or payload.company_name or "Client Admin").strip()
             name_parts = poc_name.split(maxsplit=1)
             first_name = name_parts[0]
@@ -171,6 +241,18 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                     last_name,
                     payload.phone_number.strip() if payload.phone_number else None
                 ))
+
+            # Dispatch welcome email with credentials & direct login button
+            try:
+                send_client_welcome_email(
+                    to_email=clean_email,
+                    raw_password=raw_password,
+                    company_name=company,
+                    client_code=code,
+                    recipient_name=poc_name
+                )
+            except Exception as e:
+                print(f"[Welcome Email Notice] Failed to dispatch welcome email: {e}")
 
         # Assign machines and create leases if specified in payload
         if payload.assigned_machines:
@@ -243,26 +325,78 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         return OrganizationResponse(**d)
 
 @router.put("/{org_id}", response_model=OrganizationResponse)
-def update_organization(org_id: str, payload: OrganizationUpdate):
+def update_organization(org_id: str, payload: OrganizationUpdate, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot modify organizations.")
+
     update_data = payload.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields provided for update.")
 
-    set_clauses = []
-    params = []
-    for k, v in update_data.items():
-        if k == 'onboarding_date':
-            if not v or not str(v).strip():
-                set_clauses.append("onboarding_date = NULL")
-            else:
-                set_clauses.append("onboarding_date = %s::DATE")
-                params.append(str(v).strip())
-        else:
-            set_clauses.append(f"{k} = %s")
-            params.append(v)
-    params.append(org_id)
+    if 'billing_address' in update_data and (not update_data['billing_address'] or not str(update_data['billing_address']).strip()):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please enter the billing address.")
+
+    if 'shipping_address' in update_data:
+        raw_ship = update_data['shipping_address']
+        if raw_ship and str(raw_ship).strip().lower() in ('same as billing', 'same as billing address'):
+            update_data['shipping_address'] = None
 
     with get_db_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT id FROM organizations WHERE (id::text = %s OR UPPER(client_code) = UPPER(%s)) AND is_deleted IS NOT TRUE;",
+            (org_id, org_id)
+        )
+        existing = cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client organization '{org_id}' not found.")
+        real_org_id = str(existing[0])
+
+        if user_role != "OEM_MANAGER" and str(current_user.get("organization_id")) != real_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You do not have permission to modify another client's organization."
+            )
+
+        set_clauses = []
+        params = []
+        for k, v in update_data.items():
+            if k == 'onboarding_date':
+                if not v or not str(v).strip():
+                    set_clauses.append("onboarding_date = NULL")
+                else:
+                    set_clauses.append("onboarding_date = %s::DATE")
+                    params.append(str(v).strip())
+            else:
+                set_clauses.append(f"{k} = %s")
+                params.append(v)
+        params.append(real_org_id)
+
+        # Check uniqueness of company_name if updated
+        if 'company_name' in update_data and update_data['company_name']:
+            comp_name = str(update_data['company_name']).strip()
+            cur.execute("SELECT id FROM organizations WHERE LOWER(company_name) = %s AND id != %s AND is_deleted IS NOT TRUE;", (comp_name.lower(), real_org_id))
+            if cur.fetchone():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Company name '{comp_name}' is already registered.")
+
+        # Check uniqueness of Tax ID (ABN) across active organizations if updated
+        if 'tax_id' in update_data and update_data['tax_id']:
+            raw_abn_digits = re.sub(r'\D', '', str(update_data['tax_id']).strip())
+            if raw_abn_digits:
+                cur.execute("""
+                    SELECT id, client_code, company_name 
+                    FROM organizations 
+                    WHERE REGEXP_REPLACE(tax_id, '[^0-9]', '', 'g') = %s 
+                      AND id != %s 
+                      AND (is_deleted IS NOT TRUE);
+                """, (raw_abn_digits, real_org_id))
+                dup_abn = cur.fetchone()
+                if dup_abn:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Tax ID (ABN) '{str(update_data['tax_id']).strip()}' is already registered to client '{dup_abn[2]}' ({dup_abn[1]})."
+                    )
+
         cur.execute(f"""
             UPDATE organizations
             SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP
@@ -291,12 +425,21 @@ def delete_organization(org_id: str, current_user: dict = Depends(get_current_us
             detail="Access denied: Only OEM Managers can delete client organizations."
         )
     with get_db_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT id FROM organizations WHERE (id::text = %s OR UPPER(client_code) = UPPER(%s)) AND is_deleted IS NOT TRUE;",
+            (org_id, org_id)
+        )
+        existing = cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client organization '{org_id}' not found.")
+        real_org_id = str(existing[0])
+
         # Unmap machines assigned to this client (retaining machines in fleet inventory as available)
-        cur.execute("UPDATE machines SET organization_id = NULL WHERE organization_id = %s;", (org_id,))
+        cur.execute("UPDATE machines SET organization_id = NULL WHERE organization_id = %s;", (real_org_id,))
         # Update leases in machine_leases
-        cur.execute("UPDATE machine_leases SET lease_status = 'Terminated' WHERE organization_id = %s;", (org_id,))
+        cur.execute("UPDATE machine_leases SET lease_status = 'Terminated' WHERE organization_id = %s;", (real_org_id,))
         # Unmap users assigned to this client
-        cur.execute("UPDATE users SET organization_id = NULL WHERE organization_id = %s;", (org_id,))
+        cur.execute("UPDATE users SET organization_id = NULL WHERE organization_id = %s;", (real_org_id,))
         # Soft delete: flagged as deleted in PostgreSQL while preserving original client_code
         cur.execute("""
             UPDATE organizations
@@ -306,8 +449,8 @@ def delete_organization(org_id: str, current_user: dict = Depends(get_current_us
                 is_active = FALSE,
                 status = 'Archived'
             WHERE id = %s;
-        """, (current_user.get("id"), org_id))
-        return {"success": True, "message": "Client organization deleted successfully and machines unassigned.", "id": org_id}
+        """, (current_user.get("id"), real_org_id))
+        return {"success": True, "message": "Client organization deleted successfully and machines unassigned.", "id": real_org_id}
 
 @router.post("/bulk-delete", status_code=status.HTTP_200_OK)
 def bulk_delete_organizations(payload: BulkDeleteRequest, current_user: dict = Depends(get_current_user)):

@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { MasterLayout } from './components/layout/MasterLayout';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardOverviewPage } from './pages/DashboardOverviewPage';
-import { UserRegistrationPage } from './pages/UserRegistrationPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { MachinesPage } from './pages/MachinesPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { PlaceholderView } from './components/common/PlaceholderView';
@@ -55,17 +55,25 @@ export const AppContent: React.FC = () => {
         <Route index element={<DashboardOverviewPage />} />
         <Route path="sites" element={<Navigate to="/" replace />} />
         <Route
+          path="profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="users"
           element={
-            <ProtectedRoute adminOnly>
-              <UserRegistrationPage />
+            <ProtectedRoute>
+              <ProfilePage />
             </ProtectedRoute>
           }
         />
         <Route
           path="machines"
           element={
-            <ProtectedRoute adminOnly>
+            <ProtectedRoute>
               <MachinesPage />
             </ProtectedRoute>
           }
@@ -81,7 +89,7 @@ export const AppContent: React.FC = () => {
         <Route
           path="sustainability"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute adminOnly>
               <PlaceholderView
                 title="Sustainability & Environmental Impact"
                 subtitle="Track CO2 diversion, organic landfill mitigation, and green carbon credits across all client composter installations."

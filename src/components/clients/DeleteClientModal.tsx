@@ -60,7 +60,7 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
     >
@@ -72,7 +72,7 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
       />
 
       {/* Confirmation Dialog Card */}
-      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-[#E3E4E6] overflow-hidden z-10 animate-in zoom-in-95 duration-200 p-6 sm:p-7">
+      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-[#E3E4E6] overflow-hidden z-10 animate-in zoom-in-95 duration-200 p-5 sm:p-7">
         {/* Title */}
         <h3 className="text-base sm:text-lg font-bold text-[#171717] tracking-tight">
           {title}
@@ -92,7 +92,7 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
         )}
 
         {/* Footer Actions (Right aligned) */}
-        <div className="mt-6 flex items-center justify-end gap-2.5">
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
           <button
             type="button"
             onClick={onClose}

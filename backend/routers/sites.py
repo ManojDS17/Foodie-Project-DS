@@ -7,9 +7,23 @@ from ..auth import get_current_user
 router = APIRouter(prefix="/api/sites", tags=["Sites"], dependencies=[Depends(get_current_user)])
 
 @router.get("", response_model=List[SiteResponse])
-def get_all_sites():
+def get_all_sites(current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Sites are hidden for operators."
+        )
+
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM sites ORDER BY site_code ASC;")
+        if user_role == "OEM_MANAGER":
+            cur.execute("SELECT * FROM sites ORDER BY site_code ASC;")
+        else:
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                return []
+            cur.execute("SELECT * FROM sites WHERE organization_id = %s ORDER BY site_code ASC;", (user_org_id,))
+
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
         results = []
@@ -21,14 +35,22 @@ def get_all_sites():
         return results
 
 @router.post("", response_model=SiteResponse, status_code=status.HTTP_201_CREATED)
-def create_site(payload: SiteCreate):
+def create_site(payload: SiteCreate, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot create sites.")
+
+    target_org_id = payload.organization_id
+    if user_role != "OEM_MANAGER":
+        target_org_id = current_user.get("organization_id")
+
     normalized_code = payload.site_code.strip().upper()
 
     with get_db_cursor(commit=True) as cur:
         # Check uniqueness constraint
         cur.execute(
             "SELECT id FROM sites WHERE organization_id = %s AND UPPER(site_code) = %s;",
-            (payload.organization_id, normalized_code)
+            (target_org_id, normalized_code)
         )
         if cur.fetchone():
             raise HTTPException(
@@ -41,7 +63,7 @@ def create_site(payload: SiteCreate):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *;
         """, (
-            payload.organization_id,
+            target_org_id,
             normalized_code,
             payload.site_name.strip(),
             payload.address.strip(),
@@ -58,8 +80,19 @@ def create_site(payload: SiteCreate):
         return SiteResponse(**d)
 
 @router.put("/{site_id}", response_model=SiteResponse)
-def update_site(site_id: str, payload: SiteUpdate):
+def update_site(site_id: str, payload: SiteUpdate, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role == "OPERATOR":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot modify sites.")
+
     with get_db_cursor(commit=True) as cur:
+        if user_role != "OEM_MANAGER":
+            cur.execute("SELECT organization_id FROM sites WHERE id = %s;", (site_id,))
+            target_site = cur.fetchone()
+            if not target_site:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+            if str(target_site[0] or "") != str(current_user.get("organization_id") or ""):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot modify sites of another organization.")
         cur.execute("""
             UPDATE sites
             SET site_name = COALESCE(%s, site_name),

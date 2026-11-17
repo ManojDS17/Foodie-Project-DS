@@ -127,6 +127,7 @@ def init_db():
 
         # Ensure schema columns and migrations exist
         cur.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 1;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP WITH TIME ZONE;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
@@ -143,6 +144,7 @@ def init_db():
             ALTER TABLE organizations ALTER COLUMN contact_poc DROP NOT NULL;
             ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_client_code_key;
             CREATE UNIQUE INDEX IF NOT EXISTS organizations_client_code_active_unique ON organizations (UPPER(client_code)) WHERE (is_deleted IS NOT TRUE);
+            CREATE UNIQUE INDEX IF NOT EXISTS organizations_tax_id_active_unique ON organizations (REGEXP_REPLACE(tax_id, '[^0-9]', '', 'g')) WHERE (is_deleted IS NOT TRUE AND tax_id IS NOT NULL AND tax_id != '');
             ALTER TABLE machines ALTER COLUMN capacity DROP NOT NULL;
             ALTER TABLE machines ALTER COLUMN hardware_version DROP DEFAULT;
             ALTER TABLE machines ALTER COLUMN operational_status SET DEFAULT 'Idle';

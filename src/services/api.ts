@@ -1,6 +1,22 @@
-import type { Site, User, Organization, Machine, MachineModel, OrganizationCreateData, DashboardStats } from '../types';
+import type { Site, User, UserCreateData, Organization, Machine, MachineModel, OrganizationCreateData, DashboardStats } from '../types';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const getApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined' && window.location) {
+    const { protocol, hostname } = window.location;
+    if (hostname === '127.0.0.1') {
+      return `${protocol}//127.0.0.1:5000/api`;
+    }
+    if (hostname === 'localhost') {
+      return `${protocol}//localhost:5000/api`;
+    }
+    if (hostname) {
+      return `${protocol}//${hostname}:5000/api`;
+    }
+  }
+  return 'http://127.0.0.1:5000/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 const TOKEN_KEY = 'foodie_jwt_token_v1';
 
 export const tokenStorage = {
@@ -20,10 +36,35 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  let response: Response;
+
+  try {
+    response = await fetch(primaryUrl, {
+      ...options,
+      headers,
+    });
+  } catch (fetchErr: any) {
+    let fallbackUrl: string | null = null;
+    if (primaryUrl.includes('localhost:5000')) {
+      fallbackUrl = primaryUrl.replace('localhost:5000', '127.0.0.1:5000');
+    } else if (primaryUrl.includes('127.0.0.1:5000')) {
+      fallbackUrl = primaryUrl.replace('127.0.0.1:5000', 'localhost:5000');
+    }
+
+    if (fallbackUrl) {
+      try {
+        response = await fetch(fallbackUrl, {
+          ...options,
+          headers,
+        });
+      } catch {
+        throw fetchErr;
+      }
+    } else {
+      throw fetchErr;
+    }
+  }
 
   // Safely parse JSON or text bodies without failing on empty responses or 204 No Content
   let data: any = null;
@@ -41,6 +82,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!response.ok) {
+    if (response.status === 401 && !endpoint.includes('/auth/login')) {
+      tokenStorage.clear();
+      try {
+        localStorage.removeItem('foodie_auth_user_v4');
+        localStorage.removeItem('foodie_auth_user');
+      } catch {}
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
     const errorMsg =
       data?.detail ||
       data?.error ||
@@ -68,7 +119,7 @@ export const authApi = {
     return request<User>('/auth/me');
   },
 
-  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; email: string; expires_in_minutes: number }> => {
+  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; email: string; expires_in_minutes: number; reset_url?: string }> => {
     return request('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
@@ -89,8 +140,14 @@ export const authApi = {
     });
   },
 
-  logout: () => {
-    tokenStorage.clear();
+  logout: async () => {
+    try {
+      await request<any>('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignored if offline or token already expired
+    } finally {
+      tokenStorage.clear();
+    }
   },
 };
 
@@ -121,7 +178,7 @@ export const usersApi = {
     return await request<User[]>('/users');
   },
 
-  create: async (userData: any): Promise<User> => {
+  create: async (userData: UserCreateData): Promise<User> => {
     return await request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),

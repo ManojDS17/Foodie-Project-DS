@@ -7,11 +7,14 @@ import {
   Bell,
   Leaf,
   Plus,
+  UserPlus,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
 import { FleetEnergyChart } from './FleetEnergyChart';
-import { AddClientModal } from '../clients/AddClientModal';
-import { AddMachineDrawer } from '../machines/AddMachineDrawer';
+import { AddClientView } from '../clients/AddClientView';
+import { AddMachineView } from '../machines/AddMachineView';
+import { AddOperatorView } from '../operators/AddOperatorView';
+import { Toast } from '../common/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { dashboardApi, orgsApi, machinesApi } from '../../services/api';
 import type { Organization, Machine, DashboardStats } from '../../types';
@@ -23,6 +26,8 @@ export const OemDashboardView: React.FC = () => {
   // Modals & Drawers state
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isAddMachineOpen, setIsAddMachineOpen] = useState(false);
+  const [isAddOperatorOpen, setIsAddOperatorOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
 
   // Live PostgreSQL & Telemetry Data State
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
@@ -57,11 +62,90 @@ export const OemDashboardView: React.FC = () => {
   }, []);
 
   const recentClients = dashboardStats?.recent_clients || [];
-  const attentionMachines = dashboardStats?.attention_machines || [];
+  const attentionMachines = (dashboardStats?.attention_machines || []).slice().sort((a, b) =>
+    (b.machine_code || '').localeCompare(a.machine_code || '', undefined, { numeric: true, sensitivity: 'base' })
+  );
   const upcomingMaintenance = dashboardStats?.upcoming_maintenance || [];
 
+  if (isAddClientOpen) {
+    return (
+      <div className="select-none">
+        <AddClientView
+          existingClients={organizations}
+          onBack={() => setIsAddClientOpen(false)}
+          onSuccess={(newOrg) => {
+            fetchData();
+            setIsAddClientOpen(false);
+            setToast({
+              message: `Client ${newOrg.company_name} (${newOrg.client_code}) added successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (isAddMachineOpen) {
+    return (
+      <div className="select-none">
+        <AddMachineView
+          onBack={() => setIsAddMachineOpen(false)}
+          onSuccess={(newMachine) => {
+            fetchData();
+            setIsAddMachineOpen(false);
+            setToast({
+              message: `Machine ${newMachine.serial_number || newMachine.machine_code} added successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (isAddOperatorOpen) {
+    return (
+      <div className="select-none">
+        <AddOperatorView
+          existingClients={organizations}
+          onBack={() => setIsAddOperatorOpen(false)}
+          onSuccess={(newOperator) => {
+            fetchData();
+            setIsAddOperatorOpen(false);
+            setToast({
+              message: `Operator ${newOperator.first_name} ${newOperator.last_name || ''} registered successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-5 max-w-[1400px] mx-auto">
+    <div className="flex flex-col gap-5 max-w-[1400px] w-full min-w-0 mx-auto pb-10">
       {/* Top Welcome Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
@@ -73,8 +157,8 @@ export const OemDashboardView: React.FC = () => {
           </p>
         </div>
 
-        {/* Action Buttons: + Add client & + Add machine */}
-        <div className="flex items-center gap-2.5">
+        {/* Action Buttons: + Add client & + Add machine & + Add operator */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
           <button
             type="button"
             onClick={() => setIsAddClientOpen(true)}
@@ -87,10 +171,19 @@ export const OemDashboardView: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsAddMachineOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-[#D1D5DB] bg-white text-[#171717] hover:bg-[#F9FAFB] transition-all cursor-pointer shadow-2xs"
+          >
+            <Plus className="w-3.5 h-3.5 text-[#171717]" />
+            <span>Add machine</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAddOperatorOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all cursor-pointer shadow-2xs"
           >
-            <Plus className="w-3.5 h-3.5 text-white" />
-            <span>Add machine</span>
+            <UserPlus className="w-3.5 h-3.5 text-white" />
+            <span>Add operator</span>
           </button>
         </div>
       </div>
@@ -194,7 +287,7 @@ export const OemDashboardView: React.FC = () => {
                     : 'No clients onboarded yet. Click "Add client" above to onboard your first client.'}
                 </div>
               ) : (
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-xs min-w-[520px]">
                   <thead>
                     <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280]">
                       <th className="py-2.5 px-3 font-semibold">Client ID</th>
@@ -345,22 +438,13 @@ export const OemDashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Reusable Modals & Drawers */}
-      <AddClientModal
-        isOpen={isAddClientOpen}
-        onClose={() => setIsAddClientOpen(false)}
-        onSuccess={() => {
-          fetchData();
-        }}
-      />
-
-      <AddMachineDrawer
-        isOpen={isAddMachineOpen}
-        onClose={() => setIsAddMachineOpen(false)}
-        onSuccess={() => {
-          fetchData();
-        }}
-      />
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 };

@@ -48,6 +48,7 @@ export const LoginPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
 
   // Check URL params for special initial views (e.g. ?view=signed_out, ?view=expired, or reset link)
   useEffect(() => {
@@ -57,10 +58,16 @@ export const LoginPage: React.FC = () => {
     const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
     const storedExpiredEmail = sessionStorage.getItem('foodie_expired_email');
 
+    const queryPassword = searchParams.get('password') || searchParams.get('p');
+
     if (queryEmail) {
       setEmail(queryEmail);
     } else if (storedExpiredEmail) {
       setEmail(storedExpiredEmail);
+    }
+
+    if (queryPassword) {
+      setPassword(queryPassword);
     }
 
     if (token) {
@@ -137,7 +144,10 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await authApi.forgotPassword(email.trim());
+      const res = await authApi.forgotPassword(email.trim());
+      if (res?.reset_url) {
+        setDevResetUrl(res.reset_url);
+      }
       setView('CHECK_EMAIL');
     } catch (err: any) {
       setErrorMessage(err.message || 'No account found with this email address.');
@@ -196,6 +206,14 @@ export const LoginPage: React.FC = () => {
 
         {/* Center Content Box - vertically auto-centered */}
         <div className="w-full max-w-[380px] mx-auto my-auto py-2">
+          {/* Mobile-only Foodie Logo */}
+          <div className="lg:hidden flex items-center justify-center mb-6">
+            <img
+              src={BRAND_ASSETS.foodieLogo}
+              alt="Foodie Logo"
+              className="h-8 w-auto object-contain"
+            />
+          </div>
           {/* ======================================================== */}
           {/* VIEW 1: SIGN IN */}
           {/* ======================================================== */}
@@ -203,10 +221,10 @@ export const LoginPage: React.FC = () => {
             <div>
               {/* Header */}
               <div className="mb-5">
-                <h2 className="text-xl sm:text-[24px] font-bold text-[#111827] tracking-tight leading-snug">
+                <h2 className="text-2xl font-semibold text-[#171717] tracking-tight leading-snug">
                   {BRAND_COPY.authWelcomeTitle}
                 </h2>
-                <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1 leading-normal">
+                <p className="text-sm text-[#666666] mt-1.5 leading-normal">
                   {BRAND_COPY.authWelcomeSubtitle}
                 </p>
               </div>
@@ -225,7 +243,7 @@ export const LoginPage: React.FC = () => {
               <form onSubmit={handleLogin} className="space-y-3.5">
                 {/* Email Field */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  <label className="block text-xs font-medium text-[#666666] mb-1">
                     Email
                   </label>
                   <input
@@ -237,13 +255,13 @@ export const LoginPage: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }}
                     placeholder="priya.shah@greenvalley.example"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#D1D5DB] text-xs sm:text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                   />
                 </div>
 
                 {/* Password Field with Eye Toggle */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  <label className="block text-xs font-medium text-[#666666] mb-1">
                     Password
                   </label>
                   <div className="relative">
@@ -256,7 +274,7 @@ export const LoginPage: React.FC = () => {
                         if (errorMessage) setErrorMessage(null);
                       }}
                       placeholder="••••••••••••••"
-                      className={`w-full px-3.5 py-2.5 pr-10 rounded-lg border text-xs sm:text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] transition-all bg-white ${
+                      className={`w-full px-3.5 py-2.5 pr-10 rounded-lg border text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] transition-all bg-white ${
                         errorMessage
                           ? 'border-red-400 focus:border-red-500'
                           : 'border-[#D1D5DB] focus:border-[#E32032]'
@@ -291,7 +309,7 @@ export const LoginPage: React.FC = () => {
                       onChange={(e) => setKeepSignedIn(e.target.checked)}
                       className="w-4 h-4 rounded text-[#E32032] border-[#D1D5DB] focus:ring-[#E32032] accent-[#E32032] cursor-pointer"
                     />
-                    <span className="text-[#374151] font-medium">Keep me signed in</span>
+                    <span className="text-[#666666] font-medium">Keep me signed in</span>
                   </label>
 
                   <button
@@ -310,7 +328,7 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs hover:shadow active:scale-[0.99] disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2 mt-2"
+                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs hover:shadow active:scale-[0.99] disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2 mt-2"
                 >
                   {isLoading ? (
                     <>
@@ -323,7 +341,7 @@ export const LoginPage: React.FC = () => {
                 </button>
 
                 {/* Accounts setup notice directly below Sign In button */}
-                <p className="text-[11px] sm:text-xs text-[#6B7280] text-center mt-3.5 leading-relaxed font-normal">
+                <p className="text-xs text-[#666666] text-center mt-3.5 leading-relaxed font-normal">
                   Accounts are set up by your Site Admin or PowerTech Energy.
                 </p>
               </form>
@@ -336,10 +354,10 @@ export const LoginPage: React.FC = () => {
           {view === 'FORGOT_PASSWORD' && (
             <div>
               <div className="mb-5">
-                <h2 className="text-xl sm:text-[22px] font-bold text-[#111827] tracking-tight leading-snug">
+                <h2 className="text-2xl font-semibold text-[#171717] tracking-tight leading-snug">
                   Reset your password
                 </h2>
-                <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1 leading-normal">
+                <p className="text-sm text-[#666666] mt-1.5 leading-normal">
                   Enter the email linked to your account and we'll send you a reset link.
                 </p>
               </div>
@@ -352,7 +370,7 @@ export const LoginPage: React.FC = () => {
 
               <form onSubmit={handleSendResetLink} className="space-y-3.5">
                 <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  <label className="block text-xs font-medium text-[#666666] mb-1">
                     Email
                   </label>
                   <input
@@ -364,14 +382,14 @@ export const LoginPage: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }}
                     placeholder="priya.shah@greenvalley.example"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#D1D5DB] text-xs sm:text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
+                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -390,7 +408,7 @@ export const LoginPage: React.FC = () => {
                       setErrorMessage(null);
                       setView('SIGN_IN');
                     }}
-                    className="text-xs font-semibold text-[#374151] hover:text-[#111827] flex items-center justify-center gap-1.5 mx-auto transition-colors"
+                    className="text-xs font-medium text-[#666666] hover:text-[#111827] flex items-center justify-center gap-1.5 mx-auto transition-colors"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                     <span>Back to sign in</span>
@@ -409,24 +427,36 @@ export const LoginPage: React.FC = () => {
                 <Mail className="w-5 h-5" />
               </div>
 
-              <h2 className="text-xl sm:text-[22px] font-bold text-[#111827] tracking-tight">
+              <h2 className="text-2xl font-semibold text-[#171717] tracking-tight">
                 Check your email
               </h2>
-              <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1.5 leading-relaxed max-w-sm mx-auto">
+              <p className="text-sm text-[#666666] mt-1.5 leading-relaxed max-w-sm mx-auto">
                 We sent a reset link to <span className="font-semibold text-[#111827]">{email}</span>. The link expires in 30 minutes.
               </p>
+
+              {devResetUrl && (
+                <div className="mt-4 p-3 bg-neutral-50 rounded-lg border border-neutral-200 text-left">
+                  <p className="text-[11px] font-semibold text-[#171717] mb-1">Reset link:</p>
+                  <a href={devResetUrl} className="text-xs text-[#E32032] underline break-all font-mono">
+                    Click here to set new password
+                  </a>
+                </div>
+              )}
 
               <div className="mt-5 space-y-2.5">
                 <button
                   type="button"
-                  onClick={() => setView('SIGN_IN')}
-                  className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer"
+                  onClick={() => {
+                    setView('SIGN_IN');
+                    setDevResetUrl(null);
+                  }}
+                  className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
                 >
                   Back to sign in
                 </button>
               </div>
 
-              <p className="text-[11px] sm:text-xs text-[#6B7280] mt-5 leading-relaxed">
+              <p className="text-xs text-[#666666] mt-5 leading-relaxed">
                 Didn't get the email? Check your spam folder or{' '}
                 <button
                   type="button"
@@ -470,7 +500,7 @@ export const LoginPage: React.FC = () => {
                         setErrorMessage(null);
                         setView('FORGOT_PASSWORD');
                       }}
-                      className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer"
+                      className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
                     >
                       Request a new reset link
                     </button>
@@ -480,7 +510,7 @@ export const LoginPage: React.FC = () => {
                         setErrorMessage(null);
                         setView('SIGN_IN');
                       }}
-                      className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer"
+                      className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
                     >
                       Back to sign in
                     </button>
@@ -506,7 +536,7 @@ export const LoginPage: React.FC = () => {
                   <form onSubmit={handleUpdatePassword} className="space-y-3.5">
                     {/* New Password */}
                     <div>
-                      <label className="block text-xs font-semibold text-[#374151] mb-1">
+                      <label className="block text-xs font-medium text-[#666666] mb-1">
                         New password
                       </label>
                       <div className="relative">
@@ -516,7 +546,7 @@ export const LoginPage: React.FC = () => {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="••••••••••••••••"
-                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#D1D5DB] text-xs sm:text-sm text-[#111827] focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] outline-none"
+                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] outline-none"
                         />
                         <button
                           type="button"
@@ -530,7 +560,7 @@ export const LoginPage: React.FC = () => {
 
                     {/* Confirm Password */}
                     <div>
-                      <label className="block text-xs font-semibold text-[#374151] mb-1">
+                      <label className="block text-xs font-medium text-[#666666] mb-1">
                         Confirm new password
                       </label>
                       <div className="relative">
@@ -540,7 +570,7 @@ export const LoginPage: React.FC = () => {
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           placeholder="••••••••••••••••"
-                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#D1D5DB] text-xs sm:text-sm text-[#111827] focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] outline-none"
+                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] outline-none"
                         />
                         <button
                           type="button"
@@ -575,7 +605,7 @@ export const LoginPage: React.FC = () => {
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
+                      className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       {isLoading ? (
                         <>
@@ -601,10 +631,10 @@ export const LoginPage: React.FC = () => {
                 <CheckCircle2 className="w-5 h-5" />
               </div>
 
-              <h2 className="text-xl sm:text-[22px] font-bold text-[#111827] tracking-tight">
+              <h2 className="text-2xl font-semibold text-[#171717] tracking-tight">
                 Password updated
               </h2>
-              <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1.5 leading-relaxed max-w-sm mx-auto">
+              <p className="text-sm text-[#666666] mt-1.5 leading-relaxed max-w-sm mx-auto">
                 Your password has been changed. Sign in with your new password to continue.
               </p>
 
@@ -617,7 +647,7 @@ export const LoginPage: React.FC = () => {
                     setNewPassword('');
                     setConfirmPassword('');
                   }}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer"
+                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
                 >
                   Sign in
                 </button>
@@ -634,10 +664,10 @@ export const LoginPage: React.FC = () => {
                 <LogOut className="w-5 h-5" />
               </div>
 
-              <h2 className="text-xl sm:text-[22px] font-bold text-[#111827] tracking-tight">
+              <h2 className="text-2xl font-semibold text-[#171717] tracking-tight">
                 You've signed out
               </h2>
-              <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1.5 leading-relaxed max-w-sm mx-auto">
+              <p className="text-sm text-[#666666] mt-1.5 leading-relaxed max-w-sm mx-auto">
                 If you're on a shared device, close this browser window to finish.
               </p>
 
@@ -645,7 +675,7 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setView('SIGN_IN')}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer"
+                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
                 >
                   Sign in again
                 </button>
@@ -662,8 +692,8 @@ export const LoginPage: React.FC = () => {
                 <div className="w-11 h-11 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 border border-amber-100">
                   <Clock className="w-5 h-5" />
                 </div>
-                <h2 className="text-xl sm:text-[22px] font-bold text-[#111827]">Session expired</h2>
-                <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1 leading-normal">
+                <h2 className="text-2xl font-semibold text-[#171717]">Session expired</h2>
+                <p className="text-sm text-[#666666] mt-1.5 leading-normal">
                   You were signed out after a period of inactivity. Sign in again to pick up where you left off.
                 </p>
               </div>
@@ -679,7 +709,7 @@ export const LoginPage: React.FC = () => {
 
               <form onSubmit={handleLogin} className="space-y-3.5">
                 <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  <label className="block text-xs font-medium text-[#666666] mb-1">
                     Email
                   </label>
                   <input
@@ -691,11 +721,11 @@ export const LoginPage: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }}
                     placeholder="priya.shah@greenvalley.example"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#D1D5DB] text-xs sm:text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  <label className="block text-xs font-medium text-[#666666] mb-1">
                     Password
                   </label>
                   <div className="relative">
@@ -708,7 +738,7 @@ export const LoginPage: React.FC = () => {
                         if (errorMessage) setErrorMessage(null);
                       }}
                       placeholder="••••••••••••••"
-                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#D1D5DB] text-xs sm:text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                     />
                     <button
                       type="button"
@@ -723,7 +753,7 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
+                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -743,7 +773,7 @@ export const LoginPage: React.FC = () => {
                       setPassword('');
                       setView('SIGN_IN');
                     }}
-                    className="text-xs font-semibold text-[#374151] hover:text-[#111827] transition-colors"
+                    className="text-xs font-medium text-[#666666] hover:text-[#111827] transition-colors"
                   >
                     Sign in with a different account
                   </button>
@@ -754,12 +784,12 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Bottom Footer: Official PowerTech Energy attribution - centered in the middle of right half */}
-        <div className="w-full pt-4 border-t border-[#F3F4F6] flex items-center justify-center gap-2 flex-shrink-0">
+        <div className="w-full pt-4 border-t border-[#F3F4F6] flex items-center justify-center gap-2.5 flex-shrink-0">
           <span className="text-xs text-[#6B7280] font-medium">by</span>
           <img
             src={BRAND_ASSETS.powertechFullLogo}
             alt="PowerTech Energy"
-            className="h-4 sm:h-4.5 w-auto object-contain opacity-90"
+            className="h-8 sm:h-9 w-auto object-contain opacity-90"
           />
         </div>
       </div>
