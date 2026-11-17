@@ -7,6 +7,7 @@ import { DashboardOverviewPage } from './pages/DashboardOverviewPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { MachinesPage } from './pages/MachinesPage';
 import { ClientsPage } from './pages/ClientsPage';
+import { TeamPage } from './pages/TeamPage';
 import { PlaceholderView } from './components/common/PlaceholderView';
 import { SessionTimeoutTracker } from './components/auth/SessionTimeoutTracker';
 
@@ -86,6 +87,18 @@ export const AppContent: React.FC = () => {
           element={
             <ProtectedRoute adminOnly>
               <ClientsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="team"
+          element={
+            <ProtectedRoute>
+              {user?.role === 'SITE_ADMIN' || isOem ? (
+                <TeamPage />
+              ) : (
+                <Navigate to="/" replace />
+              )}
             </ProtectedRoute>
           }
         />

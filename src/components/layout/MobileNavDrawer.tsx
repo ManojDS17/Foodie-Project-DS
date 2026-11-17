@@ -20,6 +20,16 @@ export interface MobileNavDrawerProps {
   onClose: () => void;
 }
 
+interface MobileDrawerItem {
+  to: string;
+  label: string;
+  icon: any;
+  end?: boolean;
+  disabled?: boolean;
+  badge?: string;
+  alertCount?: number;
+}
+
 export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
   isOpen,
   onClose,
@@ -51,11 +61,11 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const navItems = [
+  const navItems: MobileDrawerItem[] = [
     { to: '/', label: 'Home', icon: Home, end: true },
     ...(isOem ? [{ to: '/clients', label: 'Clients', icon: Users }] : []),
     { to: '/machines', label: 'Machines', icon: LayoutGrid },
-    ...(userRole === 'SITE_ADMIN' ? [{ to: '#', label: 'Team', icon: Users, disabled: true }] : []),
+    ...(userRole === 'SITE_ADMIN' ? [{ to: '/team', label: 'Team', icon: Users }] : []),
     ...(userRole !== 'OPERATOR' ? [{ to: '/sustainability', label: 'Sustainability', icon: Leaf, badge: 'P2' }] : []),
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/alerts', label: 'Alerts', icon: Bell, alertCount: 2 },

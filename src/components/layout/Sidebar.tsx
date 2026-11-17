@@ -27,13 +27,13 @@ export const Sidebar: React.FC = () => {
 
   // Navigation Items per role:
   // - OEM_MANAGER: Home, Clients, Machines, Sustainability (P2), Reports, Alerts, Settings
-  // - SITE_ADMIN: Home, Machines, Team (Disabled for now), Sustainability (P2), Reports, Alerts, Settings
+  // - SITE_ADMIN: Home, Machines, Team, Sustainability (P2), Reports, Alerts, Settings
   // - OPERATOR: Home, Machines, Reports, Alerts, Settings
   const navItems: NavItem[] = [
     { to: '/', label: 'Home', icon: Home, end: true },
     ...(userRole === 'OEM_MANAGER' ? [{ to: '/clients', label: 'Clients', icon: Users }] : []),
     { to: '/machines', label: 'Machines', icon: LayoutGrid },
-    ...(userRole === 'SITE_ADMIN' ? [{ to: '#', label: 'Team', icon: Users, disabled: true }] : []),
+    ...(userRole === 'SITE_ADMIN' ? [{ to: '/team', label: 'Team', icon: Users }] : []),
     ...(userRole !== 'OPERATOR' ? [{ to: '/sustainability', label: 'Sustainability', icon: Leaf, badge: 'P2' }] : []),
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/alerts', label: 'Alerts', icon: Bell },

@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { orgsApi, machinesApi, usersApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../common/ui';
 import { sanitizePhoneNumber } from '../clients/AddClientView';
 import type { Organization, Machine, User } from '../../types';
@@ -20,6 +21,8 @@ import type { Organization, Machine, User } from '../../types';
 export interface AddOperatorViewProps {
   existingClients?: Organization[];
   initialClientId?: string;
+  isClientLocked?: boolean;
+  backLabel?: string;
   onBack: () => void;
   onSuccess: (newOperator: User) => void;
 }
@@ -27,9 +30,15 @@ export interface AddOperatorViewProps {
 export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
   existingClients,
   initialClientId,
+  isClientLocked,
+  backLabel,
   onBack,
   onSuccess,
 }) => {
+  const { user } = useAuth();
+  const effectiveOrgId = initialClientId || (user?.role === 'SITE_ADMIN' ? user.organization_id : '') || '';
+  const isLocked = Boolean(isClientLocked || user?.role === 'SITE_ADMIN');
+
   const [clients, setClients] = useState<Organization[]>(existingClients || []);
   const [fleetMachines, setFleetMachines] = useState<Machine[]>([]);
 
@@ -37,7 +46,7 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [selectedClientId, setSelectedClientId] = useState<string>(initialClientId || '');
+  const [selectedClientId, setSelectedClientId] = useState<string>(effectiveOrgId);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -47,6 +56,12 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Load clients and machines
+  useEffect(() => {
+    if (effectiveOrgId && !selectedClientId) {
+      setSelectedClientId(effectiveOrgId);
+    }
+  }, [effectiveOrgId, selectedClientId]);
+
   useEffect(() => {
     Promise.all([
       existingClients && existingClients.length > 0
@@ -170,7 +185,7 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
           className="hover:text-[#111827] cursor-pointer transition-colors flex items-center gap-1 font-medium"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Home</span>
+          <span>{backLabel || 'Home'}</span>
         </button>
         <span className="text-[#9CA3AF]">/</span>
         <span className="font-bold text-[#111827]">Add new operator</span>
@@ -305,27 +320,41 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
               />
             </div>
 
-            {/* Client Organization Dropdown */}
+            {/* Client Organization */}
             <div className="md:col-span-2 lg:col-span-3">
               <label className="block text-xs font-semibold text-[#171717] mb-1.5">
                 Assign to client organization <span className="text-[#DC2626]">*</span>
               </label>
-              <select
-                value={selectedClientId}
-                onChange={(e) => {
-                  setSelectedClientId(e.target.value);
-                  if (error) setError(null);
-                }}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
-                required
-              >
-                <option value="">Select a client organization</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    [{c.client_code}] {c.company_name}
-                  </option>
-                ))}
-              </select>
+              {isLocked ? (
+                <input
+                  type="text"
+                  value={
+                    selectedClient
+                      ? `[${selectedClient.client_code}] ${selectedClient.company_name}`
+                      : (user?.company_name || 'Assigned Client Organization')
+                  }
+                  disabled
+                  readOnly
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-[#F9FAFB] text-[#374151] text-xs font-medium cursor-not-allowed select-none focus:outline-none"
+                />
+              ) : (
+                <select
+                  value={selectedClientId}
+                  onChange={(e) => {
+                    setSelectedClientId(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                  required
+                >
+                  <option value="">Select a client organization</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      [{c.client_code}] {c.company_name}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               {/* Machine Assignment Preview */}
               {selectedClientId && (
