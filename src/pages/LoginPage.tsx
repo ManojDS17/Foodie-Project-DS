@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Mail,
   CheckCircle2,
-  LogOut,
   Clock,
   ArrowLeft,
   Loader2,
@@ -15,6 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../services/api';
 import { AuthHero } from '../components/auth/AuthHero';
+import { SignedOutView } from '../components/auth/SignedOutView';
 import { BRAND_ASSETS, BRAND_COPY } from '../config/brandConfig';
 
 type AuthView =
@@ -636,28 +636,14 @@ export const LoginPage: React.FC = () => {
           {/* VIEW 6: SIGNED OUT */}
           {/* ======================================================== */}
           {view === 'SIGNED_OUT' && (
-            <div className="text-center">
-              <div className="w-11 h-11 rounded-full bg-neutral-100 text-[#4B5563] flex items-center justify-center mx-auto mb-3.5">
-                <LogOut className="w-5 h-5" />
-              </div>
-
-              <h2 className="text-2xl font-semibold text-[#171717] tracking-tight">
-                You've signed out
-              </h2>
-              <p className="text-sm text-[#666666] mt-1.5 leading-relaxed max-w-sm mx-auto">
-                If you're on a shared device, close this browser window to finish.
-              </p>
-
-              <div className="mt-5">
-                <button
-                  type="button"
-                  onClick={() => setView('SIGN_IN')}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
-                >
-                  Sign in again
-                </button>
-              </div>
-            </div>
+            <SignedOutView
+              onSignInAgain={() => {
+                setErrorMessage(null);
+                setPassword('');
+                setView('SIGN_IN');
+                navigate('/login', { replace: true });
+              }}
+            />
           )}
 
           {/* ======================================================== */}

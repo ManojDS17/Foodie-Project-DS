@@ -468,6 +468,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
                           onClick={() => {
                             setIsUserMenuOpen(false);
                             logout();
+                            navigate('/login?view=signed_out', { replace: true });
                           }}
                           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold text-[#E32032] hover:bg-red-50 transition-colors cursor-pointer text-left"
                         >

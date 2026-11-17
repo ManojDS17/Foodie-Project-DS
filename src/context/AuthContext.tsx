@@ -53,6 +53,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authApi.logout();
     setToken(null);
     setUser(null);
+    if (sessionStorage.getItem('foodie_session_expired') !== 'true') {
+      sessionStorage.setItem('foodie_signed_out', 'true');
+    }
   };
 
   const switchRole = (newRole: UserRole) => {

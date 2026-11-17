@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Home,
   Users,
@@ -34,6 +34,7 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
   isOpen,
   onClose,
 }) => {
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const userRole = user?.role || 'OPERATOR';
   const isOem = userRole === 'OEM_MANAGER';
@@ -198,8 +199,9 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
             onClick={() => {
               onClose();
               logout();
+              navigate('/login?view=signed_out', { replace: true });
             }}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-[#DC2626] hover:bg-red-50 transition-colors w-full"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-[#DC2626] hover:bg-red-50 transition-colors w-full cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>Sign out</span>

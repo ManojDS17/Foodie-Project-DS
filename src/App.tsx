@@ -10,6 +10,7 @@ import { ClientsPage } from './pages/ClientsPage';
 import { TeamPage } from './pages/TeamPage';
 import { PlaceholderView } from './components/common/PlaceholderView';
 import { SessionTimeoutTracker } from './components/auth/SessionTimeoutTracker';
+import { SignedOutView } from './components/auth/SignedOutView';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean }> = ({
   children,
@@ -28,6 +29,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
         />
       );
     }
+    const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+    if (isSignedOut) {
+      sessionStorage.removeItem('foodie_signed_out');
+      return <Navigate to="/login?view=signed_out" replace />;
+    }
     return <Navigate to="/login" replace />;
   }
 
@@ -44,8 +50,9 @@ export const AppContent: React.FC = () => {
 
   return (
     <Routes>
-      {/* Public Authentication Route */}
+      {/* Public Authentication Routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signed-out" element={<SignedOutView fullscreen />} />
 
       {/* Authenticated Application with Master Layout */}
       <Route
