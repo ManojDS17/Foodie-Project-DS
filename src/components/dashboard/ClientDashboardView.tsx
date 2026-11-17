@@ -100,20 +100,11 @@ export const ClientDashboardView: React.FC = () => {
       {/* Top Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-[#E3E4E6] pb-4 min-w-0">
         <div className="min-w-0">
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
-              Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Operator')}
-            </h1>
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#059669]"></span>
-              </span>
-              <span>Live telemetry</span>
-            </div>
-          </div>
+          <h1 className="text-lg sm:text-2xl font-bold text-[#171717] tracking-tight">
+            Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Operator')}
+          </h1>
           <p className="text-xs text-[#666666] mt-0.5">
-            {user?.company_name || 'Assigned Facility'} · Real-time operational data
+            {user?.company_name || 'Green Valley Foods Pty Ltd'} · Last updated 30 min ago
           </p>
         </div>
       </div>

@@ -155,18 +155,9 @@ export const OemDashboardView: React.FC = () => {
       {/* Top Welcome Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
-              Welcome, {user ? `${user.first_name} ${user.last_name}` : 'PowerTech Admin'}
-            </h1>
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#059669]"></span>
-              </span>
-              <span>Live fleet</span>
-            </div>
-          </div>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
+            Welcome, {user ? `${user.first_name} ${user.last_name}` : 'PowerTech Admin'}
+          </h1>
           <p className="text-xs text-[#888888] mt-0.5">
             Fleet overview across all clients · Live database &amp; telemetry
           </p>
