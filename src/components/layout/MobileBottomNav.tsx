@@ -6,12 +6,15 @@ import { useAuth } from '../../context/AuthContext';
 export const MobileBottomNav: React.FC = () => {
   const { user } = useAuth();
   const isOem = user?.role === 'OEM_MANAGER';
+  const isSiteAdmin = user?.role === 'SITE_ADMIN';
 
   const items = [
     { to: '/', label: 'Home', icon: Home, end: true },
     ...(isOem ? [{ to: '/clients', label: 'Clients', icon: Users, end: false }] : []),
     { to: '/machines', label: 'Machines', icon: LayoutGrid, end: false },
-    { to: '/alerts', label: 'Alerts', icon: Bell, end: false, badge: 2 },
+    ...(isSiteAdmin
+      ? [{ to: '/team', label: 'Team', icon: Users, end: false }]
+      : [{ to: '/alerts', label: 'Alerts', icon: Bell, end: false, badge: 2 }]),
     { to: '/profile', label: 'Profile', icon: User, end: false },
   ];
 
