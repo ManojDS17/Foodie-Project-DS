@@ -48,6 +48,7 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string>(effectiveOrgId);
   const [password, setPassword] = useState('');
@@ -104,8 +105,8 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
         (c) => c.email && c.email.trim().toLowerCase() === cleanEmail && !c.is_deleted
       )
     : null;
-  const isEmailDuplicate = Boolean(duplicateUser || duplicateClientEmail);
-  const isEmailFormatInvalid = cleanEmail.length > 0 && cleanEmail.includes('@') && cleanEmail.indexOf('@') < cleanEmail.length - 1 && !isValidEmail(cleanEmail);
+  const isEmailDuplicate = emailTouched && Boolean(duplicateUser || duplicateClientEmail);
+  const isEmailFormatInvalid = emailTouched && cleanEmail.length > 0 && !isValidEmail(cleanEmail);
 
   const selectedClient = Array.isArray(clients) ? clients.find((c) => c.id === selectedClientId) : undefined;
   const clientMachines = selectedClientId && Array.isArray(fleetMachines)
@@ -141,10 +142,12 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
       return;
     }
     if (!isValidEmail(email)) {
+      setEmailTouched(true);
       setError('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
     }
     if (isEmailDuplicate) {
+      setEmailTouched(true);
       setError(
         duplicateUser
           ? `An account with email "${cleanEmail}" is already registered. Email must be unique.`
@@ -363,7 +366,13 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
+                    setEmailTouched(false);
                     if (error) setError(null);
+                  }}
+                  onBlur={() => {
+                    if (email.trim()) {
+                      setEmailTouched(true);
+                    }
                   }}
                   placeholder="e.g. alex.rivera@client.example"
                   className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${

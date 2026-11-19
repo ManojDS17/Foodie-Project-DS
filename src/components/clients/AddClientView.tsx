@@ -121,6 +121,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   const [contactPoc, setContactPoc] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -167,8 +168,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
         (u) => u.email && u.email.trim().toLowerCase() === cleanEmail
       )
     : null;
-  const isEmailDuplicate = Boolean(duplicateClientByEmail || duplicateUserByEmail);
-  const isEmailFormatInvalid = cleanEmail.length > 0 && cleanEmail.includes('@') && cleanEmail.indexOf('@') < cleanEmail.length - 1 && !isValidEmail(cleanEmail);
+  const isEmailDuplicate = emailTouched && Boolean(duplicateClientByEmail || duplicateUserByEmail);
+  const isEmailFormatInvalid = emailTouched && cleanEmail.length > 0 && !isValidEmail(cleanEmail);
 
   // Password rules validation states
   const hasMinLength = password.length >= 12;
@@ -271,10 +272,12 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       return;
     }
     if (!isValidEmail(email)) {
+      setEmailTouched(true);
       setError('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
     }
     if (isEmailDuplicate) {
+      setEmailTouched(true);
       setError(
         duplicateClientByEmail
           ? `Email address is already registered to client "${duplicateClientByEmail.company_name}" (${duplicateClientByEmail.client_code}). Please use a different email address.`
@@ -693,7 +696,13 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
+                  setEmailTouched(false);
                   if (error && error.includes('email')) setError(null);
+                }}
+                onBlur={() => {
+                  if (email.trim()) {
+                    setEmailTouched(true);
+                  }
                 }}
                 placeholder="e.g. contact@company.com"
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${

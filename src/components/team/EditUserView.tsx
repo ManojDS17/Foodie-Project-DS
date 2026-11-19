@@ -202,7 +202,10 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldError && fieldError.toLowerCase().includes('email')) setFieldError(null);
+                }}
                 placeholder="e.g. user@organization.com"
                 required
                 disabled={isEmailLocked}
