@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$'
 SITE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
-PHONE_REGEX = r'^\+?[0-9\s-]{8,16}$'
+PHONE_REGEX = r'^\+?[0-9\s]{7,15}$'
 VALID_ROLES = ['OEM_MANAGER', 'SITE_ADMIN', 'OPERATOR']
 
 def validate_email_address(v: Optional[str]) -> Optional[str]:
@@ -20,10 +20,12 @@ def validate_phone_number(v: Optional[str]) -> Optional[str]:
     if not v or not v.strip():
         return None
     clean = v.strip()
-    if re.search(r'[^0-9+\s()-]', clean):
-        raise ValueError('Phone number can only contain numbers, spaces, and standard phone symbols (+, -, ()). Special characters like @, # are not allowed.')
-    if len(clean) > 20:
-        raise ValueError('Phone number cannot exceed 20 characters.')
+    if re.search(r'[^0-9+\s]', clean):
+        raise ValueError('Phone number can only contain numbers, spaces, and an optional leading plus (+). Symbols like -, (, ) are not allowed.')
+    if '+' in clean and (not clean.startswith('+') or clean.count('+') > 1):
+        raise ValueError('The plus sign (+) is only permitted at the beginning of the phone number.')
+    if len(clean) > 15:
+        raise ValueError('Phone number cannot exceed 15 characters.')
     digits = re.sub(r'\D', '', clean)
     if len(digits) < 7:
         raise ValueError('Phone number must contain at least 7 digits.')

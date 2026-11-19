@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Building2,
   AlertCircle,
-  Plus,
-  Trash2,
   Save,
   ArrowLeft,
   X,
@@ -14,9 +12,15 @@ import {
 import { orgsApi, machinesApi, usersApi } from '../../services/api';
 import { Button } from '../common/ui';
 import type { Organization, Machine, User } from '../../types';
+import { AssignMachinesSection, type AssignMachineRow } from './AssignMachinesSection';
 
 export const sanitizePhoneNumber = (val: string): string => {
-  return val.replace(/[^0-9+\s()-]/g, '').slice(0, 20);
+  if (!val) return '';
+  const trimmedLeading = val.replace(/^\s+/, '');
+  const hasLeadingPlus = trimmedLeading.startsWith('+');
+  const digitsAndSpaces = trimmedLeading.replace(/[^0-9\s]/g, '').replace(/\s{2,}/g, ' ');
+  const result = hasLeadingPlus ? `+${digitsAndSpaces}` : digitsAndSpaces;
+  return result.slice(0, 15);
 };
 
 export const isValidEmail = (email: string): boolean => {
@@ -31,11 +35,14 @@ export const validatePhoneNumberInput = (phone: string): string | null => {
   const trimmed = phone.trim();
   if (!trimmed) return null;
 
-  if (/[^0-9+\s()-]/.test(trimmed)) {
-    return 'Phone number can only contain numbers, spaces, and standard symbols (+, -, ()). Special characters like @, # are not allowed.';
+  if (/[^0-9+\s]/.test(trimmed)) {
+    return 'Phone number can only contain numbers, spaces, and an optional leading plus sign (+). Symbols like -, (, ) are not allowed.';
   }
-  if (trimmed.length > 20) {
-    return 'Phone number cannot exceed 20 characters.';
+  if (trimmed.includes('+') && (!trimmed.startsWith('+') || (trimmed.match(/\+/g) || []).length > 1)) {
+    return 'The plus sign (+) is only permitted at the beginning of the phone number.';
+  }
+  if (trimmed.length > 15) {
+    return 'Phone number cannot exceed 15 characters.';
   }
   const digitsOnly = trimmed.replace(/\D/g, '');
   if (digitsOnly.length < 7) {
@@ -80,12 +87,7 @@ export interface AddClientViewProps {
   onSuccess: (newOrg: Organization) => void;
 }
 
-interface MachineRow {
-  machine_id: string;
-  location: string;
-  lease_start_date: string;
-  lease_end_date: string;
-}
+type MachineRow = AssignMachineRow;
 
 export const AddClientView: React.FC<AddClientViewProps> = ({
   existingClients,
@@ -139,6 +141,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   ]);
 
   const [availableMachines, setAvailableMachines] = useState<Machine[]>([]);
+  const [isLoadingMachines, setIsLoadingMachines] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,13 +187,15 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       })
       .catch((err) => console.error('Failed to get next client code:', err));
 
+    setIsLoadingMachines(true);
     machinesApi
       .getAll()
       .then((list) => {
         const unassigned = list.filter((m) => !m.organization_id);
         setAvailableMachines(unassigned);
       })
-      .catch((err) => console.error('Failed to load fleet machines:', err));
+      .catch((err) => console.error('Failed to load fleet machines:', err))
+      .finally(() => setIsLoadingMachines(false));
   }, []);
 
   const handleAddMachineRow = () => {
@@ -337,10 +342,17 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       const row = machineRows[i];
       if (row.machine_id.trim() && row.lease_start_date && row.lease_end_date) {
         if (row.lease_end_date < row.lease_start_date) {
-          setError(`Machine #${i + 1}: Lease end date cannot be earlier than lease start date.`);
+          setError(`Row #${i + 1}: Lease end date cannot be earlier than lease start date.`);
           return;
         }
       }
+    }
+
+    const selectedMachineRows = machineRows.filter((r) => r.machine_id.trim());
+    const machineIds = selectedMachineRows.map((r) => r.machine_id);
+    if (new Set(machineIds).size !== machineIds.length) {
+      setError('You have selected the same machine multiple times.');
+      return;
     }
 
     setIsSubmitting(true);
@@ -654,7 +666,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   setPhoneNumber(sanitizePhoneNumber(e.target.value));
                   if (error && error.includes('Phone number')) setError(null);
                 }}
-                maxLength={20}
+                maxLength={15}
                 placeholder="e.g. +61 8 8200 1100"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-mono"
               />
@@ -710,87 +722,92 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
               ) : null}
             </div>
 
-            {/* Account Password */}
-            <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Password <span className="text-[#DC2626]">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value.slice(0, 50));
-                    if (error) setError(null);
-                  }}
-                  maxLength={50}
-                  placeholder="At least 12 chars, 1 number, 1 symbol"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium pr-10"
-                  required
-                  minLength={12}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717] cursor-pointer"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
+            {/* Account Password & Confirm Password Block */}
+            <div className="md:col-span-2 lg:col-span-2 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {/* Account Password */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                    Password <span className="text-[#DC2626]">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value.slice(0, 50));
+                        if (error) setError(null);
+                      }}
+                      maxLength={50}
+                      placeholder="At least 12 chars, 1 number, 1 symbol"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium pr-10"
+                      required
+                      minLength={12}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717] cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
 
-            {/* Confirm Password */}
-            <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Confirm password <span className="text-[#DC2626]">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value.slice(0, 50));
-                    if (error) setError(null);
-                  }}
-                  maxLength={50}
-                  placeholder="Re-enter login password"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border bg-white text-[#171717] focus:outline-none text-xs font-medium pr-10 ${
-                    confirmPassword
-                      ? confirmPassword === password
-                        ? 'border-emerald-500 focus:border-emerald-500'
-                        : 'border-[#EF4444] focus:border-[#EF4444]'
-                      : 'border-[#D1D5DB] focus:border-[#171717]'
-                  }`}
-                  required
-                  minLength={12}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717] cursor-pointer"
-                >
-                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                {/* Confirm Password */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                    Confirm password <span className="text-[#DC2626]">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value.slice(0, 50));
+                        if (error) setError(null);
+                      }}
+                      maxLength={50}
+                      placeholder="Re-enter login password"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border bg-white text-[#171717] focus:outline-none text-xs font-medium pr-10 ${
+                        confirmPassword
+                          ? confirmPassword === password
+                            ? 'border-emerald-500 focus:border-emerald-500'
+                            : 'border-[#EF4444] focus:border-[#EF4444]'
+                          : 'border-[#D1D5DB] focus:border-[#171717]'
+                      }`}
+                      required
+                      minLength={12}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717] cursor-pointer"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* Interactive Password Requirements Checklist */}
-            <div className="md:col-span-2 lg:col-span-3 -mt-1 mb-1 p-3 bg-slate-50 border border-[#E5E7EB] rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-              <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
-                <span>At least 12 characters</span>
-              </div>
-              <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
-                <span>One number</span>
-              </div>
-              <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
-                <span>One symbol</span>
-              </div>
-              <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
-                <span>Passwords match</span>
+              {/* Interactive Password Requirements Checklist */}
+              <div className="p-3 bg-slate-50 border border-[#E5E7EB] rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                  <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                  <span>At least 12 characters</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                  <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                  <span>One number</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                  <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                  <span>One symbol</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                  <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                  <span>Passwords match</span>
+                </div>
               </div>
             </div>
 
@@ -808,142 +825,55 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
               />
             </div>
 
-            {/* Billing Address */}
-            <div className="md:col-span-2 lg:col-span-3">
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Billing address <span className="text-[#DC2626]">*</span>
-              </label>
-              <input
-                type="text"
-                value={billingAddress}
-                onChange={(e) => {
-                  setBillingAddress(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="e.g. Railway Ave, Mount Isa QLD 4825"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
-                required
-              />
-            </div>
+            {/* Billing & Shipping Address (Side by Side) */}
+            <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Billing Address */}
+              <div>
+                <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                  Billing address <span className="text-[#DC2626]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={billingAddress}
+                  onChange={(e) => {
+                    setBillingAddress(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="e.g. Railway Ave, Mount Isa QLD 4825"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
+                  required
+                />
+              </div>
 
-            {/* Shipping Address */}
-            <div className="md:col-span-2 lg:col-span-3">
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Shipping address (optional)
-              </label>
-              <input
-                type="text"
-                value={shippingAddress}
-                onChange={(e) => setShippingAddress(e.target.value)}
-                placeholder="Leave blank or write 'Same as billing'"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
-              />
+              {/* Shipping Address */}
+              <div>
+                <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                  Shipping address (optional)
+                </label>
+                <input
+                  type="text"
+                  value={shippingAddress}
+                  onChange={(e) => setShippingAddress(e.target.value)}
+                  placeholder="Leave blank or write 'Same as billing'"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Section 3: Add Foodie to the Client */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#F3F4F6] pb-4 mb-6">
-            <div>
-              <h2 className="text-base font-bold text-[#111827] tracking-tight">
-                Add Foodie to the client
-              </h2>
-              <p className="text-xs text-[#6B7280] mt-0.5">
-                Assign available composter units from your unassigned fleet to this client.
-              </p>
-            </div>
-
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleAddMachineRow}
-              leftIcon={<Plus className="w-3.5 h-3.5" />}
-            >
-              Add another machine
-            </Button>
-          </div>
-
-          <div className="space-y-4">
-            {machineRows.map((row, idx) => (
-              <div
-                key={idx}
-                className="bg-[#F9FAFB] rounded-xl p-4 border border-[#E5E7EB] grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
-              >
-                  {/* Select Machine */}
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                      Machine #{idx + 1}
-                    </label>
-                    <select
-                      value={row.machine_id}
-                      onChange={(e) => handleUpdateMachineRow(idx, 'machine_id', e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
-                    >
-                      <option value="">Select machine (optional)</option>
-                      {availableMachines.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.serial_number || m.machine_code} ({m.model})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Installation Location */}
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                      Installation location
-                    </label>
-                    <input
-                      type="text"
-                      value={row.location}
-                      onChange={(e) => handleUpdateMachineRow(idx, 'location', e.target.value)}
-                      placeholder="e.g. Kitchen Dock Bay 1"
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
-                    />
-                  </div>
-
-                  {/* Lease Period */}
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                      Lease start date
-                    </label>
-                    <input
-                      type="date"
-                      value={row.lease_start_date}
-                      onChange={(e) => handleUpdateMachineRow(idx, 'lease_start_date', e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Lease End Date & Remove Action */}
-                  <div className="md:col-span-1 flex items-center gap-2">
-                    <div className="flex-1">
-                      <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                        Lease end date
-                      </label>
-                      <input
-                        type="date"
-                        value={row.lease_end_date}
-                        onChange={(e) => handleUpdateMachineRow(idx, 'lease_end_date', e.target.value)}
-                        className="w-full px-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer"
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMachineRow(idx)}
-                      title="Remove machine row"
-                      className="p-2.5 rounded-xl border border-[#E5E7EB] bg-white text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2] hover:border-[#FCA5A5] transition-colors cursor-pointer shrink-0 mt-2 sm:mt-6"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
+        {/* Section 3: Add Foodie to the Client (Reusable Assign Machines Form) */}
+        <AssignMachinesSection
+          title="Add Foodie to the client"
+          subtitle="Assign available composter units from your unassigned fleet to this client."
+          rows={machineRows}
+          availableMachines={availableMachines}
+          isLoadingMachines={isLoadingMachines}
+          isOptional={true}
+          onRowChange={handleUpdateMachineRow}
+          onAddRow={handleAddMachineRow}
+          onRemoveRow={handleRemoveMachineRow}
+        />
 
         {/* Docked Bottom Bar */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">

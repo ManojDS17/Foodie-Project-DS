@@ -465,7 +465,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                   setFormData((prev) => ({ ...prev, phone_number: sanitized }));
                   if (error && error.includes('Phone number')) setError(null);
                 }}
-                maxLength={20}
+                maxLength={15}
                 placeholder="e.g. +61 8 8200 1100"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-mono"
               />

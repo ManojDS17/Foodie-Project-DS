@@ -249,7 +249,7 @@ export const ProfilePage: React.FC = () => {
                 </div>
                 <input
                   type="tel"
-                  maxLength={20}
+                  maxLength={15}
                   value={formData.phone_number}
                   onChange={(e) => {
                     handleInputChange('phone_number', sanitizePhoneNumber(e.target.value));

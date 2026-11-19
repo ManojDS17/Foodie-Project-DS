@@ -234,7 +234,7 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
                   setPhone(sanitizePhoneNumber(e.target.value));
                   if (fieldError && fieldError.includes('Phone number')) setFieldError(null);
                 }}
-                maxLength={20}
+                maxLength={15}
                 placeholder="e.g. 0412 345 678"
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-[#D1D5DB] text-xs text-[#111827] focus:outline-none focus:border-[#111827] transition-all"
               />
