@@ -11,11 +11,12 @@ import {
   Cpu,
   Mail,
   ShieldCheck,
+  Check,
 } from 'lucide-react';
 import { orgsApi, machinesApi, usersApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../common/ui';
-import { sanitizePhoneNumber } from '../clients/AddClientView';
+import { sanitizePhoneNumber, validatePhoneNumberInput, isValidEmail } from '../clients/AddClientView';
 import type { Organization, Machine, User } from '../../types';
 
 export interface AddOperatorViewProps {
@@ -41,9 +42,11 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
 
   const [clients, setClients] = useState<Organization[]>(existingClients || []);
   const [fleetMachines, setFleetMachines] = useState<Machine[]>([]);
+  const [existingUsersList, setExistingUsersList] = useState<User[]>([]);
 
   // Form Fields
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string>(effectiveOrgId);
@@ -55,6 +58,14 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  // Password rules validation states
+  const hasMinLength = password.length >= 12;
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
+
   // Load clients and machines
   useEffect(() => {
     if (effectiveOrgId && !selectedClientId) {
@@ -64,33 +75,63 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
 
   useEffect(() => {
     Promise.all([
-      existingClients && existingClients.length > 0
+      existingClients && Array.isArray(existingClients) && existingClients.length > 0
         ? Promise.resolve(existingClients)
         : orgsApi.getAll().catch(() => []),
       machinesApi.getAll().catch(() => []),
+      usersApi.getAll().catch(() => []),
     ])
-      .then(([clientList, machineList]) => {
-        const activeClients = clientList.filter((c) => !c.is_deleted);
+      .then(([clientList, machineList, userList]) => {
+        const safeClients = Array.isArray(clientList) ? clientList : [];
+        const activeClients = safeClients.filter((c) => !c.is_deleted);
         setClients(activeClients);
-        setFleetMachines(machineList);
+        setFleetMachines(Array.isArray(machineList) ? machineList : []);
+        setExistingUsersList(Array.isArray(userList) ? userList : []);
+      })
+      .catch((err) => {
+        console.error('Failed to load clients or machines for operator view:', err);
       });
   }, [existingClients]);
 
-  const selectedClient = clients.find((c) => c.id === selectedClientId);
-  const clientMachines = selectedClientId
+  const cleanEmail = email.trim().toLowerCase();
+  const duplicateUser = cleanEmail
+    ? existingUsersList.find(
+        (u) => u.email && u.email.trim().toLowerCase() === cleanEmail && !u.is_deleted
+      )
+    : null;
+  const duplicateClientEmail = cleanEmail
+    ? clients.find(
+        (c) => c.email && c.email.trim().toLowerCase() === cleanEmail && !c.is_deleted
+      )
+    : null;
+  const isEmailDuplicate = Boolean(duplicateUser || duplicateClientEmail);
+  const isEmailFormatInvalid = cleanEmail.length > 0 && cleanEmail.includes('@') && cleanEmail.indexOf('@') < cleanEmail.length - 1 && !isValidEmail(cleanEmail);
+
+  const selectedClient = Array.isArray(clients) ? clients.find((c) => c.id === selectedClientId) : undefined;
+  const clientMachines = selectedClientId && Array.isArray(fleetMachines)
     ? fleetMachines.filter((m) => m.organization_id === selectedClientId && !m.is_deleted)
     : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 1. Full Name
-    if (!fullName.trim()) {
-      setError('Full name is required.');
+    // 1. First & Last Name
+    const cleanFirst = firstName.trim();
+    const cleanLast = lastName.trim();
+    if (!cleanFirst) {
+      setError('First name is required.');
       return;
     }
-    if (fullName.trim().split(/\s+/).length > 20) {
-      setError('Full name cannot exceed 20 words.');
+    if (cleanFirst.split(/\s+/).length > 20) {
+      setError('First name cannot exceed 20 words.');
+      return;
+    }
+    if (!cleanLast) {
+      setError('Last name is required.');
+      return;
+    }
+    if (cleanLast.split(/\s+/).length > 20) {
+      setError('Last name cannot exceed 20 words.');
       return;
     }
 
@@ -99,8 +140,16 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
       setError('Email address is required.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError('Please enter a valid email address.');
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
+      return;
+    }
+    if (isEmailDuplicate) {
+      setError(
+        duplicateUser
+          ? `An account with email "${cleanEmail}" is already registered. Email must be unique.`
+          : `Email is already registered to client "${duplicateClientEmail?.company_name}". Email must be unique.`
+      );
       return;
     }
 
@@ -112,17 +161,9 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
 
     // 4. Phone Number
     if (phoneNumber.trim()) {
-      if (/[a-zA-Z]/.test(phoneNumber)) {
-        setError('Phone number accepts digits and symbols only (no alphabets).');
-        return;
-      }
-      if (phoneNumber.trim().length > 20) {
-        setError('Phone number cannot exceed 20 characters.');
-        return;
-      }
-      const digitsOnly = phoneNumber.replace(/\D/g, '');
-      if (digitsOnly.length < 7) {
-        setError('Please enter a valid phone number with at least 7 digits.');
+      const phoneErr = validatePhoneNumberInput(phoneNumber);
+      if (phoneErr) {
+        setError(phoneErr);
         return;
       }
     }
@@ -132,16 +173,20 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
       setError('Password is required.');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long.');
       return;
     }
-    if (password.length > 15) {
-      setError('Password cannot exceed 15 characters.');
+    if (password.length > 50) {
+      setError('Password cannot exceed 50 characters.');
       return;
     }
-    if (password.trim().split(/\s+/).length > 15) {
-      setError('Password cannot exceed 15 words.');
+    if (!/[0-9]/.test(password)) {
+      setError('Password must contain at least one number (0-9).');
+      return;
+    }
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      setError('Password must contain at least one special character / symbol (e.g. !@#$%^&*).');
       return;
     }
     if (password !== confirmPassword) {
@@ -152,14 +197,10 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
     setIsSubmitting(true);
     setError(null);
 
-    const nameParts = fullName.trim().split(/\s+/);
-    const firstName = nameParts[0];
-    const lastName = nameParts.slice(1).join(' ') || 'Operator';
-
     try {
       const created = await usersApi.create({
-        first_name: firstName,
-        last_name: lastName,
+        first_name: cleanFirst,
+        last_name: cleanLast,
         email: email.trim().toLowerCase(),
         phone_number: phoneNumber.trim() || undefined,
         password: password.trim(),
@@ -264,19 +305,37 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {/* Full Name */}
+            {/* First Name */}
             <div>
               <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Full name <span className="text-[#DC2626]">*</span>
+                First name <span className="text-[#DC2626]">*</span>
               </label>
               <input
                 type="text"
-                value={fullName}
+                value={firstName}
                 onChange={(e) => {
-                  setFullName(e.target.value);
+                  setFirstName(e.target.value);
                   if (error) setError(null);
                 }}
-                placeholder="e.g. Alex Rivera"
+                placeholder="e.g. Alex"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                required
+              />
+            </div>
+
+            {/* Last Name */}
+            <div>
+              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                Last name <span className="text-[#DC2626]">*</span>
+              </label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="e.g. Rivera"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
                 required
               />
@@ -284,9 +343,20 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
 
             {/* Email Address */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Email address <span className="text-[#DC2626]">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-[#171717]">
+                  Email address <span className="text-[#DC2626]">*</span>
+                </label>
+                {isEmailDuplicate ? (
+                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                    Email already exists
+                  </span>
+                ) : isEmailFormatInvalid ? (
+                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                    Invalid email address
+                  </span>
+                ) : null}
+              </div>
               <div className="relative">
                 <input
                   type="email"
@@ -296,10 +366,31 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
                     if (error) setError(null);
                   }}
                   placeholder="e.g. alex.rivera@client.example"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                    isEmailDuplicate || isEmailFormatInvalid
+                      ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
+                      : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
+                  }`}
                   required
                 />
               </div>
+              {isEmailDuplicate ? (
+                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>
+                    {duplicateUser
+                      ? `An account with email "${cleanEmail}" is already registered.`
+                      : `Email is already registered to client "${duplicateClientEmail?.company_name}".`}
+                  </span>
+                </p>
+              ) : isEmailFormatInvalid ? (
+                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>
+                    Please enter a valid email address (e.g. name@company.com or name@company.com.au).
+                  </span>
+                </p>
+              ) : null}
             </div>
 
             {/* Phone Number */}
@@ -433,14 +524,14 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => {
-                    setPassword(e.target.value.slice(0, 15));
+                    setPassword(e.target.value.slice(0, 50));
                     if (error) setError(null);
                   }}
-                  maxLength={15}
-                  placeholder="Enter login password (6-15 chars)"
+                  maxLength={50}
+                  placeholder="At least 12 chars, 1 number, 1 symbol"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium pr-10"
                   required
-                  minLength={6}
+                  minLength={12}
                 />
                 <button
                   type="button"
@@ -462,10 +553,10 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => {
-                    setConfirmPassword(e.target.value.slice(0, 15));
+                    setConfirmPassword(e.target.value.slice(0, 50));
                     if (error) setError(null);
                   }}
-                  maxLength={15}
+                  maxLength={50}
                   placeholder="Re-enter login password"
                   className={`w-full px-3.5 py-2.5 rounded-xl border bg-white text-[#171717] focus:outline-none text-xs font-medium pr-10 ${
                     confirmPassword
@@ -475,7 +566,7 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
                       : 'border-[#D1D5DB] focus:border-[#171717]'
                   }`}
                   required
-                  minLength={6}
+                  minLength={12}
                 />
                 <button
                   type="button"
@@ -485,17 +576,26 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
                   {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {confirmPassword && (
-                confirmPassword === password ? (
-                  <p className="text-[11px] text-[#059669] font-medium flex items-center gap-1 mt-1">
-                    ✓ Passwords match
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-[#DC2626] font-medium flex items-center gap-1 mt-1">
-                    Passwords do not match
-                  </p>
-                )
-              )}
+            </div>
+
+            {/* Interactive Password Requirements Checklist */}
+            <div className="md:col-span-2 -mt-1 mb-1 p-3 bg-slate-50 border border-[#E5E7EB] rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>At least 12 characters</span>
+              </div>
+              <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>One number</span>
+              </div>
+              <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>One symbol</span>
+              </div>
+              <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>Passwords match</span>
+              </div>
             </div>
           </div>
 

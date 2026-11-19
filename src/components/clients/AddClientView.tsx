@@ -9,13 +9,50 @@ import {
   X,
   Eye,
   EyeOff,
+  Check,
 } from 'lucide-react';
-import { orgsApi, machinesApi } from '../../services/api';
+import { orgsApi, machinesApi, usersApi } from '../../services/api';
 import { Button } from '../common/ui';
-import type { Organization, Machine } from '../../types';
+import type { Organization, Machine, User } from '../../types';
 
 export const sanitizePhoneNumber = (val: string): string => {
-  return val.replace(/[a-zA-Z]/g, '').slice(0, 20);
+  return val.replace(/[^0-9+\s()-]/g, '').slice(0, 20);
+};
+
+export const isValidEmail = (email: string): boolean => {
+  if (!email || typeof email !== 'string') return false;
+  const clean = email.trim();
+  if (clean.includes('..')) return false;
+  const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+  return EMAIL_REGEX.test(clean);
+};
+
+export const validatePhoneNumberInput = (phone: string): string | null => {
+  const trimmed = phone.trim();
+  if (!trimmed) return null;
+
+  if (/[^0-9+\s()-]/.test(trimmed)) {
+    return 'Phone number can only contain numbers, spaces, and standard symbols (+, -, ()). Special characters like @, # are not allowed.';
+  }
+  if (trimmed.length > 20) {
+    return 'Phone number cannot exceed 20 characters.';
+  }
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly.length < 7) {
+    return 'Please enter a valid phone number with at least 7 digits (e.g. +61 400 000 000).';
+  }
+  if (digitsOnly.length > 15) {
+    return 'Phone number cannot exceed 15 digits.';
+  }
+  return null;
+};
+
+export const limitToMaxWords = (val: string, maxWords: number): string => {
+  const trimmed = val.trim();
+  if (!trimmed) return val;
+  const words = trimmed.split(/\s+/);
+  if (words.length <= maxWords) return val;
+  return words.slice(0, maxWords).join(' ');
 };
 
 export const formatABN = (val: string): string => {
@@ -24,6 +61,17 @@ export const formatABN = (val: string): string => {
   if (digits.length <= 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
   if (digits.length <= 8) return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
   return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+};
+
+export const isValidABN = (val: string): boolean => {
+  const digits = val.replace(/\D/g, '');
+  if (digits.length !== 11) return false;
+  const weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+  const sum = digits.split('').reduce((acc, char, index) => {
+    const digit = index === 0 ? parseInt(char, 10) - 1 : parseInt(char, 10);
+    return acc + digit * weights[index];
+  }, 0);
+  return sum % 89 === 0;
 };
 
 export interface AddClientViewProps {
@@ -39,29 +87,13 @@ interface MachineRow {
   lease_end_date: string;
 }
 
-const calculateFiveYearsLater = (dateStr: string): string => {
-  if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return '';
-  const y = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  const d = parseInt(parts[2], 10);
-  if (isNaN(y) || isNaN(m) || isNaN(d)) return '';
-  const targetYear = y + 5;
-  if (m === 2 && d === 29) {
-    const isLeap = (targetYear % 4 === 0 && targetYear % 100 !== 0) || (targetYear % 400 === 0);
-    const targetDay = isLeap ? 29 : 28;
-    return `${targetYear}-02-${String(targetDay).padStart(2, '0')}`;
-  }
-  return `${targetYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-};
-
 export const AddClientView: React.FC<AddClientViewProps> = ({
   existingClients,
   onBack,
   onSuccess,
 }) => {
   const [clientList, setClientList] = useState<Organization[]>(existingClients || []);
+  const [userList, setUserList] = useState<User[]>([]);
 
   useEffect(() => {
     if (existingClients && existingClients.length > 0) {
@@ -69,6 +101,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
     } else {
       orgsApi.getAll().then((data) => setClientList(data)).catch(() => {});
     }
+    usersApi.getAll().then((data) => setUserList(data)).catch(() => {});
   }, [existingClients]);
 
   // Section 1: Client details
@@ -101,7 +134,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       machine_id: '',
       location: '',
       lease_start_date: todayStr,
-      lease_end_date: calculateFiveYearsLater(todayStr),
+      lease_end_date: '',
     },
   ]);
 
@@ -109,7 +142,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Duplicate ABN validation
+  // Duplicate & Checksum ABN validation
   const cleanTaxDigits = taxId.replace(/\D/g, '');
   const duplicateClient =
     cleanTaxDigits.length === 11
@@ -117,6 +150,28 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
           (c) => c.tax_id && c.tax_id.replace(/\D/g, '') === cleanTaxDigits
         )
       : null;
+  const isAbnChecksumInvalid = cleanTaxDigits.length === 11 && !isValidABN(cleanTaxDigits);
+
+  // Duplicate Email validation
+  const cleanEmail = email.trim().toLowerCase();
+  const duplicateClientByEmail = cleanEmail
+    ? clientList.find(
+        (c) => c.email && c.email.trim().toLowerCase() === cleanEmail
+      )
+    : null;
+  const duplicateUserByEmail = cleanEmail
+    ? userList.find(
+        (u) => u.email && u.email.trim().toLowerCase() === cleanEmail
+      )
+    : null;
+  const isEmailDuplicate = Boolean(duplicateClientByEmail || duplicateUserByEmail);
+  const isEmailFormatInvalid = cleanEmail.length > 0 && cleanEmail.includes('@') && cleanEmail.indexOf('@') < cleanEmail.length - 1 && !isValidEmail(cleanEmail);
+
+  // Password rules validation states
+  const hasMinLength = password.length >= 12;
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
 
   // Load next client code and available unmapped machines
   useEffect(() => {
@@ -146,7 +201,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
         machine_id: '',
         location: '',
         lease_start_date: today,
-        lease_end_date: calculateFiveYearsLater(today),
+        lease_end_date: '',
       },
     ]);
   };
@@ -159,7 +214,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
           machine_id: '',
           location: '',
           lease_start_date: today,
-          lease_end_date: calculateFiveYearsLater(today),
+          lease_end_date: '',
         },
       ]);
       return;
@@ -174,15 +229,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   ) => {
     setMachineRows((prev) => {
       const updated = [...prev];
-      if (field === 'lease_start_date') {
-        updated[index] = {
-          ...updated[index],
-          lease_start_date: value,
-          lease_end_date: calculateFiveYearsLater(value),
-        };
-      } else {
-        updated[index] = { ...updated[index], [field]: value };
-      }
+      updated[index] = { ...updated[index], [field]: value };
       return updated;
     });
   };
@@ -206,12 +253,28 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       setError('Full name / Company name cannot exceed 20 words.');
       return;
     }
-    if (contactPoc.trim() && contactPoc.trim().split(/\s+/).length > 20) {
-      setError('Point of contact name cannot exceed 20 words.');
+    if (!contactPoc.trim()) {
+      setError('Point of contact name is required.');
+      return;
+    }
+    if (contactPoc.trim().length > 50) {
+      setError('Point of contact name cannot exceed 50 characters.');
       return;
     }
     if (!email.trim()) {
       setError('Primary contact email address is required.');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
+      return;
+    }
+    if (isEmailDuplicate) {
+      setError(
+        duplicateClientByEmail
+          ? `Email address is already registered to client "${duplicateClientByEmail.company_name}" (${duplicateClientByEmail.client_code}). Please use a different email address.`
+          : 'Email address is already registered to an existing account. Please use a different email address.'
+      );
       return;
     }
     if (!billingAddress.trim()) {
@@ -221,7 +284,13 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
     if (taxId.trim()) {
       const abnDigits = taxId.replace(/\D/g, '');
       if (abnDigits.length !== 11) {
-        setError('Tax ID (ABN) must be exactly 11 digits (e.g. 12 345 678 901).');
+        setError('Tax ID (ABN) must be exactly 11 digits (e.g. 51 824 753 556).');
+        return;
+      }
+      if (!isValidABN(abnDigits)) {
+        setError(
+          'Invalid Australian Business Number (ABN). The 11-digit ABN does not pass the official ABR Modulus 89 checksum calculation.'
+        );
         return;
       }
       if (duplicateClient) {
@@ -232,17 +301,9 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       }
     }
     if (phoneNumber.trim()) {
-      if (/[a-zA-Z]/.test(phoneNumber)) {
-        setError('Phone number accepts digits and symbols only (no alphabets).');
-        return;
-      }
-      if (phoneNumber.trim().length > 20) {
-        setError('Phone number cannot exceed 20 characters.');
-        return;
-      }
-      const digitsOnly = phoneNumber.replace(/\D/g, '');
-      if (digitsOnly.length < 7) {
-        setError('Please enter a valid phone number with at least 7 digits.');
+      const phoneErr = validatePhoneNumberInput(phoneNumber);
+      if (phoneErr) {
+        setError(phoneErr);
         return;
       }
     }
@@ -251,16 +312,20 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       setError('Account password is required for client site admin credentials.');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long.');
       return;
     }
-    if (password.length > 15) {
-      setError('Password cannot exceed 15 characters.');
+    if (password.length > 50) {
+      setError('Password cannot exceed 50 characters.');
       return;
     }
-    if (password.trim().split(/\s+/).length > 15) {
-      setError('Password cannot exceed 15 words.');
+    if (!/[0-9]/.test(password)) {
+      setError('Password must contain at least one number (0-9).');
+      return;
+    }
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      setError('Password must contain at least one special character / symbol (e.g. !@#$%^&*).');
       return;
     }
     if (password !== confirmPassword) {
@@ -449,11 +514,15 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 <label className="block text-xs font-semibold text-[#171717]">
                   Tax ID (ABN)
                 </label>
-                {duplicateClient && (
+                {duplicateClient ? (
                   <span className="text-[11px] font-semibold text-[#DC2626]">
                     Already registered
                   </span>
-                )}
+                ) : isAbnChecksumInvalid ? (
+                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                    Invalid checksum
+                  </span>
+                ) : null}
               </div>
               <input
                 type="text"
@@ -463,9 +532,9 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   if (error) setError(null);
                 }}
                 maxLength={14}
-                placeholder="e.g. 12 345 678 901"
+                placeholder="e.g. 51 824 753 556"
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
-                  duplicateClient
+                  duplicateClient || isAbnChecksumInvalid
                     ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
                     : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
                 }`}
@@ -475,6 +544,14 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
                   <span>
                     This ABN is already in use by <strong>{duplicateClient.company_name}</strong> ({duplicateClient.client_code}). Please enter a unique ABN.
+                  </span>
+                </p>
+              )}
+              {isAbnChecksumInvalid && !duplicateClient && (
+                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>
+                    Invalid ABN. This 11-digit number does not satisfy the official Australian Business Register Modulus 89 checksum.
                   </span>
                 </p>
               )}
@@ -543,15 +620,26 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
             {/* Point of Contact */}
             <div>
               <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Point of contact
+                Point of contact <span className="text-[#DC2626]">*</span>
               </label>
               <input
                 type="text"
                 value={contactPoc}
-                onChange={(e) => setContactPoc(e.target.value)}
-                placeholder="e.g. Jordan Smith"
+                onChange={(e) => {
+                  setContactPoc(e.target.value.slice(0, 50));
+                  if (error && error.includes('Point of contact')) setError(null);
+                }}
+                maxLength={50}
+                required
+                placeholder="e.g. Alex Morgan"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
               />
+              <p className="text-[11px] text-[#6B7280] mt-1 flex justify-between items-center">
+                <span>Primary operational contact person.</span>
+                <span className={`text-[11px] ${contactPoc.length >= 50 ? 'text-[#DC2626] font-semibold' : 'text-[#9CA3AF]'}`}>
+                  {contactPoc.length}/50 characters
+                </span>
+              </p>
             </div>
 
             {/* Phone Number */}
@@ -560,11 +648,11 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 Phone number
               </label>
               <input
-                type="text"
+                type="tel"
                 value={phoneNumber}
                 onChange={(e) => {
                   setPhoneNumber(sanitizePhoneNumber(e.target.value));
-                  if (error) setError(null);
+                  if (error && error.includes('Phone number')) setError(null);
                 }}
                 maxLength={20}
                 placeholder="e.g. +61 8 8200 1100"
@@ -574,20 +662,52 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
             {/* Email Address */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Email address <span className="text-[#DC2626]">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-[#171717]">
+                  Email address <span className="text-[#DC2626]">*</span>
+                </label>
+                {isEmailDuplicate ? (
+                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                    Email already exists
+                  </span>
+                ) : isEmailFormatInvalid ? (
+                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                    Invalid email address
+                  </span>
+                ) : null}
+              </div>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
-                  if (error) setError(null);
+                  if (error && error.includes('email')) setError(null);
                 }}
-                placeholder="e.g. jordan@greenvalley.example"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                placeholder="e.g. contact@company.com"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                  isEmailDuplicate || isEmailFormatInvalid
+                    ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
+                    : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
+                }`}
                 required
               />
+              {isEmailDuplicate ? (
+                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>
+                    {duplicateClientByEmail
+                      ? `Email is already registered to client "${duplicateClientByEmail.company_name}" (${duplicateClientByEmail.client_code}).`
+                      : 'Email is already registered to an existing user account.'}
+                  </span>
+                </p>
+              ) : isEmailFormatInvalid ? (
+                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>
+                    Please enter a valid email address (e.g. name@company.com or name@company.com.au).
+                  </span>
+                </p>
+              ) : null}
             </div>
 
             {/* Account Password */}
@@ -600,14 +720,14 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => {
-                    setPassword(e.target.value.slice(0, 15));
+                    setPassword(e.target.value.slice(0, 50));
                     if (error) setError(null);
                   }}
-                  maxLength={15}
-                  placeholder="Enter login password"
+                  maxLength={50}
+                  placeholder="At least 12 chars, 1 number, 1 symbol"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium pr-10"
                   required
-                  minLength={6}
+                  minLength={12}
                 />
                 <button
                   type="button"
@@ -629,10 +749,10 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => {
-                    setConfirmPassword(e.target.value.slice(0, 15));
+                    setConfirmPassword(e.target.value.slice(0, 50));
                     if (error) setError(null);
                   }}
-                  maxLength={15}
+                  maxLength={50}
                   placeholder="Re-enter login password"
                   className={`w-full px-3.5 py-2.5 rounded-xl border bg-white text-[#171717] focus:outline-none text-xs font-medium pr-10 ${
                     confirmPassword
@@ -642,7 +762,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                       : 'border-[#D1D5DB] focus:border-[#171717]'
                   }`}
                   required
-                  minLength={6}
+                  minLength={12}
                 />
                 <button
                   type="button"
@@ -652,17 +772,26 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {confirmPassword && (
-                confirmPassword === password ? (
-                  <p className="text-[11px] text-[#059669] font-medium flex items-center gap-1 mt-1">
-                    ✓ Passwords match
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-[#DC2626] font-medium flex items-center gap-1 mt-1">
-                    Passwords do not match
-                  </p>
-                )
-              )}
+            </div>
+
+            {/* Interactive Password Requirements Checklist */}
+            <div className="md:col-span-2 lg:col-span-3 -mt-1 mb-1 p-3 bg-slate-50 border border-[#E5E7EB] rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>At least 12 characters</span>
+              </div>
+              <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>One number</span>
+              </div>
+              <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>One symbol</span>
+              </div>
+              <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
+                <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <span>Passwords match</span>
+              </div>
             </div>
 
             {/* Website */}
@@ -674,7 +803,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 type="text"
                 value={website}
                 onChange={(e) => setWebsite(e.target.value)}
-                placeholder="e.g. https://greenvalley.example"
+                placeholder="e.g. https://company.com"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
               />
             </div>

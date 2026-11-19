@@ -148,13 +148,34 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   );
 
   const handleAssignOperatorMachine = async (data: { operator_id: string; machine_id: string; location?: string }) => {
-    await operatorAssignmentsApi.assign(data);
-    await fetchAssignments();
+    try {
+      const res = await operatorAssignmentsApi.assign(data);
+      if (res) {
+        setOperatorAssignments((prev) => {
+          const filtered = prev.filter(
+            (a) => !(a.operator_id === data.operator_id && a.machine_id === data.machine_id)
+          );
+          return [res, ...filtered];
+        });
+      }
+      await fetchAssignments();
+    } catch (err: any) {
+      await fetchAssignments();
+      throw err;
+    }
   };
 
   const handleRevokeOperatorMachine = async (assignmentId: string) => {
-    await operatorAssignmentsApi.revoke(assignmentId);
-    await fetchAssignments();
+    try {
+      setOperatorAssignments((prev) =>
+        prev.map((a) => (a.id === assignmentId ? { ...a, status: 'Revoked' } : a))
+      );
+      await operatorAssignmentsApi.revoke(assignmentId);
+      await fetchAssignments();
+    } catch (err: any) {
+      await fetchAssignments();
+      throw err;
+    }
   };
 
   const headerMenuRef = useRef<HTMLDivElement>(null);
@@ -320,6 +341,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
           onBack={() => setViewingUser(null)}
           onEdit={(u) => setEditingUser(u)}
           onRemove={(u) => setRemovingUser(u)}
+          onManageMachines={(u) => setManagingOperator(u)}
           onToast={(msg, type) => setToast({ message: msg, type })}
         />
         {removingUser && (
@@ -906,7 +928,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto pb-12">
                 <table className="w-full text-xs text-left min-w-[750px]">
                   <thead>
                     <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[#6B7280] font-semibold">
@@ -994,50 +1016,39 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                                 </button>
                               )}
 
-                              <div
-                                className="relative inline-block text-left"
-                                ref={activeUserMenuId === u.id ? userActionMenuRef : null}
+                              <RowActionMenu
+                                isOpen={activeUserMenuId === u.id}
+                                onToggle={() => setActiveUserMenuId(activeUserMenuId === u.id ? null : u.id)}
+                                onClose={() => setActiveUserMenuId(null)}
+                                buttonAriaLabel={`Actions for ${u.first_name}`}
                               >
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveUserMenuId((prev) => (prev === u.id ? null : u.id));
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    setViewingUser(u);
                                   }}
-                                  className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#111827] hover:bg-[#F3F4F6] transition-colors cursor-pointer inline-flex items-center justify-center border border-transparent hover:border-[#E5E7EB]"
-                                  aria-label="User actions"
+                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
                                 >
-                                  <MoreHorizontal className="w-4 h-4" />
+                                  <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                                  <span>View user</span>
                                 </button>
 
-                                {activeUserMenuId === u.id && (
-                                  <div className="absolute right-0 top-full mt-1 w-44 rounded-xl bg-white border border-[#E5E7EB] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setActiveUserMenuId(null);
-                                        setViewingUser(u);
-                                      }}
-                                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
-                                    >
-                                      <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
-                                      <span>View user</span>
-                                    </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    setEditingUser(u);
+                                  }}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
+                                  <span>Edit user</span>
+                                </button>
 
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setActiveUserMenuId(null);
-                                        setEditingUser(u);
-                                      }}
-                                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
-                                    >
-                                      <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
-                                      <span>Edit user</span>
-                                    </button>
-
+                                {u.role !== 'SITE_ADMIN' && (
+                                  <>
                                     <div className="my-1 border-t border-[#F3F4F6]" />
-
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1049,9 +1060,9 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                                       <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />
                                       <span>Remove from team</span>
                                     </button>
-                                  </div>
+                                  </>
                                 )}
-                              </div>
+                              </RowActionMenu>
                             </div>
                           </td>
                         </tr>

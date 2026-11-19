@@ -196,9 +196,20 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
                 detail=f'An account with email "{normalized_email}" is already registered. Email must be unique.'
             )
 
+        cur.execute("SELECT id, client_code, company_name FROM organizations WHERE LOWER(email) = %s AND (is_deleted IS NOT TRUE);", (normalized_email,))
+        dup_org = cur.fetchone()
+        if dup_org:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'Email "{normalized_email}" is already registered to client "{dup_org[2]}" ({dup_org[1]}). Email must be unique.'
+            )
+
         raw_password = (payload.password or "").strip()
         if not raw_password:
-            raw_password = "Password@123"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password is required and must meet complexity requirements."
+            )
         pw_hash = get_password_hash(raw_password)
 
         if user_role != "OEM_MANAGER":
@@ -310,17 +321,25 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
         )
 
     with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT organization_id, email, role FROM users WHERE id = %s AND is_deleted IS NOT TRUE;", (user_id,))
+        target_row = cur.fetchone()
+        if not target_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+        target_org_id = str(target_row[0] or "") if target_row[0] else None
+        target_current_email = str(target_row[1] or "").lower()
+        target_role = str(target_row[2] or "")
+
         if current_user.get("role") != "OEM_MANAGER":
-            cur.execute("SELECT organization_id FROM users WHERE id = %s AND is_deleted IS NOT TRUE;", (user_id,))
-            target_row = cur.fetchone()
-            if not target_row:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
             user_org_id = str(current_user.get("organization_id") or "")
-            target_org_id = str(target_row[0] or "")
             if not user_org_id or target_org_id != user_org_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Access denied: Cannot modify users of another organization."
+                )
+            if str(current_user.get("id")) == str(user_id) and payload.email and payload.email.strip().lower() != target_current_email:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Site Administrators cannot modify their own email address."
                 )
 
         clean_email = None
@@ -335,6 +354,18 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f'An account with email "{clean_email}" is already registered. Email must be unique.'
                 )
+
+            cur.execute("SELECT id, client_code, company_name FROM organizations WHERE LOWER(email) = %s AND (is_deleted IS NOT TRUE);", (clean_email,))
+            dup_org = cur.fetchone()
+            if dup_org:
+                is_same_org = target_org_id and str(dup_org[0]) == str(target_org_id)
+                if not (is_same_org and target_role == "SITE_ADMIN"):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f'Email "{clean_email}" is already registered to client "{dup_org[2]}" ({dup_org[1]}). Email must be unique.'
+                    )
+                if is_same_org and clean_email != target_current_email:
+                    cur.execute("UPDATE organizations SET email = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (clean_email, target_org_id))
 
         cur.execute("""
             UPDATE users
@@ -373,6 +404,16 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
             d["updated_by"] = str(d["updated_by"])
         if d.get("deleted_by"):
             d["deleted_by"] = str(d["deleted_by"])
+
+        if payload.is_active is False and d.get("role") == "SITE_ADMIN" and d.get("organization_id"):
+            cur.execute("""
+                UPDATE users
+                SET is_active = FALSE,
+                    updated_at = CURRENT_TIMESTAMP,
+                    updated_by = %s
+                WHERE organization_id = %s AND role = 'OPERATOR' AND (is_deleted IS NOT TRUE);
+            """, (current_user.get("id"), d["organization_id"]))
+
         return UserResponse(**d)
 
 @router.delete("/{user_id}")
@@ -395,6 +436,12 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
         target_user = cur.fetchone()
         if not target_user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+        if target_user[2] == "SITE_ADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Site Admin accounts cannot be deleted as they manage client operations."
+            )
 
         if user_role == "SITE_ADMIN":
             site_admin_org = str(current_user.get("organization_id") or "")

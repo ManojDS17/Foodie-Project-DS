@@ -668,10 +668,10 @@ export const MachineOnboardingPage: React.FC = () => {
                     <td className="py-3.5 px-5">
                       <div>
                         <span className="font-semibold text-[#171717] block">
-                          {m.company_name || 'Green Valley Foods'}
+                          {m.company_name || '—'}
                         </span>
                         <span className="text-[11px] text-[#666666] block">
-                          {m.site_name || 'Assigned Site'} {m.location_label ? `(${m.location_label})` : ''}
+                          {m.site_name || '—'} {m.location_label ? `(${m.location_label})` : ''}
                         </span>
                       </div>
                     </td>

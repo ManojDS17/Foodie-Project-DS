@@ -98,10 +98,30 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         }
       }
     }
-    const errorMsg =
-      data?.detail ||
-      data?.error ||
-      (typeof data === 'string' ? data : `Request failed with status ${response.status}`);
+    let errorMsg = `Request failed with status ${response.status}`;
+    if (data) {
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (typeof data.detail === 'string') {
+        errorMsg = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        errorMsg = data.detail
+          .map((item: any) => {
+            if (typeof item === 'string') return item;
+            if (item?.msg) return item.msg.replace(/^Value error,\s*/i, '');
+            if (item?.message) return item.message;
+            return JSON.stringify(item);
+          })
+          .filter(Boolean)
+          .join(', ');
+      } else if (data.detail && typeof data.detail === 'object') {
+        errorMsg = data.detail.msg || data.detail.message || JSON.stringify(data.detail);
+      } else if (typeof data.error === 'string') {
+        errorMsg = data.error;
+      } else if (typeof data.message === 'string') {
+        errorMsg = data.message;
+      }
+    }
     throw new Error(errorMsg);
   }
 
@@ -265,15 +285,34 @@ export const orgsApi = {
 // SEARCH API (Multi-Entity Search across PostgreSQL)
 // ----------------------------------------------------------------------------
 export interface SearchResults {
-  sites: { id: string; site_code: string; site_name: string; address: string; is_active: boolean }[];
-  users: { id: string; first_name: string; last_name: string; email: string; role: string }[];
-  machines: { id: string; model: string; location: string; status: string; temp: string }[];
+  clients: {
+    id: string;
+    client_code: string;
+    company_name: string;
+    contact_poc?: string;
+    email?: string;
+    phone_number?: string;
+    status?: string;
+  }[];
+  machines: {
+    id: string;
+    machine_code: string;
+    serial_number: string;
+    model: string;
+    location?: string;
+    company_name?: string;
+    status: string;
+    connectivity_status?: string;
+    temp?: string;
+  }[];
+  sites?: any[];
+  users?: any[];
 }
 
 export const searchApi = {
   query: async (q: string): Promise<SearchResults> => {
     if (!q.trim()) {
-      return { sites: [], users: [], machines: [] };
+      return { clients: [], machines: [], sites: [], users: [] };
     }
     return await request<SearchResults>(`/search?q=${encodeURIComponent(q.trim())}`);
   },

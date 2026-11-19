@@ -5,7 +5,6 @@ import {
   Search,
   HelpCircle,
   Building2,
-  Users,
   Cpu,
   Loader2,
   X,
@@ -97,13 +96,21 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   }, []);
 
   const totalResultsCount =
-    (results?.sites.length || 0) +
-    (results?.users.length || 0) +
-    (results?.machines.length || 0);
+    (results?.clients?.length || 0) +
+    (results?.machines?.length || 0);
 
-  const handleSelectResult = (path: string) => {
+  const handleSelectClient = (clientId: string) => {
     setIsOpen(false);
-    navigate(path);
+    setSearchQuery('');
+    setResults(null);
+    navigate(`/clients?select=${encodeURIComponent(clientId)}`);
+  };
+
+  const handleSelectMachine = (machineId: string) => {
+    setIsOpen(false);
+    setSearchQuery('');
+    setResults(null);
+    navigate(`/machines?select=${encodeURIComponent(machineId)}`);
   };
 
   const clearSearch = () => {
@@ -180,154 +187,124 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
 
           {/* Search Results Dropdown Overlay */}
           {isOpen && searchQuery.trim().length > 0 && (
-            <div className="absolute right-0 top-full mt-2 w-96 bg-white border border-[#E3E4E6] rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-[#F2F2F2]">
+            <div className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white border border-[#E5E7EB] rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-[#F3F4F6]">
               {/* Header summary */}
-              <div className="px-3.5 py-2 bg-[#F8F9FA] flex items-center justify-between text-[11px] font-semibold text-[#666666]">
+              <div className="px-3.5 py-2 bg-[#F9FAFB] flex items-center justify-between text-[11px] font-semibold text-[#6B7280]">
                 <span>Search Results</span>
-                <span>{isSearching ? 'Querying database...' : `${totalResultsCount} found`}</span>
+                <span>{isSearching ? 'Searching...' : `${totalResultsCount} found`}</span>
               </div>
 
               {/* No Results State */}
               {!isSearching && totalResultsCount === 0 && (
-                <div className="p-5 text-center">
-                  <p className="text-xs font-semibold text-[#171717]">No records matching "{searchQuery}"</p>
-                  <p className="text-[11px] text-[#666666] mt-1">
-                    Try searching by Site Code (e.g. SITE-A), user email, or machine ID.
+                <div className="p-6 text-center">
+                  <p className="text-xs font-bold text-[#111827]">No records matching "{searchQuery}"</p>
+                  <p className="text-[11px] text-[#6B7280] mt-1">
+                    Try searching by Client name, Client code (e.g. CL-001), Machine code (e.g. MC-001), Serial number, or Model.
                   </p>
                 </div>
               )}
 
-              {/* Category 1: Sites & Facilities */}
-              {results && results.sites.length > 0 && (
+              {/* Clients Section */}
+              {results && results.clients && results.clients.length > 0 && (
                 <div className="py-2">
-                  <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[#666666]">
+                  <div className="px-3.5 py-1.5 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
                     <span className="flex items-center gap-1.5">
-                      <Building2 className="w-3 h-3 text-[#E32032]" />
-                      Facilities ({results.sites.length})
+                      <Building2 className="w-3.5 h-3.5 text-[#E32032]" />
+                      Clients ({results.clients.length})
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectResult('/sites')}
-                      className="text-[#E32032] hover:underline normal-case font-semibold text-[11px]"
-                    >
-                      View all
-                    </button>
+                    {user?.role === 'OEM_MANAGER' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOpen(false);
+                          setSearchQuery('');
+                          navigate('/clients');
+                        }}
+                        className="text-[#E32032] hover:underline normal-case font-semibold text-xs cursor-pointer"
+                      >
+                        View all
+                      </button>
+                    )}
                   </div>
-                  <div className="mt-1">
-                    {results.sites.map((site) => (
+                  <div className="mt-1 divide-y divide-[#F9FAFB]">
+                    {results.clients.map((client) => (
                       <div
-                        key={site.id}
-                        onClick={() => handleSelectResult('/sites')}
-                        className="px-3 py-2 hover:bg-[#F8F9FA] cursor-pointer flex items-center justify-between transition-colors group"
+                        key={client.id}
+                        onClick={() => handleSelectClient(client.id)}
+                        className="px-3.5 py-2.5 hover:bg-[#F9FAFB] cursor-pointer flex items-center justify-between transition-colors group"
                       >
                         <div className="flex flex-col min-w-0 pr-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[#171717] group-hover:text-[#E32032] transition-colors truncate">
-                              {site.site_name}
+                            <span className="text-xs font-bold text-[#111827] group-hover:text-[#E32032] transition-colors truncate">
+                              {client.company_name}
                             </span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 border border-[#E3E4E6] text-[#666666] shrink-0">
-                              {site.site_code}
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 border border-[#E5E7EB] text-[#4B5563] shrink-0 font-medium">
+                              {client.client_code}
                             </span>
                           </div>
-                          <span className="text-[11px] text-[#666666] truncate mt-0.5">
-                            {site.address}
+                          <span className="text-[11px] text-[#6B7280] truncate mt-0.5">
+                            {client.contact_poc ? `POC: ${client.contact_poc}` : (client.email || client.phone_number || 'Client organization')}
                           </span>
                         </div>
-                        <ChevronRight className="w-3.5 h-3.5 text-[#CCCCCC] group-hover:text-[#171717] shrink-0" />
+                        <ChevronRight className="w-4 h-4 text-[#9CA3AF] group-hover:text-[#111827] transition-colors shrink-0" />
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Category 2: Registered Users (Scoped: hide OEM Manager from Site Admin / Operators) */}
-              {(() => {
-                const isOem = user?.role === 'OEM_MANAGER';
-                const filteredUsers = results
-                  ? results.users.filter((u) => isOem || u.role !== 'OEM_MANAGER')
-                  : [];
-                if (filteredUsers.length === 0) return null;
-
-                return (
-                  <div className="py-2">
-                    <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[#666666]">
-                      <span className="flex items-center gap-1.5">
-                        <Users className="w-3 h-3 text-[#00C951]" />
-                        {isOem ? 'Users & Staff' : 'Facility Operators'} ({filteredUsers.length})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectResult('/users')}
-                        className="text-[#00C951] hover:underline normal-case font-semibold text-[11px]"
-                      >
-                        View all
-                      </button>
-                    </div>
-                    <div className="mt-1">
-                      {filteredUsers.map((u) => (
-                        <div
-                          key={u.id}
-                          onClick={() => handleSelectResult('/users')}
-                          className="px-3 py-2 hover:bg-[#F8F9FA] cursor-pointer flex items-center justify-between transition-colors group"
-                        >
-                          <div className="flex flex-col min-w-0 pr-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-[#171717] group-hover:text-[#00C951] transition-colors truncate">
-                                {u.first_name} {u.last_name}
-                              </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-slate-50 border-[#E3E4E6] text-[#666666] shrink-0">
-                                {u.role.replace('_', ' ')}
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-[#666666] truncate mt-0.5">
-                              {u.email}
-                            </span>
-                          </div>
-                          <ChevronRight className="w-3.5 h-3.5 text-[#CCCCCC] group-hover:text-[#171717] shrink-0" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Category 3: Composter Telemetry Units */}
-              {results && results.machines.length > 0 && (
+              {/* Machines Section */}
+              {results && results.machines && results.machines.length > 0 && (
                 <div className="py-2">
-                  <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[#666666]">
+                  <div className="px-3.5 py-1.5 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
                     <span className="flex items-center gap-1.5">
-                      <Cpu className="w-3 h-3 text-[#171717]" />
-                      Composter Units ({results.machines.length})
+                      <Cpu className="w-3.5 h-3.5 text-[#E32032]" />
+                      Machines ({results.machines.length})
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleSelectResult('/')}
-                      className="text-[#171717] hover:underline normal-case font-semibold text-[11px]"
+                      onClick={() => {
+                        setIsOpen(false);
+                        setSearchQuery('');
+                        navigate('/machines');
+                      }}
+                      className="text-[#E32032] hover:underline normal-case font-semibold text-xs cursor-pointer"
                     >
-                      Telemetry
+                      View all
                     </button>
                   </div>
-                  <div className="mt-1">
-                    {results.machines.map((m) => (
+                  <div className="mt-1 divide-y divide-[#F9FAFB]">
+                    {results.machines.map((machine) => (
                       <div
-                        key={m.id}
-                        onClick={() => handleSelectResult('/')}
-                        className="px-3 py-2 hover:bg-[#F8F9FA] cursor-pointer flex items-center justify-between transition-colors group"
+                        key={machine.id}
+                        onClick={() => handleSelectMachine(machine.id)}
+                        className="px-3.5 py-2.5 hover:bg-[#F9FAFB] cursor-pointer flex items-center justify-between transition-colors group"
                       >
                         <div className="flex flex-col min-w-0 pr-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[#171717] group-hover:text-[#E32032] transition-colors">
-                              {m.id} — {m.model}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-mono font-bold text-[#111827] group-hover:text-[#E32032] transition-colors">
+                              {machine.machine_code || machine.serial_number}
                             </span>
-                            <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              {m.status} ({m.temp})
+                            <span className="text-[11px] font-medium text-[#4B5563]">
+                              {machine.model}
+                            </span>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                              machine.status === 'Running'
+                                ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
+                                : machine.status === 'Machine not assigned'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : machine.status === 'Idle'
+                                ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
+                                : 'bg-[#F3F4F6] text-[#4B5563] border-[#E5E7EB]'
+                            }`}>
+                              {machine.status}
                             </span>
                           </div>
-                          <span className="text-[11px] text-[#666666] truncate mt-0.5">
-                            {m.location}
+                          <span className="text-[11px] text-[#6B7280] truncate mt-0.5">
+                            {machine.company_name && machine.company_name !== 'Unassigned' ? `${machine.company_name} · ` : ''}{machine.location || 'Fleet'}
                           </span>
                         </div>
-                        <ChevronRight className="w-3.5 h-3.5 text-[#CCCCCC] group-hover:text-[#171717] shrink-0" />
+                        <ChevronRight className="w-4 h-4 text-[#9CA3AF] group-hover:text-[#111827] transition-colors shrink-0" />
                       </div>
                     ))}
                   </div>
@@ -367,12 +344,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
           <div ref={userMenuContainerRef} className="relative shrink-0">
             {(() => {
               const userInitials = user
-                ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase()
-                : 'PS';
+                ? (`${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() || 'U')
+                : '—';
               const displayName = user
-                ? `${user.first_name} ${user.last_name}`
-                : 'Priya Shah';
-              const displayEmail = user?.email || 'priya.shah@greenvalley.example';
+                ? (`${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User')
+                : '—';
+              const displayEmail = user?.email || '—';
               const roleTitleMap: Record<UserRole, string> = {
                 OEM_MANAGER: 'OEM Asset Manager',
                 SITE_ADMIN: 'Site Admin',

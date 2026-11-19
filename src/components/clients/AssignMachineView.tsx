@@ -22,23 +22,6 @@ export interface AssignMachineRow {
   lease_end_date: string;
 }
 
-const calculateFiveYearsLater = (dateStr: string): string => {
-  if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return '';
-  const y = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  const d = parseInt(parts[2], 10);
-  if (isNaN(y) || isNaN(m) || isNaN(d)) return '';
-  const targetYear = y + 5;
-  if (m === 2 && d === 29) {
-    const isLeap = (targetYear % 4 === 0 && targetYear % 100 !== 0) || (targetYear % 400 === 0);
-    const targetDay = isLeap ? 29 : 28;
-    return `${targetYear}-02-${String(targetDay).padStart(2, '0')}`;
-  }
-  return `${targetYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-};
-
 export interface AssignMachineViewProps {
   client: Organization;
   assignedMachinesCount?: number;
@@ -59,7 +42,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
       machine_id: '',
       location: '',
       lease_start_date: todayStr,
-      lease_end_date: calculateFiveYearsLater(todayStr),
+      lease_end_date: '',
     },
   ]);
 
@@ -89,15 +72,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
   const handleRowChange = (index: number, field: keyof AssignMachineRow, value: string) => {
     setRows((prev) => {
       const copy = [...prev];
-      if (field === 'lease_start_date') {
-        copy[index] = {
-          ...copy[index],
-          lease_start_date: value,
-          lease_end_date: calculateFiveYearsLater(value),
-        };
-      } else {
-        copy[index] = { ...copy[index], [field]: value };
-      }
+      copy[index] = { ...copy[index], [field]: value };
       return copy;
     });
     if (error) setError(null);
@@ -111,7 +86,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
         machine_id: '',
         location: '',
         lease_start_date: today,
-        lease_end_date: calculateFiveYearsLater(today),
+        lease_end_date: '',
       },
     ]);
   };
@@ -124,7 +99,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
           machine_id: '',
           location: '',
           lease_start_date: today,
-          lease_end_date: calculateFiveYearsLater(today),
+          lease_end_date: '',
         },
       ]);
       return;
@@ -330,7 +305,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
                 return (
                   <div
                     key={index}
-                    className="p-3.5 rounded-xl border border-[#E5E7EB] bg-[#FDFDFD] hover:border-[#D1D5DB] transition-colors flex flex-col lg:grid lg:grid-cols-12 gap-3 items-stretch lg:items-center"
+                    className="p-3.5 rounded-xl border border-[#E5E7EB] bg-[#FDFDFD] hover:border-[#D1D5DB] transition-colors flex flex-col lg:grid lg:grid-cols-12 gap-3 items-stretch lg:items-start"
                   >
                     <div className="lg:col-span-4 min-w-0">
                       <label className="block lg:hidden text-[11px] font-semibold text-[#6B7280] mb-1">
@@ -407,7 +382,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="lg:col-span-1 flex items-center justify-end">
+                    <div className="lg:col-span-1 flex items-start justify-end">
                       <button
                         type="button"
                         onClick={() => handleRemoveRow(index)}

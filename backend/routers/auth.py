@@ -57,6 +57,9 @@ def login(payload: LoginRequest):
         cols = [desc[0] for desc in cur.description]
         user_dict = dict(zip(cols, row))
 
+        if user_dict.get("is_deleted"):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This account has been deleted.")
+
         if not user_dict.get("is_active"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
 
@@ -65,6 +68,18 @@ def login(payload: LoginRequest):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
         _clear_failed_logins(email)
+
+        if user_dict.get("role") == "OPERATOR" and user_dict.get("organization_id"):
+            cur.execute("""
+                SELECT count(*) FROM users
+                WHERE organization_id = %s AND role = 'SITE_ADMIN' AND is_active IS TRUE AND (is_deleted IS NOT TRUE);
+            """, (user_dict["organization_id"],))
+            active_admin_count = cur.fetchone()[0]
+            if active_admin_count == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Client administrator account is inactive or removed. Operator access is temporarily suspended."
+                )
 
         cur.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = %s;", (user_dict["id"],))
 

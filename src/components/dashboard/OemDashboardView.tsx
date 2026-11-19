@@ -357,7 +357,11 @@ export const OemDashboardView: React.FC = () => {
               </button>
             </div>
 
-            {attentionMachines.length === 0 ? (
+            {machines.length === 0 ? (
+              <div className="py-6 text-center text-xs text-[#6B7280] bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] my-2">
+                No machines currently in fleet.
+              </div>
+            ) : attentionMachines.length === 0 ? (
               <div className="py-6 text-center text-xs text-[#16A34A] bg-emerald-50/50 rounded-lg border border-emerald-100 my-2">
                 ✓ All machines operating normally. No active alerts.
               </div>
@@ -368,8 +372,8 @@ export const OemDashboardView: React.FC = () => {
                     <div className="min-w-0 pr-2">
                       <button
                         type="button"
-                        onClick={() => navigate('/machines')}
-                        className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left"
+                        onClick={() => navigate(`/machines?select=${m.id}`)}
+                        className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left cursor-pointer"
                       >
                         {m.machine_code}
                       </button>

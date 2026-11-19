@@ -1,4 +1,5 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MoreHorizontal } from 'lucide-react';
 
 export interface RowActionMenuProps {
@@ -22,14 +23,62 @@ export const RowActionMenu: React.FC<RowActionMenuProps> = ({
   buttonClassName = 'p-1 rounded-lg hover:bg-slate-100 text-[#6B7280] hover:text-[#171717] transition-colors cursor-pointer',
   buttonAriaLabel = 'Row actions',
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  const updatePosition = () => {
+    if (!buttonRef.current) return;
+    const btnRect = buttonRef.current.getBoundingClientRect();
+    const menuEl = menuRef.current;
+    const rect = menuEl?.getBoundingClientRect();
+    const menuHeight = rect?.height || menuEl?.offsetHeight || 120;
+    const menuWidth = rect?.width || menuEl?.offsetWidth || 176;
+
+    const spaceBelow = window.innerHeight - btnRect.bottom;
+    const spaceAbove = btnRect.top;
+
+    const openUpward = spaceBelow < menuHeight + 12 && spaceAbove >= menuHeight;
+
+    let top = openUpward ? btnRect.top - menuHeight - 6 : btnRect.bottom + 6;
+    if (top < 10) top = 10;
+    if (top + menuHeight > window.innerHeight - 10) {
+      top = Math.max(10, window.innerHeight - menuHeight - 10);
+    }
+
+    let left = btnRect.right - menuWidth;
+    if (left < 10) left = 10;
+    if (left + menuWidth > window.innerWidth - 10) {
+      left = Math.max(10, window.innerWidth - menuWidth - 10);
+    }
+
+    setCoords({ top, left });
+  };
+
+  useLayoutEffect(() => {
+    if (isOpen) {
+      updatePosition();
+      const frame = requestAnimationFrame(updatePosition);
+      return () => cancelAnimationFrame(frame);
+    } else {
+      setCoords(null);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
 
+    const frame = requestAnimationFrame(updatePosition);
+
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target;
+      if (
+        target instanceof Node &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target) &&
+        menuRef.current &&
+        !menuRef.current.contains(target)
+      ) {
         onClose();
       }
     };
@@ -40,71 +89,31 @@ export const RowActionMenu: React.FC<RowActionMenuProps> = ({
       }
     };
 
+    const handleScrollOrResize = (e: Event) => {
+      if (e.target && e.target instanceof Node && menuRef.current && menuRef.current.contains(e.target)) {
+        return;
+      }
+      onClose();
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const scrollIntoViewIfNeeded = () => {
-      const menuEl = menuRef.current;
-      if (!menuEl) return;
-
-      const rect = menuEl.getBoundingClientRect();
-      const padding = 36;
-      const spaceBelow = window.innerHeight - rect.bottom;
-
-      if (spaceBelow < padding) {
-        const scrollNeeded = padding - spaceBelow;
-        window.scrollBy({
-          top: scrollNeeded,
-          behavior: 'smooth',
-        });
-      }
-
-      let parent = menuEl.parentElement;
-      while (parent && parent !== document.body) {
-        const style = window.getComputedStyle(parent);
-        const overflowY = style.overflowY;
-        if (overflowY === 'auto' || overflowY === 'scroll') {
-          const parentRect = parent.getBoundingClientRect();
-          const parentSpaceBelow = parentRect.bottom - rect.bottom;
-          if (parentSpaceBelow < padding) {
-            parent.scrollBy({
-              top: padding - parentSpaceBelow,
-              behavior: 'smooth',
-            });
-          }
-        }
-        parent = parent.parentElement;
-      }
-
-      try {
-        menuEl.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-        });
-      } catch {}
-    };
-
-    const frame = requestAnimationFrame(scrollIntoViewIfNeeded);
-    const timer = setTimeout(scrollIntoViewIfNeeded, 60);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
 
     return () => {
       cancelAnimationFrame(frame);
-      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
     };
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   return (
-    <div ref={containerRef} className={`relative inline-block text-left ${className}`}>
+    <div className={`relative inline-block text-left ${className}`}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
@@ -117,14 +126,32 @@ export const RowActionMenu: React.FC<RowActionMenuProps> = ({
         <MoreHorizontal className="w-4 h-4" />
       </button>
 
-      {isOpen && (
-        <div
-          ref={menuRef}
-          className={`absolute right-0 top-full mt-1 ${width} bg-white rounded-xl border border-[#E5E7EB] shadow-xl py-1.5 z-50 text-left animate-in fade-in zoom-in-95 duration-100`}
-        >
-          {children}
-        </div>
-      )}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={
+              coords
+                ? {
+                    position: 'fixed',
+                    top: `${coords.top}px`,
+                    left: `${coords.left}px`,
+                    zIndex: 99999,
+                  }
+                : {
+                    position: 'fixed',
+                    top: '-9999px',
+                    left: '-9999px',
+                    zIndex: 99999,
+                  }
+            }
+            className={`${width} bg-white rounded-xl border border-[#E5E7EB] shadow-2xl py-1.5 text-left animate-in fade-in zoom-in-95 duration-100 select-none`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {children}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

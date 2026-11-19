@@ -3,22 +3,46 @@ from datetime import datetime
 import re
 from pydantic import BaseModel, Field, field_validator
 
-EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$'
 SITE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
 PHONE_REGEX = r'^\+?[0-9\s-]{8,16}$'
 VALID_ROLES = ['OEM_MANAGER', 'SITE_ADMIN', 'OPERATOR']
+
+def validate_email_address(v: Optional[str]) -> Optional[str]:
+    if not v or not v.strip():
+        return None
+    clean = v.strip().lower()
+    if '..' in clean or not re.match(EMAIL_REGEX, clean):
+        raise ValueError('Please enter a valid business email address (e.g. name@company.com or name@company.com.au).')
+    return clean
 
 def validate_phone_number(v: Optional[str]) -> Optional[str]:
     if not v or not v.strip():
         return None
     clean = v.strip()
-    if re.search(r'[a-zA-Z]', clean):
-        raise ValueError('Phone number accepts digits and symbols only (no alphabets).')
+    if re.search(r'[^0-9+\s()-]', clean):
+        raise ValueError('Phone number can only contain numbers, spaces, and standard phone symbols (+, -, ()). Special characters like @, # are not allowed.')
     if len(clean) > 20:
         raise ValueError('Phone number cannot exceed 20 characters.')
     digits = re.sub(r'\D', '', clean)
     if len(digits) < 7:
         raise ValueError('Phone number must contain at least 7 digits.')
+    if len(digits) > 15:
+        raise ValueError('Phone number cannot exceed 15 digits.')
+    return clean
+
+def validate_password_complexity(v: Optional[str], field_name: str = "Password") -> Optional[str]:
+    if not v or not v.strip():
+        return None
+    clean = v.strip()
+    if len(clean) < 12:
+        raise ValueError(f'{field_name} must be at least 12 characters long.')
+    if len(clean) > 50:
+        raise ValueError(f'{field_name} cannot exceed 50 characters.')
+    if not re.search(r'[0-9]', clean):
+        raise ValueError(f'{field_name} must contain at least one number (0-9).')
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', clean):
+        raise ValueError(f'{field_name} must contain at least one special character / symbol.')
     return clean
 
 def validate_max_words(v: Optional[str], field_name: str = "Full name", max_words: int = 20) -> Optional[str]:
@@ -29,6 +53,18 @@ def validate_max_words(v: Optional[str], field_name: str = "Full name", max_word
     if len(words) > max_words:
         raise ValueError(f'{field_name} cannot exceed {max_words} words.')
     return clean
+
+def validate_abn(v: Optional[str]) -> Optional[str]:
+    if not v or not v.strip():
+        return None
+    clean = re.sub(r'\D', '', v.strip())
+    if len(clean) != 11:
+        raise ValueError('Tax ID (ABN) must be exactly 11 digits (e.g. 51 824 753 556)')
+    weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+    total = (int(clean[0]) - 1) * weights[0] + sum(int(clean[i]) * weights[i] for i in range(1, 11))
+    if total % 89 != 0:
+        raise ValueError('Invalid Australian Business Number (ABN). The number does not pass the official ABR Modulus 89 checksum.')
+    return f"{clean[:2]} {clean[2:5]} {clean[5:8]} {clean[8:]}"
 
 # --------------------------------------------------------------------------
 # Authentication Schemas
@@ -112,8 +148,8 @@ class UserCreate(BaseModel):
     @field_validator('email')
     @classmethod
     def check_email(cls, v: str) -> str:
-        clean = v.strip().lower()
-        if not re.match(EMAIL_REGEX, clean):
+        clean = validate_email_address(v)
+        if not clean:
             raise ValueError('Please enter a valid business email address.')
         return clean
 
@@ -127,16 +163,7 @@ class UserCreate(BaseModel):
     @field_validator('password')
     @classmethod
     def check_password(cls, v: Optional[str]) -> Optional[str]:
-        if not v or not v.strip():
-            return None
-        clean = v.strip()
-        if len(clean) < 6:
-            raise ValueError('Password must be at least 6 characters long.')
-        if len(clean) > 15:
-            raise ValueError('Password cannot exceed 15 characters.')
-        if len(clean.split()) > 15:
-            raise ValueError('Password cannot exceed 15 words.')
-        return clean
+        return validate_password_complexity(v, "Password")
 
     @field_validator('first_name')
     @classmethod
@@ -171,10 +198,7 @@ class UserUpdate(BaseModel):
     @classmethod
     def check_email_update(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            clean = v.strip().lower()
-            if not re.match(EMAIL_REGEX, clean):
-                raise ValueError('Please enter a valid business email address.')
-            return clean
+            return validate_email_address(v)
         return v
 
     @field_validator('first_name', 'last_name')
@@ -302,8 +326,20 @@ class OrganizationCreate(BaseModel):
 
     @field_validator('contact_poc')
     @classmethod
-    def check_contact_poc(cls, v: Optional[str]) -> Optional[str]:
-        return validate_max_words(v, "Point of contact name", 20)
+    def check_contact_poc(cls, v: Optional[str]) -> str:
+        if not v or not v.strip():
+            raise ValueError('Point of contact name is required.')
+        clean = v.strip()
+        if len(clean) > 50:
+            raise ValueError('Point of contact name cannot exceed 50 characters.')
+        return clean
+
+    @field_validator('email')
+    @classmethod
+    def check_email_org(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            raise ValueError('Primary contact email address is required.')
+        return validate_email_address(v)
 
     @field_validator('phone_number')
     @classmethod
@@ -314,15 +350,8 @@ class OrganizationCreate(BaseModel):
     @classmethod
     def check_password_org(cls, v: Optional[str]) -> Optional[str]:
         if not v or not v.strip():
-            return None
-        clean = v.strip()
-        if len(clean) < 6:
-            raise ValueError('Password must be at least 6 characters long.')
-        if len(clean) > 15:
-            raise ValueError('Password cannot exceed 15 characters.')
-        if len(clean.split()) > 15:
-            raise ValueError('Password cannot exceed 15 words.')
-        return clean
+            raise ValueError('Account password is required.')
+        return validate_password_complexity(v, "Password")
 
     @field_validator('onboarding_date')
     @classmethod
@@ -354,12 +383,7 @@ class OrganizationCreate(BaseModel):
     @field_validator('tax_id')
     @classmethod
     def check_tax_id(cls, v: Optional[str]) -> Optional[str]:
-        if not v or not v.strip():
-            return None
-        clean = re.sub(r'[\s\-]', '', v.strip())
-        if not clean.isdigit() or len(clean) != 11:
-            raise ValueError('Tax ID (ABN) must be exactly 11 digits (e.g. 12 345 678 901)')
-        return f"{clean[:2]} {clean[2:5]} {clean[5:8]} {clean[8:]}"
+        return validate_abn(v)
 
 class OrganizationUpdate(BaseModel):
     company_name: Optional[str] = None
@@ -386,7 +410,12 @@ class OrganizationUpdate(BaseModel):
     @field_validator('contact_poc')
     @classmethod
     def check_contact_poc(cls, v: Optional[str]) -> Optional[str]:
-        return validate_max_words(v, "Point of contact name", 20)
+        if not v or not v.strip():
+            return None
+        clean = v.strip()
+        if len(clean) > 50:
+            raise ValueError('Point of contact name cannot exceed 50 characters.')
+        return clean
 
     @field_validator('phone_number')
     @classmethod
@@ -403,12 +432,7 @@ class OrganizationUpdate(BaseModel):
     @field_validator('tax_id')
     @classmethod
     def check_tax_id_update(cls, v: Optional[str]) -> Optional[str]:
-        if not v or not v.strip():
-            return None
-        clean = re.sub(r'[\s\-]', '', v.strip())
-        if not clean.isdigit() or len(clean) != 11:
-            raise ValueError('Tax ID (ABN) must be exactly 11 digits (e.g. 12 345 678 901)')
-        return f"{clean[:2]} {clean[2:5]} {clean[5:8]} {clean[8:]}"
+        return validate_abn(v)
 
 class OrganizationResponse(BaseModel):
     id: str
@@ -436,6 +460,7 @@ class OrganizationResponse(BaseModel):
     updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
     created_by_name: Optional[str] = None
+    total_machines: Optional[int] = 0
 
 class BulkDeleteRequest(BaseModel):
     ids: List[str]
@@ -448,6 +473,15 @@ class SearchResultItemSite(BaseModel):
     timezone: str
     is_active: bool
 
+class SearchResultItemClient(BaseModel):
+    id: str
+    client_code: str
+    company_name: str
+    contact_poc: Optional[str] = None
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
+    status: Optional[str] = 'Active'
+
 class SearchResultItemUser(BaseModel):
     id: str
     first_name: str
@@ -458,15 +492,20 @@ class SearchResultItemUser(BaseModel):
 
 class SearchResultItemMachine(BaseModel):
     id: str
+    machine_code: str
+    serial_number: str
     model: str
-    location: str
+    location: Optional[str] = ''
+    company_name: Optional[str] = 'Unassigned'
     status: str
-    temp: str
+    connectivity_status: Optional[str] = 'Offline'
+    temp: Optional[str] = '62°C'
 
 class SearchResponse(BaseModel):
-    sites: List[SearchResultItemSite]
-    users: List[SearchResultItemUser]
-    machines: List[SearchResultItemMachine]
+    clients: List[SearchResultItemClient] = []
+    machines: List[SearchResultItemMachine] = []
+    sites: List[SearchResultItemSite] = []
+    users: List[SearchResultItemUser] = []
 
 # --------------------------------------------------------------------------
 # Machine Management & Commissioning Schemas
@@ -672,4 +711,5 @@ class MachineResponse(BaseModel):
     updated_by: Optional[str] = None
     deleted_by: Optional[str] = None
     created_by_name: Optional[str] = None
+    total_machines: Optional[int] = 0
 

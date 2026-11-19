@@ -121,6 +121,11 @@ export const LoginPage: React.FC = () => {
       setErrorMessage('Please enter your email address.');
       return;
     }
+    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+    if (!EMAIL_REGEX.test(email.trim()) || email.includes('..')) {
+      setErrorMessage('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
+      return;
+    }
 
     if (!password) {
       setErrorMessage('Please enter your password.');
@@ -146,6 +151,11 @@ export const LoginPage: React.FC = () => {
     e.preventDefault();
     if (!email.trim()) {
       setErrorMessage('Please enter your email address.');
+      return;
+    }
+    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+    if (!EMAIL_REGEX.test(email.trim()) || email.includes('..')) {
+      setErrorMessage('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
     }
     setErrorMessage(null);
@@ -257,7 +267,7 @@ export const LoginPage: React.FC = () => {
                       setEmail(e.target.value);
                       if (errorMessage) setErrorMessage(null);
                     }}
-                    placeholder="priya.shah@greenvalley.example"
+                    placeholder="name@company.com"
                     className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                   />
                 </div>
@@ -296,11 +306,6 @@ export const LoginPage: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  {errorMessage && (
-                    <p className="text-[11px] font-medium text-[#E32032] mt-1">
-                      Incorrect password
-                    </p>
-                  )}
                 </div>
 
                 {/* Keep Signed In & Forgot Password */}
@@ -384,7 +389,7 @@ export const LoginPage: React.FC = () => {
                       setEmail(e.target.value);
                       if (errorMessage) setErrorMessage(null);
                     }}
-                    placeholder="priya.shah@greenvalley.example"
+                    placeholder="name@company.com"
                     className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                   />
                 </div>
@@ -700,7 +705,7 @@ export const LoginPage: React.FC = () => {
                       setEmail(e.target.value);
                       if (errorMessage) setErrorMessage(null);
                     }}
-                    placeholder="priya.shah@greenvalley.example"
+                    placeholder="name@company.com"
                     className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
                   />
                 </div>

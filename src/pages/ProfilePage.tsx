@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User as UserIcon, Mail, Phone, Shield, CheckCircle2, Loader2, Save, RotateCcw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usersApi } from '../services/api';
+import { sanitizePhoneNumber, validatePhoneNumberInput } from '../components/clients/AddClientView';
 
 export const ProfilePage: React.FC = () => {
   const { user: currentUser, updateUser } = useAuth();
@@ -76,6 +77,14 @@ export const ProfilePage: React.FC = () => {
     if (!currentUser?.id) {
       setErrorMessage('User session not found. Please log in again.');
       return;
+    }
+
+    if (formData.phone_number.trim()) {
+      const phoneErr = validatePhoneNumberInput(formData.phone_number);
+      if (phoneErr) {
+        setErrorMessage(phoneErr);
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -242,7 +251,10 @@ export const ProfilePage: React.FC = () => {
                   type="tel"
                   maxLength={20}
                   value={formData.phone_number}
-                  onChange={(e) => handleInputChange('phone_number', e.target.value.replace(/[a-zA-Z]/g, '').slice(0, 20))}
+                  onChange={(e) => {
+                    handleInputChange('phone_number', sanitizePhoneNumber(e.target.value));
+                    if (errorMessage && errorMessage.includes('Phone number')) setErrorMessage(null);
+                  }}
                   className="w-full h-10 pl-9 pr-3.5 rounded-lg border border-[#D1D5DB] text-xs text-[#171717] bg-white transition-colors focus:outline-none focus:border-[#171717] focus:ring-1 focus:ring-[#171717]"
                   placeholder="+61 400 000 000"
                 />

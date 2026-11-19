@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { orgsApi } from '../../services/api';
-import type { Organization } from '../../types';
+import type { Organization, Machine } from '../../types';
 
 export interface DeleteClientModalProps {
   isOpen: boolean;
   client?: Organization | null;
   selectedClients?: Organization[];
+  machines?: Machine[];
   onClose: () => void;
   onSuccess: (deletedIds: string[]) => void;
 }
@@ -15,11 +16,17 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
   isOpen,
   client,
   selectedClients,
+  machines,
   onClose,
   onSuccess,
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+    setIsDeleting(false);
+  }, [isOpen, client, selectedClients]);
 
   if (!isOpen) return null;
 
@@ -39,7 +46,23 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
 
   const buttonLabel = isMultiple ? 'Delete clients' : 'Delete client';
 
+  const getMachineCount = (c: Organization): number => {
+    if (machines && Array.isArray(machines)) {
+      return machines.filter((m) => m.organization_id === c.id && !m.is_deleted).length;
+    }
+    return c.total_machines || 0;
+  };
+
+  const clientsWithMachines = clientsToDelete.filter((c) => getMachineCount(c) > 0);
+  const hasAssignedMachines = clientsWithMachines.length > 0;
+
   const handleDelete = async () => {
+    if (hasAssignedMachines) {
+      setError(
+        `Cannot delete client with active assigned machines. Please unassign all machines first.`
+      );
+      return;
+    }
     setIsDeleting(true);
     setError(null);
     try {
@@ -80,8 +103,19 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
 
         {/* Explanatory Text */}
         <p className="text-xs sm:text-[13px] text-[#4B5563] mt-3 leading-relaxed">
-          The client record is archived for 30 days and then permanently removed, along with its contacts. Machines and their history stay with PowerTech Energy and are unassigned. Every deletion is recorded in the audit log.
+          {hasAssignedMachines
+            ? 'This client organization currently has active machines assigned. System rules require all machines to be unassigned before the client record can be deleted.'
+            : 'The client record is archived and then permanently removed along with its contact associations. Every deletion is recorded in the audit log.'}
         </p>
+
+        {hasAssignedMachines && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#E32032] flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>Action Blocked:</strong> {clientsWithMachines.map((c) => `${c.company_name} has ${getMachineCount(c)} active machine(s)`).join(', ')}. Please unassign all machines from the client detail view before deleting.
+            </span>
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (
@@ -105,8 +139,8 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
           <button
             type="button"
             onClick={handleDelete}
-            disabled={isDeleting}
-            className="px-4 py-2 rounded-lg text-xs font-bold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+            disabled={isDeleting || hasAssignedMachines}
+            className="px-4 py-2 rounded-lg text-xs font-bold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isDeleting ? (
               <>

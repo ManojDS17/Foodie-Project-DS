@@ -112,6 +112,11 @@ export const ClientsPage: React.FC = () => {
   useEffect(() => {
     if (!selectedClientIdFromUrl) return;
 
+    setIsAddClientOpen(false);
+    setEditingClient(null);
+    setDeletingClient(null);
+    setIsAssignMachineOpen(false);
+
     if (organizations.length > 0) {
       const cached = organizations.find(
         (o) => o.id === selectedClientIdFromUrl || o.client_code === selectedClientIdFromUrl
@@ -238,10 +243,12 @@ export const ClientsPage: React.FC = () => {
 
       // 2. Status Filter
       const isInactive = !org.is_active || org.status === 'Inactive' || org.status === 'Archived';
-      const matchesStatus =
-        statusFilter === 'Inactive'
-          ? isInactive
-          : !isInactive;
+      let matchesStatus = true;
+      if (statusFilter === 'Active') {
+        matchesStatus = !isInactive;
+      } else if (statusFilter === 'Inactive') {
+        matchesStatus = isInactive;
+      }
 
       // 3. Business Type Filter
       const clientType = org.business_type || 'Corporate';
@@ -565,6 +572,7 @@ export const ClientsPage: React.FC = () => {
         <DeleteClientModal
           isOpen={Boolean(deletingClient)}
           client={deletingClient}
+          machines={machines}
           onClose={() => setDeletingClient(null)}
           onSuccess={(deletedIds) => {
             setOrganizations((prev) => prev.filter((o) => !deletedIds.includes(o.id)));
@@ -573,7 +581,7 @@ export const ClientsPage: React.FC = () => {
             setSearchParams({});
             fetchData();
             setToast({
-              message: 'Client record archived and assigned machines unassigned successfully.',
+              message: 'Client record deleted successfully.',
               type: 'info',
             });
           }}
@@ -872,7 +880,7 @@ export const ClientsPage: React.FC = () => {
 
                       {/* Point of Contact */}
                       <td className="py-3.5 px-3 text-[#171717] whitespace-nowrap">
-                        {client.contact_poc || 'Jordan Smith'}
+                        {client.contact_poc || '—'}
                       </td>
 
                       {/* Location */}
@@ -1111,6 +1119,7 @@ export const ClientsPage: React.FC = () => {
         isOpen={Boolean(deletingClient || deletingClients.length > 0)}
         client={deletingClient}
         selectedClients={deletingClients}
+        machines={machines}
         onClose={() => {
           setDeletingClient(null);
           setDeletingClients([]);
@@ -1120,7 +1129,7 @@ export const ClientsPage: React.FC = () => {
           setSelectedIds((prev) => prev.filter((id) => !deletedIds.includes(id)));
           fetchData();
           setToast({
-            message: `Client record archived and assigned machines unassigned successfully.`,
+            message: `Client record deleted successfully.`,
             type: 'info',
           });
         }}

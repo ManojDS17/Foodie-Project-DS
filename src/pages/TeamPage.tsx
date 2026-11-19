@@ -2,26 +2,30 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Search,
   Plus,
-  MoreHorizontal,
   Users,
   Eye,
   Pencil,
   Trash2,
+  Cpu,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { usersApi, orgsApi } from '../services/api';
+import { usersApi, orgsApi, machinesApi, operatorAssignmentsApi } from '../services/api';
 import { useSilentRefresh } from '../hooks';
 import { AddOperatorView } from '../components/operators/AddOperatorView';
 import { UserDetailView } from '../components/team/UserDetailView';
 import { EditUserView } from '../components/team/EditUserView';
 import { RemoveUserModal } from '../components/team/RemoveUserModal';
+import { AssignOperatorMachineModal } from '../components/operators/AssignOperatorMachineModal';
+import { RowActionMenu } from '../components/common/RowActionMenu';
 import { Toast } from '../components/common/Toast';
-import type { User, Organization } from '../types';
+import type { User, Organization, Machine, OperatorMachineAssignment } from '../types';
 
 export const TeamPage: React.FC = () => {
   const { user } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [operatorAssignments, setOperatorAssignments] = useState<OperatorMachineAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOperatorOpen, setIsAddOperatorOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
@@ -29,6 +33,7 @@ export const TeamPage: React.FC = () => {
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [removingUser, setRemovingUser] = useState<User | null>(null);
+  const [managingOperator, setManagingOperator] = useState<User | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
 
@@ -56,13 +61,18 @@ export const TeamPage: React.FC = () => {
   const fetchUsers = async (isSilent = false) => {
     try {
       if (!isSilent) setIsLoading(true);
-      const [userList, orgList] = await Promise.all([
+      const [userList, orgList, machineList, assignmentList] = await Promise.all([
         usersApi.getAll().catch(() => []),
         orgsApi.getAll().catch(() => []),
+        machinesApi.getAll().catch(() => []),
+        operatorAssignmentsApi.getAll().catch(() => []),
       ]);
-      setUsers(userList);
-      setOrganizations(orgList);
-      if (viewingUser) {
+      setUsers(Array.isArray(userList) ? userList : []);
+      setOrganizations(Array.isArray(orgList) ? orgList : []);
+      setMachines(Array.isArray(machineList) ? machineList : []);
+      setOperatorAssignments(Array.isArray(assignmentList) ? assignmentList : []);
+
+      if (viewingUser && Array.isArray(userList)) {
         const refreshed = userList.find((u) => u.id === viewingUser.id);
         if (refreshed) setViewingUser(refreshed);
       }
@@ -77,9 +87,21 @@ export const TeamPage: React.FC = () => {
     fetchUsers(false);
   }, []);
 
+  useEffect(() => {
+    const handleReset = () => {
+      setViewingUser(null);
+      setEditingUser(null);
+      setIsAddOperatorOpen(false);
+    };
+    window.addEventListener('foodie:reset-team-view', handleReset);
+    return () => {
+      window.removeEventListener('foodie:reset-team-view', handleReset);
+    };
+  }, []);
+
   useSilentRefresh(() => fetchUsers(true), {
     intervalMs: 12000,
-    enabled: !isAddOperatorOpen && !editingUser && !removingUser,
+    enabled: !isAddOperatorOpen && !editingUser && !removingUser && !managingOperator,
   });
 
   const getInitials = (firstName?: string, lastName?: string, email?: string): string => {
@@ -101,14 +123,6 @@ export const TeamPage: React.FC = () => {
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280]">
           <span className="w-1.5 h-1.5 rounded-full bg-[#9CA3AF]"></span>
           Inactive
-        </span>
-      );
-    }
-    if (!u.last_login_at) {
-      return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#D97706]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]"></span>
-          Pending
         </span>
       );
     }
@@ -138,11 +152,6 @@ export const TeamPage: React.FC = () => {
   // Filter pipeline
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
-      // Exclude logged-in Site Admin from team list
-      if (user?.id && u.id === user.id) {
-        return false;
-      }
-
       // 1. Search Query
       const q = searchQuery.toLowerCase().trim();
       if (q) {
@@ -160,19 +169,86 @@ export const TeamPage: React.FC = () => {
       }
 
       // 3. Status Filter
-      if (statusFilter === 'Active' && (!u.is_active || !u.last_login_at)) {
+      if (statusFilter === 'Active' && !u.is_active) {
         return false;
       }
       if (statusFilter === 'Inactive' && u.is_active) {
-        return false;
-      }
-      if (statusFilter === 'Pending' && (!u.is_active || Boolean(u.last_login_at))) {
         return false;
       }
 
       return true;
     });
   }, [users, searchQuery, roleFilter, statusFilter]);
+
+  const clientName =
+    user?.company_name ||
+    organizations.find((o) => o.id === user?.organization_id)?.company_name ||
+    'Client Organisation';
+
+  const viewingUserMachines = useMemo(() => {
+    if (!viewingUser) return [];
+    if (viewingUser.role === 'OPERATOR') {
+      return operatorAssignments
+        .filter(
+          (a) =>
+            String(a.operator_id || '').trim().toLowerCase() === String(viewingUser.id || '').trim().toLowerCase() &&
+            a.status === 'Active'
+        )
+        .map((a) => a.machine_code || a.serial_number || a.machine_id)
+        .filter(Boolean);
+    }
+
+    // Site Admin has access to all machines in their organization
+    const orgId = viewingUser.organization_id || user?.organization_id;
+    if (orgId) {
+      return machines
+        .filter((m) => m.organization_id === orgId && !m.is_deleted)
+        .map((m) => m.machine_code || m.serial_number)
+        .filter(Boolean);
+    }
+    return [];
+  }, [viewingUser, operatorAssignments, machines, user?.organization_id]);
+
+  const managingOrgId = managingOperator?.organization_id || viewingUser?.organization_id || user?.organization_id;
+  const availableClientMachines = useMemo(() => {
+    if (!managingOrgId) return [];
+    return machines.filter((m) => m.organization_id === managingOrgId && !m.is_deleted);
+  }, [machines, managingOrgId]);
+
+  const handleAssignOperatorMachine = async (data: { operator_id: string; machine_id: string; location?: string }) => {
+    try {
+      const newAssignment = await operatorAssignmentsApi.assign(data);
+      if (newAssignment) {
+        setOperatorAssignments((prev) => {
+          const filtered = prev.filter(
+            (a) => !(a.operator_id === data.operator_id && a.machine_id === data.machine_id)
+          );
+          return [newAssignment, ...filtered];
+        });
+      }
+      await fetchUsers(true);
+      setToast({ message: 'Machine assigned to operator successfully.', type: 'success' });
+    } catch (err: any) {
+      setToast({ message: err.message || 'Failed to assign machine.', type: 'error' });
+      await fetchUsers(true);
+      throw err;
+    }
+  };
+
+  const handleRevokeOperatorMachine = async (assignmentId: string) => {
+    try {
+      setOperatorAssignments((prev) =>
+        prev.map((a) => (a.id === assignmentId ? { ...a, status: 'Revoked' } : a))
+      );
+      await operatorAssignmentsApi.revoke(assignmentId);
+      await fetchUsers(true);
+      setToast({ message: 'Machine assignment revoked successfully.', type: 'success' });
+    } catch (err: any) {
+      setToast({ message: err.message || 'Failed to revoke assignment.', type: 'error' });
+      await fetchUsers(true);
+      throw err;
+    }
+  };
 
   if (isAddOperatorOpen) {
     return (
@@ -202,11 +278,6 @@ export const TeamPage: React.FC = () => {
       </div>
     );
   }
-
-  const clientName =
-    user?.company_name ||
-    organizations.find((o) => o.id === user?.organization_id)?.company_name ||
-    'Green Valley Foods Pty Ltd';
 
   if (editingUser) {
     return (
@@ -242,10 +313,22 @@ export const TeamPage: React.FC = () => {
         <UserDetailView
           user={viewingUser}
           organizationName={clientName}
+          assignedMachines={viewingUserMachines}
           onBack={() => setViewingUser(null)}
           onEdit={(u) => setEditingUser(u)}
           onRemove={(u) => setRemovingUser(u)}
+          onManageMachines={(u) => setManagingOperator(u)}
           onToast={(msg, type) => setToast({ message: msg, type })}
+        />
+
+        <AssignOperatorMachineModal
+          isOpen={Boolean(managingOperator)}
+          operator={managingOperator}
+          clientMachines={availableClientMachines}
+          existingAssignments={operatorAssignments}
+          onClose={() => setManagingOperator(null)}
+          onAssign={handleAssignOperatorMachine}
+          onRevoke={handleRevokeOperatorMachine}
         />
 
         {removingUser && (
@@ -436,64 +519,79 @@ export const TeamPage: React.FC = () => {
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 sm:px-6 text-right relative">
-                        <div
-                          className="inline-block text-left"
-                          ref={openMenuUserId === u.id ? actionMenuRef : null}
-                        >
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuUserId((prev) => (prev === u.id ? null : u.id));
-                            }}
-                            className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#111827] hover:bg-[#F3F4F6] transition-colors cursor-pointer inline-flex items-center justify-center"
-                            aria-label="Actions"
-                          >
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
-
-                          {openMenuUserId === u.id && (
-                            <div className="absolute right-4 top-10 w-44 rounded-xl bg-white border border-[#E5E7EB] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOpenMenuUserId(null);
-                                  setViewingUser(u);
-                                }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
-                                <span>View user</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOpenMenuUserId(null);
-                                  setEditingUser(u);
-                                }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
-                              >
-                                <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
-                                <span>Edit user</span>
-                              </button>
-
-                              <div className="my-1 border-t border-[#F3F4F6]" />
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOpenMenuUserId(null);
-                                  setRemovingUser(u);
-                                }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DC2626] hover:bg-[#FEF2F2] flex items-center gap-2 cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />
-                                <span>Remove from team</span>
-                              </button>
-                            </div>
+                      <td className="py-3.5 px-4 sm:px-6 text-right">
+                        <div className="inline-flex items-center gap-2 text-left justify-end">
+                          {u.role === 'OPERATOR' && (
+                            <button
+                              type="button"
+                              onClick={() => setManagingOperator(u)}
+                              className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] text-xs font-semibold text-[#374151] transition-colors cursor-pointer"
+                            >
+                              Manage machines
+                            </button>
                           )}
+
+                          <RowActionMenu
+                            isOpen={openMenuUserId === u.id}
+                            onToggle={() => setOpenMenuUserId(openMenuUserId === u.id ? null : u.id)}
+                            onClose={() => setOpenMenuUserId(null)}
+                            buttonAriaLabel={`Actions for ${u.first_name}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuUserId(null);
+                                setViewingUser(u);
+                              }}
+                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                              <span>View user</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuUserId(null);
+                                setEditingUser(u);
+                              }}
+                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
+                              <span>Edit user</span>
+                            </button>
+
+                            {u.role === 'OPERATOR' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuUserId(null);
+                                  setManagingOperator(u);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                              >
+                                <Cpu className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <span>Manage machines</span>
+                              </button>
+                            )}
+
+                            {u.role !== 'SITE_ADMIN' && (
+                              <>
+                                <div className="my-1 border-t border-[#F3F4F6]" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenMenuUserId(null);
+                                    setRemovingUser(u);
+                                  }}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DC2626] hover:bg-[#FEF2F2] flex items-center gap-2 cursor-pointer transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />
+                                  <span>Remove user</span>
+                                </button>
+                              </>
+                            )}
+                          </RowActionMenu>
                         </div>
                       </td>
                     </tr>
@@ -504,6 +602,16 @@ export const TeamPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      <AssignOperatorMachineModal
+        isOpen={Boolean(managingOperator)}
+        operator={managingOperator}
+        clientMachines={availableClientMachines}
+        existingAssignments={operatorAssignments}
+        onClose={() => setManagingOperator(null)}
+        onAssign={handleAssignOperatorMachine}
+        onRevoke={handleRevokeOperatorMachine}
+      />
 
       {removingUser && (
         <RemoveUserModal

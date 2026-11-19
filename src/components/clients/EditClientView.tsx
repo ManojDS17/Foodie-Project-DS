@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { orgsApi } from '../../services/api';
 import { Button } from '../common/ui';
-import { formatABN, sanitizePhoneNumber } from './AddClientView';
+import { formatABN, isValidABN, sanitizePhoneNumber, validatePhoneNumberInput, isValidEmail } from './AddClientView';
 import type { Organization } from '../../types';
 
 export interface EditClientViewProps {
@@ -51,7 +51,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Duplicate ABN validation
+  // Duplicate & Checksum ABN validation
   const cleanTaxDigits = formData.tax_id ? formData.tax_id.replace(/\D/g, '') : '';
   const duplicateClient =
     cleanTaxDigits.length === 11
@@ -62,6 +62,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
             c.tax_id.replace(/\D/g, '') === cleanTaxDigits
         )
       : null;
+  const isAbnChecksumInvalid = cleanTaxDigits.length === 11 && !isValidABN(cleanTaxDigits);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -82,12 +83,18 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
       setError('Company name cannot exceed 20 words.');
       return;
     }
-    if (formData.contact_poc.trim() && formData.contact_poc.trim().split(/\s+/).length > 20) {
-      setError('Point of contact name cannot exceed 20 words.');
-      return;
+    if (formData.contact_poc.trim()) {
+      if (formData.contact_poc.trim().length > 50) {
+        setError('Point of contact name cannot exceed 50 characters.');
+        return;
+      }
     }
     if (!formData.email.trim() && !client.email) {
       setError('Primary contact email is required.');
+      return;
+    }
+    if (formData.email.trim() && !isValidEmail(formData.email)) {
+      setError('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
     }
     if (!formData.billing_address.trim()) {
@@ -95,24 +102,22 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
       return;
     }
     if (formData.phone_number.trim()) {
-      if (/[a-zA-Z]/.test(formData.phone_number)) {
-        setError('Phone number accepts digits and symbols only (no alphabets).');
-        return;
-      }
-      if (formData.phone_number.trim().length > 20) {
-        setError('Phone number cannot exceed 20 characters.');
-        return;
-      }
-      const digitsOnly = formData.phone_number.replace(/\D/g, '');
-      if (digitsOnly.length < 7) {
-        setError('Please enter a valid phone number with at least 7 digits.');
+      const phoneErr = validatePhoneNumberInput(formData.phone_number);
+      if (phoneErr) {
+        setError(phoneErr);
         return;
       }
     }
     if (formData.tax_id.trim()) {
       const abnDigits = formData.tax_id.replace(/\D/g, '');
       if (abnDigits.length !== 11) {
-        setError('Tax ID (ABN) must be exactly 11 digits (e.g. 12 345 678 901).');
+        setError('Tax ID (ABN) must be exactly 11 digits (e.g. 51 824 753 556).');
+        return;
+      }
+      if (!isValidABN(abnDigits)) {
+        setError(
+          'Invalid Australian Business Number (ABN). The 11-digit ABN does not pass the official ABR Modulus 89 checksum calculation.'
+        );
         return;
       }
       if (duplicateClient) {
@@ -313,11 +318,15 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 <label className="block text-xs font-semibold text-[#171717]">
                   Tax ID (ABN)
                 </label>
-                {duplicateClient && (
+                {duplicateClient ? (
                   <span className="text-[11px] font-semibold text-[#DC2626]">
                     Already registered
                   </span>
-                )}
+                ) : isAbnChecksumInvalid ? (
+                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                    Invalid checksum
+                  </span>
+                ) : null}
               </div>
               <input
                 type="text"
@@ -328,9 +337,9 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                   if (error) setError(null);
                 }}
                 maxLength={14}
-                placeholder="e.g. 12 345 678 901"
+                placeholder="e.g. 51 824 753 556"
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
-                  duplicateClient
+                  duplicateClient || isAbnChecksumInvalid
                     ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
                     : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
                 }`}
@@ -340,6 +349,14 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                   <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
                   <span>
                     This ABN is already in use by <strong>{duplicateClient.company_name}</strong> ({duplicateClient.client_code}). Please enter a unique ABN.
+                  </span>
+                </p>
+              )}
+              {isAbnChecksumInvalid && !duplicateClient && (
+                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>
+                    Invalid ABN. This 11-digit number does not satisfy the official Australian Business Register Modulus 89 checksum.
                   </span>
                 </p>
               )}
@@ -411,16 +428,27 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
             {/* Point of Contact */}
             <div>
               <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Point of contact
+                Point of contact <span className="text-[#DC2626]">*</span>
               </label>
               <input
                 type="text"
                 name="contact_poc"
                 value={formData.contact_poc}
-                onChange={handleChange}
-                placeholder="e.g. Jordan Smith"
+                onChange={(e) => {
+                  setFormData((prev) => ({ ...prev, contact_poc: e.target.value.slice(0, 50) }));
+                  if (error && error.includes('Point of contact')) setError(null);
+                }}
+                maxLength={50}
+                required
+                placeholder="e.g. Alex Morgan"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
               />
+              <p className="text-[11px] text-[#6B7280] mt-1 flex justify-between items-center">
+                <span>Primary operational contact person.</span>
+                <span className={`text-[11px] ${formData.contact_poc.length >= 50 ? 'text-[#DC2626] font-semibold' : 'text-[#9CA3AF]'}`}>
+                  {formData.contact_poc.length}/50 characters
+                </span>
+              </p>
             </div>
 
             {/* Phone Number */}
@@ -429,13 +457,13 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 Phone number
               </label>
               <input
-                type="text"
+                type="tel"
                 name="phone_number"
                 value={formData.phone_number}
                 onChange={(e) => {
                   const sanitized = sanitizePhoneNumber(e.target.value);
                   setFormData((prev) => ({ ...prev, phone_number: sanitized }));
-                  if (error) setError(null);
+                  if (error && error.includes('Phone number')) setError(null);
                 }}
                 maxLength={20}
                 placeholder="e.g. +61 8 8200 1100"
@@ -467,7 +495,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 name="website"
                 value={formData.website}
                 onChange={handleChange}
-                placeholder="e.g. https://greenvalley.example"
+                placeholder="e.g. https://company.com"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
               />
             </div>

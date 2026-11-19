@@ -107,7 +107,7 @@ export const ClientDashboardView: React.FC = () => {
             Welcome, {user?.first_name ? `${user.first_name}` : (user?.company_name || 'Operator')}
           </h1>
           <p className="text-xs text-[#666666] mt-0.5">
-            {user?.company_name || 'Green Valley Foods Pty Ltd'} · Last updated 30 min ago
+            {user?.company_name ? `${user.company_name} · Operations Overview` : 'Operations Overview'}
           </p>
         </div>
       </div>
@@ -391,7 +391,11 @@ export const ClientDashboardView: React.FC = () => {
               </button>
             </div>
 
-            {attentionMachines.length === 0 ? (
+            {totalMachines === 0 ? (
+              <div className="py-6 text-center text-xs text-[#6B7280] bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] my-2">
+                No machines are currently assigned.
+              </div>
+            ) : attentionMachines.length === 0 ? (
               <div className="py-6 text-center text-xs text-[#16A34A] bg-emerald-50/50 rounded-xl border border-emerald-100 my-2">
                 ✓ All assigned machines operating normally. No active alerts.
               </div>
@@ -402,7 +406,7 @@ export const ClientDashboardView: React.FC = () => {
                     <div className="min-w-0 pr-2">
                       <button
                         type="button"
-                        onClick={() => navigate('/machines')}
+                        onClick={() => navigate(`/machines?select=${m.id}`)}
                         className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left cursor-pointer"
                       >
                         {m.machine_code}

@@ -12,6 +12,7 @@ import {
   Trash2,
   ArrowLeft,
   Cpu,
+  Building2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../common/ui';
@@ -75,8 +76,6 @@ export const MachineDetailView: React.FC<MachineDetailViewProps> = ({
     }
   };
 
-  const locationText = machine.location_label || machine.site_name || machine.company_name || 'Assigned Facility';
-
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] w-full min-w-0 mx-auto select-none pb-12">
       <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-[#6B7280] pt-1">
@@ -110,16 +109,35 @@ export const MachineDetailView: React.FC<MachineDetailViewProps> = ({
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#6B7280]">
-              <span className="flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#9CA3AF]" />
-                <span>Lease start date {formatDate(machine.lease_start_date)}</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-[#9CA3AF]" />
-                <span>{locationText}</span>
-              </span>
-              <span>Capacity {machine.capacity || '100 kg/day'}</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[#6B7280]">
+              {isAssigned ? (
+                <>
+                  {machine.lease_start_date && (
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                      <span>Lease start date: {formatDate(machine.lease_start_date)}</span>
+                    </span>
+                  )}
+                  {machine.company_name && (
+                    <span className="flex items-center gap-1.5 font-medium text-[#111827]">
+                      <Building2 className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                      <span>{machine.company_name}</span>
+                    </span>
+                  )}
+                  {machine.location_label && (
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                      <span>{machine.location_label}</span>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  Machine not assigned
+                </span>
+              )}
+              <span>Capacity: {machine.capacity || '100 kg/day'}</span>
             </div>
           </div>
         </div>
@@ -132,6 +150,10 @@ export const MachineDetailView: React.FC<MachineDetailViewProps> = ({
                   ? 'bg-[#EAFBF1] text-[#059669]'
                   : opStatus === 'Halted'
                   ? 'bg-[#FEF2F2] text-[#DC2626]'
+                  : opStatus === 'Idle'
+                  ? 'bg-[#FFFBEB] text-[#B45309]'
+                  : opStatus === 'Maintenance'
+                  ? 'bg-[#EFF6FF] text-[#1D4ED8]'
                   : 'bg-[#F3F4F6] text-[#6B7280]'
               }`}
             >
@@ -141,6 +163,10 @@ export const MachineDetailView: React.FC<MachineDetailViewProps> = ({
                     ? 'bg-[#10B981]'
                     : opStatus === 'Halted'
                     ? 'bg-[#EF4444]'
+                    : opStatus === 'Idle'
+                    ? 'bg-amber-500'
+                    : opStatus === 'Maintenance'
+                    ? 'bg-blue-500'
                     : 'bg-[#9CA3AF]'
                 }`}
               />

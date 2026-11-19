@@ -11,6 +11,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { usersApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { sanitizePhoneNumber, validatePhoneNumberInput, isValidEmail } from '../clients/AddClientView';
 import type { User } from '../../types';
 
 export interface EditUserViewProps {
@@ -22,8 +24,6 @@ export interface EditUserViewProps {
   onError: (msg: string) => void;
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export const EditUserView: React.FC<EditUserViewProps> = ({
   user,
   organizationName,
@@ -32,6 +32,7 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
   onSuccess,
   onError,
 }) => {
+  const { user: currentUser } = useAuth();
   const [firstName, setFirstName] = useState(user.first_name || '');
   const [lastName, setLastName] = useState(user.last_name || '');
   const [email, setEmail] = useState(user.email || '');
@@ -40,6 +41,10 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
+
+  const isEditingSelf = currentUser?.id === user.id;
+  const isOem = currentUser?.role === 'OEM_MANAGER';
+  const isEmailLocked = isEditingSelf && !isOem;
 
   useEffect(() => {
     setFirstName(user.first_name || '');
@@ -73,9 +78,17 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
       return;
     }
 
-    if (!EMAIL_REGEX.test(cleanEmail)) {
-      setFieldError('Please enter a valid business email address.');
+    if (!isValidEmail(cleanEmail)) {
+      setFieldError('Please enter a valid business email address (e.g. name@company.com or name@company.com.au).');
       return;
+    }
+
+    if (cleanPhone) {
+      const phoneErr = validatePhoneNumberInput(cleanPhone);
+      if (phoneErr) {
+        setFieldError(phoneErr);
+        return;
+      }
     }
 
     try {
@@ -179,7 +192,7 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
             </div>
           </div>
 
-          {/* Email Address (Editable with live validation) */}
+          {/* Email Address */}
           <div>
             <label className="block text-xs font-semibold text-[#374151] mb-1.5">
               Email address <span className="text-[#DC2626]">*</span>
@@ -192,11 +205,18 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="e.g. user@organization.com"
                 required
-                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-[#D1D5DB] text-xs text-[#111827] focus:outline-none focus:border-[#111827] transition-all"
+                disabled={isEmailLocked}
+                className={`w-full pl-9 pr-3.5 py-2.5 rounded-xl border text-xs transition-all ${
+                  isEmailLocked
+                    ? 'border-[#D1D5DB] bg-[#F3F4F6] text-[#374151] cursor-not-allowed focus:outline-none'
+                    : 'border-[#D1D5DB] text-[#111827] focus:outline-none focus:border-[#111827]'
+                }`}
               />
             </div>
             <p className="text-[11px] text-[#6B7280] mt-1">
-              Must be a valid and unique business email address.
+              {isEmailLocked
+                ? 'Email address cannot be changed here. Contact your OEM manager to update.'
+                : 'Must be a valid and unique business email address.'}
             </p>
           </div>
 
@@ -210,7 +230,11 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
               <input
                 type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(sanitizePhoneNumber(e.target.value));
+                  if (fieldError && fieldError.includes('Phone number')) setFieldError(null);
+                }}
+                maxLength={20}
                 placeholder="e.g. 0412 345 678"
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-[#D1D5DB] text-xs text-[#111827] focus:outline-none focus:border-[#111827] transition-all"
               />

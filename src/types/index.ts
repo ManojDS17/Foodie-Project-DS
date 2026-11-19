@@ -38,6 +38,7 @@ export interface Organization {
   shipping_address?: string;
   payment_terms?: string;
   preferred_currency?: string;
+  total_machines?: number;
   comms_preference?: string;
   is_active: boolean;
   is_deleted?: boolean;

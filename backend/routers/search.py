@@ -1,87 +1,149 @@
 from fastapi import APIRouter, Query, Depends
 from ..database import get_db_cursor
-from ..schemas import SearchResponse, SearchResultItemSite, SearchResultItemUser, SearchResultItemMachine
+from ..schemas import SearchResponse, SearchResultItemClient, SearchResultItemMachine
 from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/search", tags=["Global Search"], dependencies=[Depends(get_current_user)])
 
-MACHINES_TELEMETRY = [
-    {"id": "M12", "model": "Foodie F25", "location": "Site A — Prince Alfred College", "status": "Running", "temp": "62°C"},
-    {"id": "M13", "model": "Foodie F100", "location": "Site B — Mount Isa Kitchen", "status": "Running", "temp": "65°C"},
-    {"id": "M14", "model": "Foodie F25", "location": "Site C — Mawson Lakes", "status": "Idle", "temp": "45°C"},
-    {"id": "M15", "model": "Foodie F100", "location": "Site F — Processing Center", "status": "Maintenance", "temp": "28°C"},
-]
-
 @router.get("", response_model=SearchResponse)
-def search_entities(q: str = Query("", description="Search term for sites, users, machines"), current_user: dict = Depends(get_current_user)):
+def search_entities(
+    q: str = Query("", description="Search term for clients and machines"),
+    current_user: dict = Depends(get_current_user)
+):
     query = q.strip()
     if not query:
-        return SearchResponse(sites=[], users=[], machines=[])
+        return SearchResponse(clients=[], machines=[], sites=[], users=[])
 
     user_role = current_user.get("role")
     user_org_id = current_user.get("organization_id")
     search_pattern = f"%{query}%"
 
     with get_db_cursor() as cur:
-        # 1. Sites
-        sites = []
-
-        # 2. Search Users (Operators cannot see users; Site Admins/Org Owners scoped to their organization)
-        users = []
+        # 1. Search Clients (Organizations)
+        clients = []
         if user_role == "OEM_MANAGER":
             cur.execute("""
-                SELECT id, first_name, last_name, email, role, phone_number
-                FROM users
+                SELECT id, client_code, company_name, contact_poc, email, phone_number, status
+                FROM organizations
                 WHERE (is_deleted IS NOT TRUE)
-                  AND (first_name ILIKE %s OR last_name ILIKE %s OR email ILIKE %s)
-                LIMIT 5;
-            """, (search_pattern, search_pattern, search_pattern))
-            user_rows = cur.fetchall()
-            cols = [desc[0] for desc in cur.description]
-            users = [SearchResultItemUser(**{**dict(zip(cols, r)), "id": str(r[0])}) for r in user_rows]
-        elif user_role in ("SITE_ADMIN", "ORGANIZATION_OWNER", "CLIENT_ADMIN") and user_org_id:
+                  AND (
+                    company_name ILIKE %s
+                    OR client_code ILIKE %s
+                    OR COALESCE(contact_poc, '') ILIKE %s
+                    OR COALESCE(email, '') ILIKE %s
+                    OR COALESCE(phone_number, '') ILIKE %s
+                    OR COALESCE(tax_id, '') ILIKE %s
+                  )
+                ORDER BY created_at DESC
+                LIMIT 8;
+            """, (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+            for r in cur.fetchall():
+                clients.append(SearchResultItemClient(
+                    id=str(r[0]),
+                    client_code=r[1] or "",
+                    company_name=r[2] or "",
+                    contact_poc=r[3],
+                    email=r[4],
+                    phone_number=r[5],
+                    status=r[6] or "Active"
+                ))
+        elif user_org_id:
             cur.execute("""
-                SELECT id, first_name, last_name, email, role, phone_number
-                FROM users
+                SELECT id, client_code, company_name, contact_poc, email, phone_number, status
+                FROM organizations
                 WHERE (is_deleted IS NOT TRUE)
-                  AND organization_id = %s
-                  AND (first_name ILIKE %s OR last_name ILIKE %s OR email ILIKE %s)
-                LIMIT 5;
-            """, (user_org_id, search_pattern, search_pattern, search_pattern))
-            user_rows = cur.fetchall()
-            cols = [desc[0] for desc in cur.description]
-            users = [SearchResultItemUser(**{**dict(zip(cols, r)), "id": str(r[0])}) for r in user_rows]
+                  AND id = %s
+                  AND (
+                    company_name ILIKE %s
+                    OR client_code ILIKE %s
+                    OR COALESCE(contact_poc, '') ILIKE %s
+                    OR COALESCE(email, '') ILIKE %s
+                    OR COALESCE(phone_number, '') ILIKE %s
+                    OR COALESCE(tax_id, '') ILIKE %s
+                  )
+                LIMIT 1;
+            """, (user_org_id, search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+            for r in cur.fetchall():
+                clients.append(SearchResultItemClient(
+                    id=str(r[0]),
+                    client_code=r[1] or "",
+                    company_name=r[2] or "",
+                    contact_poc=r[3],
+                    email=r[4],
+                    phone_number=r[5],
+                    status=r[6] or "Active"
+                ))
 
-        # 3. Search Machines (OEM searches all fleet; non-OEM strictly scoped to their organization)
+        # 2. Search Machines
+        machines = []
         if user_role == "OEM_MANAGER":
             cur.execute("""
-                SELECT m.machine_code, m.model, COALESCE(m.location_label, 'Fleet') AS location, m.connectivity_status
+                SELECT m.id, m.machine_code, m.serial_number, m.model,
+                       COALESCE(m.location_label, '') AS location,
+                       o.company_name,
+                       m.operational_status, m.connectivity_status,
+                       m.organization_id
                 FROM machines m
+                LEFT JOIN organizations o ON m.organization_id = o.id
                 WHERE (m.is_deleted IS NOT TRUE)
-                  AND (m.machine_code ILIKE %s OR m.model ILIKE %s OR m.serial_number ILIKE %s OR m.location_label ILIKE %s)
-                LIMIT 5;
-            """, (search_pattern, search_pattern, search_pattern, search_pattern))
-        else:
-            if not user_org_id:
-                return SearchResponse(sites=sites, users=users, machines=[])
+                  AND (
+                    m.machine_code ILIKE %s
+                    OR m.serial_number ILIKE %s
+                    OR m.model ILIKE %s
+                    OR COALESCE(m.location_label, '') ILIKE %s
+                    OR COALESCE(o.company_name, '') ILIKE %s
+                  )
+                ORDER BY m.created_at DESC
+                LIMIT 8;
+            """, (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+            for r in cur.fetchall():
+                status = r[6] or "Idle"
+                machines.append(SearchResultItemMachine(
+                    id=str(r[0]),
+                    machine_code=r[1] or "",
+                    serial_number=r[2] or "",
+                    model=r[3] or "",
+                    location=r[4] or "",
+                    company_name=r[5] or "Unassigned",
+                    status=status,
+                    connectivity_status=r[7] or "Offline",
+                    temp="62°C"
+                ))
+        elif user_org_id:
             cur.execute("""
-                SELECT m.machine_code, m.model, COALESCE(m.location_label, 'Fleet') AS location, m.connectivity_status
+                SELECT m.id, m.machine_code, m.serial_number, m.model,
+                       COALESCE(m.location_label, '') AS location,
+                       o.company_name,
+                       m.operational_status, m.connectivity_status
                 FROM machines m
+                LEFT JOIN organizations o ON m.organization_id = o.id
                 WHERE (m.is_deleted IS NOT TRUE)
                   AND m.organization_id = %s
-                  AND (m.machine_code ILIKE %s OR m.model ILIKE %s OR m.serial_number ILIKE %s OR m.location_label ILIKE %s)
-                LIMIT 5;
+                  AND (
+                    m.machine_code ILIKE %s
+                    OR m.serial_number ILIKE %s
+                    OR m.model ILIKE %s
+                    OR COALESCE(m.location_label, '') ILIKE %s
+                  )
+                ORDER BY m.created_at DESC
+                LIMIT 8;
             """, (user_org_id, search_pattern, search_pattern, search_pattern, search_pattern))
+            for r in cur.fetchall():
+                machines.append(SearchResultItemMachine(
+                    id=str(r[0]),
+                    machine_code=r[1] or "",
+                    serial_number=r[2] or "",
+                    model=r[3] or "",
+                    location=r[4] or "",
+                    company_name=r[5] or "",
+                    status=r[6] or "Idle",
+                    connectivity_status=r[7] or "Offline",
+                    temp="62°C"
+                ))
 
-        machine_rows = cur.fetchall()
-        machines = [
-            SearchResultItemMachine(
-                id=r[0],
-                model=r[1],
-                location=r[2],
-                status=r[3] or 'Offline',
-                temp="62°C"
-            ) for r in machine_rows
-        ]
-
-        return SearchResponse(sites=sites, users=users, machines=machines)
+        return SearchResponse(
+            clients=clients,
+            machines=machines,
+            sites=[],
+            users=[]
+        )

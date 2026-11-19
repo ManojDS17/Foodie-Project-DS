@@ -75,11 +75,26 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
 
         # 2. Machines Metrics
         if is_client:
-            cur.execute("SELECT COUNT(*) FROM machines WHERE is_deleted IS NOT TRUE AND organization_id = %s;", (client_org_id,))
-            total_machines = cur.fetchone()[0]
+            if current_user.get("role") == "OPERATOR":
+                cur.execute("""
+                    SELECT COUNT(*) FROM machines m
+                    JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                    WHERE m.is_deleted IS NOT TRUE;
+                """, (current_user.get("id"),))
+                total_machines = cur.fetchone()[0]
 
-            cur.execute("SELECT COUNT(*) FROM machines WHERE is_deleted IS NOT TRUE AND organization_id = %s AND LOWER(COALESCE(connectivity_status, 'offline')) = 'online';", (client_org_id,))
-            online_machines = cur.fetchone()[0]
+                cur.execute("""
+                    SELECT COUNT(*) FROM machines m
+                    JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                    WHERE m.is_deleted IS NOT TRUE AND LOWER(COALESCE(m.connectivity_status, 'offline')) = 'online';
+                """, (current_user.get("id"),))
+                online_machines = cur.fetchone()[0]
+            else:
+                cur.execute("SELECT COUNT(*) FROM machines WHERE is_deleted IS NOT TRUE AND organization_id = %s;", (client_org_id,))
+                total_machines = cur.fetchone()[0]
+
+                cur.execute("SELECT COUNT(*) FROM machines WHERE is_deleted IS NOT TRUE AND organization_id = %s AND LOWER(COALESCE(connectivity_status, 'offline')) = 'online';", (client_org_id,))
+                online_machines = cur.fetchone()[0]
         else:
             cur.execute("SELECT COUNT(*) FROM machines WHERE is_deleted IS NOT TRUE;")
             total_machines = cur.fetchone()[0]
@@ -192,22 +207,40 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         # 5. Machines Needing Attention (Offline machines from fleet)
         attention_machines = []
         if is_client:
-            cur.execute("""
-                SELECT 
-                    m.id::text,
-                    m.machine_code,
-                    COALESCE(o.company_name, 'PowerTech Fleet') AS client,
-                    'Machine Offline — No Telemetry Ping' AS issue,
-                    'Offline' AS status,
-                    'offline' AS variant
-                FROM machines m
-                LEFT JOIN organizations o ON m.organization_id = o.id
-                WHERE LOWER(COALESCE(m.connectivity_status, 'offline')) = 'offline'
-                  AND m.is_deleted IS NOT TRUE
-                  AND m.organization_id = %s
-                ORDER BY m.machine_code ASC
-                LIMIT 5;
-            """, (client_org_id,))
+            if current_user.get("role") == "OPERATOR":
+                cur.execute("""
+                    SELECT 
+                        m.id::text,
+                        m.machine_code,
+                        COALESCE(o.company_name, 'PowerTech Fleet') AS client,
+                        'Machine Offline — No Telemetry Ping' AS issue,
+                        'Offline' AS status,
+                        'offline' AS variant
+                    FROM machines m
+                    JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                    LEFT JOIN organizations o ON m.organization_id = o.id
+                    WHERE LOWER(COALESCE(m.connectivity_status, 'offline')) = 'offline'
+                      AND m.is_deleted IS NOT TRUE
+                    ORDER BY m.machine_code ASC
+                    LIMIT 5;
+                """, (current_user.get("id"),))
+            else:
+                cur.execute("""
+                    SELECT 
+                        m.id::text,
+                        m.machine_code,
+                        COALESCE(o.company_name, 'PowerTech Fleet') AS client,
+                        'Machine Offline — No Telemetry Ping' AS issue,
+                        'Offline' AS status,
+                        'offline' AS variant
+                    FROM machines m
+                    LEFT JOIN organizations o ON m.organization_id = o.id
+                    WHERE LOWER(COALESCE(m.connectivity_status, 'offline')) = 'offline'
+                      AND m.is_deleted IS NOT TRUE
+                      AND m.organization_id = %s
+                    ORDER BY m.machine_code ASC
+                    LIMIT 5;
+                """, (client_org_id,))
         else:
             cur.execute("""
                 SELECT 
@@ -242,23 +275,42 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         has_maint = cur.fetchone()[0] is not None
         if has_maint:
             if is_client:
-                cur.execute("""
-                    SELECT 
-                        m.id::text,
-                        m.machine_code,
-                        COALESCE(o.company_name, 'PowerTech Fleet') AS client,
-                        ms.task_name AS task,
-                        TO_CHAR(ms.scheduled_date, 'FMDD Mon YYYY') AS date
-                    FROM maintenance_schedules ms
-                    JOIN machines m ON ms.machine_id = m.id
-                    LEFT JOIN organizations o ON ms.organization_id = o.id
-                    WHERE ms.status = 'Scheduled' 
-                      AND ms.is_deleted IS NOT TRUE 
-                      AND m.is_deleted IS NOT TRUE
-                      AND m.organization_id = %s
-                    ORDER BY ms.scheduled_date ASC
-                    LIMIT 5;
-                """, (client_org_id,))
+                if current_user.get("role") == "OPERATOR":
+                    cur.execute("""
+                        SELECT 
+                            m.id::text,
+                            m.machine_code,
+                            COALESCE(o.company_name, 'PowerTech Fleet') AS client,
+                            ms.task_name AS task,
+                            TO_CHAR(ms.scheduled_date, 'FMDD Mon YYYY') AS date
+                        FROM maintenance_schedules ms
+                        JOIN machines m ON ms.machine_id = m.id
+                        JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                        LEFT JOIN organizations o ON ms.organization_id = o.id
+                        WHERE ms.status = 'Scheduled' 
+                          AND ms.is_deleted IS NOT TRUE 
+                          AND m.is_deleted IS NOT TRUE
+                        ORDER BY ms.scheduled_date ASC
+                        LIMIT 5;
+                    """, (current_user.get("id"),))
+                else:
+                    cur.execute("""
+                        SELECT 
+                            m.id::text,
+                            m.machine_code,
+                            COALESCE(o.company_name, 'PowerTech Fleet') AS client,
+                            ms.task_name AS task,
+                            TO_CHAR(ms.scheduled_date, 'FMDD Mon YYYY') AS date
+                        FROM maintenance_schedules ms
+                        JOIN machines m ON ms.machine_id = m.id
+                        LEFT JOIN organizations o ON ms.organization_id = o.id
+                        WHERE ms.status = 'Scheduled' 
+                          AND ms.is_deleted IS NOT TRUE 
+                          AND m.is_deleted IS NOT TRUE
+                          AND m.organization_id = %s
+                        ORDER BY ms.scheduled_date ASC
+                        LIMIT 5;
+                    """, (client_org_id,))
             else:
                 cur.execute("""
                     SELECT 

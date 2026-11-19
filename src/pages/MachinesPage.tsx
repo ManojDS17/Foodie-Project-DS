@@ -116,6 +116,10 @@ export const MachinesPage: React.FC = () => {
   useEffect(() => {
     if (!targetMachineParam) return;
 
+    setIsAddMachineOpen(false);
+    setEditingMachine(null);
+    setDeletingMachine(null);
+
     if (machines.length > 0) {
       const cached = machines.find(
         (m) =>
@@ -216,6 +220,9 @@ export const MachinesPage: React.FC = () => {
 
   // Location Formatter
   const formatLocation = (machine: Machine): string => {
+    if (!machine.organization_id) {
+      return '—';
+    }
     if (machine.location_label && machine.location_label.trim()) {
       return machine.location_label;
     }
