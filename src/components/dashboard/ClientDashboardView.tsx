@@ -136,10 +136,10 @@ export const ClientDashboardView: React.FC = () => {
           id="client-metric-alerts"
           title="Open alerts"
           value={openAlerts}
-          valueColor={openAlerts > 0 ? 'text-[#E32032]' : 'text-[#171717]'}
+          valueColor="text-[#E32032]"
           subtitle="Last updated 30 min ago"
           icon={Bell}
-          iconVariant={openAlerts > 0 ? 'danger' : 'default'}
+          iconVariant="danger"
           onClick={() => navigate('/alerts')}
         />
 

@@ -235,20 +235,14 @@ export const OemDashboardView: React.FC = () => {
           id="metric-alerts"
           title="Open alerts"
           value={dashboardStats ? dashboardStats.open_alerts_count : 0}
-          valueColor={
-            dashboardStats && dashboardStats.open_alerts_count > 0
-              ? 'text-[#E32032]'
-              : 'text-[#171717]'
-          }
+          valueColor="text-[#E32032]"
           subtitle={
             dashboardStats && dashboardStats.open_alerts_count > 0
               ? `Across ${dashboardStats.alert_clients_count} client${dashboardStats.alert_clients_count === 1 ? '' : 's'}`
               : 'All systems normal'
           }
           icon={Bell}
-          iconVariant={
-            dashboardStats && dashboardStats.open_alerts_count > 0 ? 'danger' : 'default'
-          }
+          iconVariant="danger"
         />
 
         <MetricCard
