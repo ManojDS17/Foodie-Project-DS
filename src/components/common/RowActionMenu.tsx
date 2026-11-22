@@ -20,7 +20,7 @@ export const RowActionMenu: React.FC<RowActionMenuProps> = ({
   children,
   width = 'w-44',
   className = '',
-  buttonClassName = 'p-1 rounded-lg hover:bg-slate-100 text-[#6B7280] hover:text-[#171717] transition-colors cursor-pointer',
+  buttonClassName = 'p-1 rounded-lg hover:bg-surface-hover text-foreground-muted hover:text-foreground transition-colors cursor-pointer',
   buttonAriaLabel = 'Row actions',
 }) => {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -145,7 +145,7 @@ export const RowActionMenu: React.FC<RowActionMenuProps> = ({
                     zIndex: 99999,
                   }
             }
-            className={`${width} bg-white rounded-xl border border-[#E5E7EB] shadow-2xl py-1.5 text-left animate-in fade-in zoom-in-95 duration-100 select-none`}
+            className={`${width} bg-surface-card rounded-xl border border-border-default shadow-2xl py-1.5 text-left animate-in fade-in zoom-in-95 duration-100 select-none`}
             onClick={(e) => e.stopPropagation()}
           >
             {children}

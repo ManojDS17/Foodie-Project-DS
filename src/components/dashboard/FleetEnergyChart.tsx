@@ -14,8 +14,8 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs flex flex-col justify-center items-center h-[260px]">
-        <p className="text-xs text-[#888888]">Loading live telemetry energy data...</p>
+      <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs flex flex-col justify-center items-center h-[260px]">
+        <p className="text-xs text-foreground-dim">live telemetry energy data...</p>
       </div>
     );
   }
@@ -82,14 +82,14 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
 
 
   return (
-    <div className="bg-white rounded-xl border border-[#E3E4E6] p-3.5 sm:p-5 shadow-xs">
+    <div className="bg-white rounded-xl border border-border-subtle p-3.5 sm:p-5 shadow-xs">
       {/* Header: Title + Subtitle + Time Dropdown */}
       <div className="flex items-center justify-between pb-3 gap-2">
         <div>
-          <h2 className="text-xs sm:text-sm font-extrabold text-[#171717] tracking-tight">
+          <h2 className="text-xs sm:text-sm font-extrabold text-foreground tracking-tight">
             Energy usage
           </h2>
-          <p className="text-[11px] sm:text-xs text-[#888888] mt-0.5">
+          <p className="text-[11px] sm:text-xs text-foreground-dim mt-0.5">
             kWh per day, all machines
           </p>
         </div>
@@ -97,10 +97,10 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
         <div className="relative shrink-0">
           <button
             type="button"
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-[#E3E4E6] text-xs font-semibold text-[#171717] bg-white hover:bg-[#F8F9FA] transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border-subtle text-xs font-semibold text-foreground bg-white hover:bg-surface-subtle transition-colors cursor-pointer"
           >
             <span>{timeRange}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-[#666666]" />
+            <ChevronDown className="w-3.5 h-3.5 text-foreground-muted" />
           </button>
         </div>
       </div>
@@ -129,7 +129,7 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
                   x={paddingLeft - 10}
                   y={y + 3.5}
                   textAnchor="end"
-                  className="fill-[#9CA3AF] text-[10px] font-medium"
+                  className="fill-foreground-subtle text-[10px] font-medium"
                 >
                   {tick}
                 </text>
@@ -195,7 +195,7 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
               x="0"
               y="5"
               textAnchor="middle"
-              className="fill-[#9CA3AF] text-[9.5px] font-medium"
+              className="fill-foreground-subtle text-[9.5px] font-medium"
             >
               {activeData.fullDate}
             </text>
@@ -220,7 +220,7 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
                 y={svgHeight - 8}
                 textAnchor="middle"
                 className={`text-[9.5px] transition-colors cursor-pointer ${
-                  isSelected ? 'fill-[#171717] font-bold' : 'fill-[#9CA3AF]'
+                  isSelected ? 'fill-foreground font-bold' : 'fill-foreground-subtle'
                 }`}
                 onClick={() => setHoveredIndex(i)}
               >

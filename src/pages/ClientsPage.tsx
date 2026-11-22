@@ -36,10 +36,6 @@ export const ClientsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedClientIdFromUrl = searchParams.get('select');
 
-  if (user && user.role !== 'OEM_MANAGER') {
-    return <Navigate to="/" replace />;
-  }
-
   // Live Data States
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -110,7 +106,12 @@ export const ClientsPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if (!selectedClientIdFromUrl) return;
+    let isActive = true;
+
+    if (!selectedClientIdFromUrl) {
+      setSelectedClient(null);
+      return;
+    }
 
     setIsAddClientOpen(false);
     setEditingClient(null);
@@ -121,7 +122,7 @@ export const ClientsPage: React.FC = () => {
       const cached = organizations.find(
         (o) => o.id === selectedClientIdFromUrl || o.client_code === selectedClientIdFromUrl
       );
-      if (cached) {
+      if (cached && isActive) {
         setSelectedClient(cached);
       }
     }
@@ -129,12 +130,14 @@ export const ClientsPage: React.FC = () => {
     orgsApi
       .getById(selectedClientIdFromUrl)
       .then((verified) => {
+        if (!isActive) return;
         setSelectedClient(verified);
         setOrganizations((prev) =>
           prev.map((o) => (o.id === verified.id ? verified : o))
         );
       })
       .catch((err: any) => {
+        if (!isActive) return;
         setSelectedClient(null);
         setSearchParams({});
         setToast({
@@ -142,25 +145,15 @@ export const ClientsPage: React.FC = () => {
           type: 'error',
         });
       });
+
+    return () => {
+      isActive = false;
+    };
   }, [selectedClientIdFromUrl]);
 
-  const handleSelectClient = async (client: Organization) => {
+  const handleSelectClient = (client: Organization) => {
     setSelectedClient(client);
     setSearchParams({ select: client.id });
-    try {
-      const verified = await orgsApi.getById(client.id);
-      setSelectedClient(verified);
-      setOrganizations((prev) =>
-        prev.map((o) => (o.id === verified.id ? verified : o))
-      );
-    } catch (err: any) {
-      setSelectedClient(null);
-      setSearchParams({});
-      setToast({
-        message: err?.message || 'Access denied or client not found.',
-        type: 'error',
-      });
-    }
   };
 
   // Reset detail and modal views to show the clients list when clicking Clients in left menu
@@ -344,19 +337,28 @@ export const ClientsPage: React.FC = () => {
     const selectedClients = organizations.filter((o) => selectedIds.includes(o.id));
     const targetStatus = statusFilter === 'Inactive' ? 'Active' : 'Inactive';
     const targetIsActive = targetStatus === 'Active';
+    let failCount = 0;
     for (const c of selectedClients) {
       try {
         await orgsApi.update(c.id, { is_active: targetIsActive, status: targetStatus });
       } catch (err) {
+        failCount++;
         console.error('Error updating client status:', err);
       }
     }
     await fetchData();
     setSelectedIds([]);
-    setToast({
-      message: `Selected client(s) marked as ${targetStatus}.`,
-      type: 'success',
-    });
+    if (failCount > 0) {
+      setToast({
+        message: `${selectedClients.length - failCount} updated, ${failCount} could not be updated (e.g. active machine leases exist).`,
+        type: 'error',
+      });
+    } else {
+      setToast({
+        message: `Selected client(s) marked as ${targetStatus}.`,
+        type: 'success',
+      });
+    }
   };
 
   const handleUnassignMachine = async (machineId: string, terminationRemark?: string) => {
@@ -402,6 +404,8 @@ export const ClientsPage: React.FC = () => {
       setOrganizations((prev) =>
         prev.map((o) => (o.id === updated.id ? updated : o))
       );
+      const freshUsers = await usersApi.getAll().catch(() => []);
+      setUsers(freshUsers);
       setToast({
         message: `Client ${selectedClient.company_name} status updated to ${nextStatus}.`,
         type: 'success',
@@ -443,6 +447,9 @@ export const ClientsPage: React.FC = () => {
         )
       );
 
+      const freshUsers = await usersApi.getAll().catch(() => []);
+      setUsers(freshUsers);
+
       if (selectedClient && selectedClient.id === client.id) {
         setSelectedClient({
           ...selectedClient,
@@ -464,6 +471,10 @@ export const ClientsPage: React.FC = () => {
       });
     }
   };
+
+  if (user && user.role !== 'OEM_MANAGER') {
+    return <Navigate to="/" replace />;
+  }
 
   if (isAddClientOpen) {
     return (
@@ -567,6 +578,9 @@ export const ClientsPage: React.FC = () => {
           onUnassignMachine={handleUnassignMachine}
           onDeleteClient={() => setDeletingClient(selectedClient)}
           onToggleStatus={handleToggleSelectedClientStatus}
+          onUpdateMachine={(updated) => {
+            setMachines((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+          }}
         />
 
         <DeleteClientModal
@@ -604,7 +618,7 @@ export const ClientsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
               Clients
             </h1>
             <button
@@ -614,12 +628,12 @@ export const ClientsPage: React.FC = () => {
               }}
               disabled={isLoading}
               title="Refresh clients list from PostgreSQL"
-              className="p-1 rounded-lg text-[#888888] hover:text-[#171717] hover:bg-slate-100 transition-colors cursor-pointer"
+              className="p-1 rounded-lg text-foreground-dim hover:text-foreground hover:bg-slate-100 transition-colors cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#E32032]' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-primary' : ''}`} />
             </button>
           </div>
-          <p className="text-xs text-[#666666] mt-0.5">
+          <p className="text-xs text-foreground-muted mt-0.5">
             Every client account and the Foodie machines assigned to it.
           </p>
         </div>
@@ -636,12 +650,12 @@ export const ClientsPage: React.FC = () => {
       </div>
 
       {/* 2. Main White Card Container */}
-      <div className="bg-white rounded-2xl border border-[#E3E4E6] p-5 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border-subtle p-5 shadow-xs overflow-hidden">
         {/* Top Filter Bar Row */}
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
           {/* Search Box */}
           <div className="relative flex-1 min-w-[240px]">
-            <Search className="w-4 h-4 text-[#888888] absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-foreground-dim absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
@@ -650,13 +664,13 @@ export const ClientsPage: React.FC = () => {
                 setCurrentPage(1);
               }}
               placeholder="Search client ID, company or contact"
-              className="w-full bg-[#F8F9FA] border border-[#E3E4E6] rounded-xl pl-9 pr-3.5 py-2 text-xs text-[#171717] focus:outline-none focus:border-[#171717] focus:bg-white transition-colors"
+              className="w-full bg-surface-subtle border border-border-subtle rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-foreground focus:bg-white transition-colors"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717]"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-dim hover:text-foreground"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -667,14 +681,14 @@ export const ClientsPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
             {/* Status Dropdown */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#666666] font-medium whitespace-nowrap">Status</span>
+              <span className="text-xs text-foreground-muted font-medium whitespace-nowrap">Status</span>
               <select
                 value={statusFilter}
                 onChange={(e) => {
                   setStatusFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="bg-white border border-[#E3E4E6] rounded-xl px-3 py-2 text-xs font-bold text-[#171717] focus:outline-none focus:border-[#171717] cursor-pointer min-w-[90px]"
+                className="bg-white border border-border-subtle rounded-xl px-3 py-2 text-xs font-bold text-foreground focus:outline-none focus:border-foreground cursor-pointer min-w-[90px]"
               >
                 <option value="All">All</option>
                 <option value="Active">Active</option>
@@ -684,14 +698,14 @@ export const ClientsPage: React.FC = () => {
 
             {/* Business Type Dropdown */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#666666] font-medium whitespace-nowrap">Business type</span>
+              <span className="text-xs text-foreground-muted font-medium whitespace-nowrap">Business type</span>
               <select
                 value={businessTypeFilter}
                 onChange={(e) => {
                   setBusinessTypeFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="bg-white border border-[#E3E4E6] rounded-xl px-3 py-2 text-xs font-bold text-[#171717] focus:outline-none focus:border-[#171717] cursor-pointer min-w-[100px]"
+                className="bg-white border border-border-subtle rounded-xl px-3 py-2 text-xs font-bold text-foreground focus:outline-none focus:border-foreground cursor-pointer min-w-[100px]"
               >
                 <option value="All">All</option>
                 <option value="Corporate">Corporate</option>
@@ -701,14 +715,14 @@ export const ClientsPage: React.FC = () => {
 
             {/* Location Dropdown (Facility Location wise) */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#666666] font-medium whitespace-nowrap">Location</span>
+              <span className="text-xs text-foreground-muted font-medium whitespace-nowrap">Location</span>
               <select
                 value={locationFilter}
                 onChange={(e) => {
                   setLocationFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="bg-white border border-[#E3E4E6] rounded-xl px-3 py-2 text-xs font-bold text-[#171717] focus:outline-none focus:border-[#171717] cursor-pointer max-w-[180px] truncate"
+                className="bg-white border border-border-subtle rounded-xl px-3 py-2 text-xs font-bold text-foreground focus:outline-none focus:border-foreground cursor-pointer max-w-[180px] truncate"
               >
                 <option value="All locations">All locations</option>
                 {uniqueLocations.map((loc) => (
@@ -726,9 +740,9 @@ export const ClientsPage: React.FC = () => {
                 e.preventDefault();
               }}
               title="More filters"
-              className="flex items-center gap-1.5 px-3 py-2 border border-[#E3E4E6] rounded-xl bg-white hover:bg-[#F8F9FA] text-xs font-semibold text-[#171717] transition-colors cursor-pointer select-none"
+              className="flex items-center gap-1.5 px-3 py-2 border border-border-subtle rounded-xl bg-white hover:bg-surface-subtle text-xs font-semibold text-foreground transition-colors cursor-pointer select-none"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#666666]" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-foreground-muted" />
               <span>More filters</span>
             </a>
           </div>
@@ -736,13 +750,13 @@ export const ClientsPage: React.FC = () => {
 
         {/* 3. Selection Banner */}
         {selectedIds.length > 0 && (
-          <div className="bg-[#FFF0F0] border border-[#FECACA] rounded-xl p-3 sm:px-4 sm:py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs my-4 animate-in fade-in duration-150">
+          <div className="bg-primary-light border border-primary-border rounded-xl p-3 sm:px-4 sm:py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs my-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="w-4 h-4 rounded bg-[#E32032] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                <span className="w-4 h-4 rounded bg-primary text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                   ✓
                 </span>
-                <span className="font-bold text-[#171717] truncate">
+                <span className="font-bold text-foreground truncate">
                   {selectedIds.length === 1
                     ? `1 client selected · ${organizations.find((o) => o.id === selectedIds[0])?.company_name || 'Client'}`
                     : `${selectedIds.length} clients selected`}
@@ -751,7 +765,7 @@ export const ClientsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedIds([])}
-                className="text-[#E32032] underline font-bold hover:text-[#C1121F] cursor-pointer whitespace-nowrap shrink-0"
+                className="text-primary underline font-bold hover:text-primary-hover cursor-pointer whitespace-nowrap shrink-0"
               >
                 Clear selection
               </button>
@@ -786,7 +800,7 @@ export const ClientsPage: React.FC = () => {
                   setDeletingClients(selectedObjs);
                   setDeletingClient(selectedObjs.length === 1 ? selectedObjs[0] : null);
                 }}
-                leftIcon={<Trash2 className="w-3.5 h-3.5 text-[#E32032]" />}
+                leftIcon={<Trash2 className="w-3.5 h-3.5 text-primary" />}
               >
                 Delete
               </Button>
@@ -798,14 +812,14 @@ export const ClientsPage: React.FC = () => {
         <div className="overflow-x-auto mt-4 -mx-5 px-5 sm:mx-0 sm:px-0">
           <table className="w-full text-left border-collapse text-xs min-w-[750px]">
             <thead>
-              <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold text-[#6B7280]">
+              <tr className="border-b border-border-default text-[11px] font-semibold text-foreground-muted">
                 {/* Select All Checkbox */}
                 <th className="py-3 px-3 w-10 text-center">
                   <input
                     type="checkbox"
                     checked={isAllPageSelected}
                     onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-[#D1D5DB] text-[#E32032] focus:ring-[#E32032] cursor-pointer accent-[#E32032]"
+                    className="w-4 h-4 rounded border-border-strong text-primary focus:ring-primary cursor-pointer accent-primary"
                   />
                 </th>
                 <th className="py-3 px-3 whitespace-nowrap min-w-[100px]">Client ID</th>
@@ -819,13 +833,13 @@ export const ClientsPage: React.FC = () => {
                 <th className="py-3 px-3 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#F3F4F6]">
+            <tbody className="divide-y divide-surface-hover">
               {paginatedClients.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-[#666666]">
-                    <Building2 className="w-8 h-8 text-[#CBD5E1] mx-auto mb-2" />
-                    <p className="font-bold text-[#171717]">No clients match the current filters</p>
-                    <p className="text-xs text-[#888888] mt-1">
+                  <td colSpan={10} className="py-12 text-center text-foreground-muted">
+                    <Building2 className="w-8 h-8 text-foreground-subtle mx-auto mb-2" />
+                    <p className="font-bold text-foreground">No clients match the current filters</p>
+                    <p className="text-xs text-foreground-dim mt-1">
                       Try clearing search or adjusting your status/location dropdowns.
                     </p>
                   </td>
@@ -843,8 +857,8 @@ export const ClientsPage: React.FC = () => {
                       key={client.id}
                       className={`transition-colors ${
                         isSelected
-                          ? 'bg-[#FFF5F5] hover:bg-[#FFEBEB]'
-                          : 'hover:bg-[#F9FAFB]'
+                          ? 'bg-primary-light hover:bg-primary-light'
+                          : 'hover:bg-surface-muted'
                       }`}
                     >
                       {/* Checkbox */}
@@ -853,7 +867,7 @@ export const ClientsPage: React.FC = () => {
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelectRow(client.id)}
-                          className="w-4 h-4 rounded border-[#D1D5DB] text-[#E32032] focus:ring-[#E32032] cursor-pointer accent-[#E32032]"
+                          className="w-4 h-4 rounded border-border-strong text-primary focus:ring-primary cursor-pointer accent-primary"
                         />
                       </td>
 
@@ -862,39 +876,39 @@ export const ClientsPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleSelectClient(client)}
-                          className="font-bold text-[#E32032] underline hover:text-[#C1121F] cursor-pointer text-left whitespace-nowrap font-mono inline-block break-keep"
+                          className="font-bold text-primary underline hover:text-primary-hover cursor-pointer text-left whitespace-nowrap font-mono inline-block break-keep"
                         >
                           {client.client_code}
                         </button>
                       </td>
 
                       {/* Company Name */}
-                      <td className="py-3.5 px-3 font-bold text-[#171717]">
+                      <td className="py-3.5 px-3 font-bold text-foreground">
                         {client.company_name}
                       </td>
 
                       {/* Business Type */}
-                      <td className="py-3.5 px-3 text-[#171717] whitespace-nowrap">
+                      <td className="py-3.5 px-3 text-foreground whitespace-nowrap">
                         {client.business_type || 'Corporate'}
                       </td>
 
                       {/* Point of Contact */}
-                      <td className="py-3.5 px-3 text-[#171717] whitespace-nowrap">
+                      <td className="py-3.5 px-3 text-foreground whitespace-nowrap">
                         {client.contact_poc || '—'}
                       </td>
 
                       {/* Location */}
-                      <td className="py-3.5 px-3 text-[#171717]">
+                      <td className="py-3.5 px-3 text-foreground">
                         {formatLocation(client.billing_address)}
                       </td>
 
                       {/* Total Machines */}
-                      <td className="py-3.5 px-3 text-center font-medium text-[#171717] whitespace-nowrap">
+                      <td className="py-3.5 px-3 text-center font-medium text-foreground whitespace-nowrap">
                         {clientMachineCount}
                       </td>
 
                       {/* Onboarding Date */}
-                      <td className="py-3.5 px-3 text-[#6B7280] whitespace-nowrap">
+                      <td className="py-3.5 px-3 text-foreground-muted whitespace-nowrap">
                         {formatDate(client.onboarding_date || client.created_at)}
                       </td>
 
@@ -912,7 +926,7 @@ export const ClientsPage: React.FC = () => {
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
                               clientStatus === 'Active'
-                                ? 'bg-[#00C951]'
+                                ? 'bg-status-running-dot'
                                 : clientStatus === 'Pending'
                                 ? 'bg-amber-500'
                                 : 'bg-slate-400'
@@ -937,9 +951,9 @@ export const ClientsPage: React.FC = () => {
                               setActiveMenuId(null);
                               handleSelectClient(client);
                             }}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] transition-colors cursor-pointer"
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
                           >
-                            <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                            <Eye className="w-3.5 h-3.5 text-foreground-muted" />
                             <span>View client</span>
                           </button>
 
@@ -949,9 +963,9 @@ export const ClientsPage: React.FC = () => {
                               setActiveMenuId(null);
                               setEditingClient(client);
                             }}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] transition-colors cursor-pointer"
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
                           >
-                            <Edit2 className="w-3.5 h-3.5 text-[#6B7280]" />
+                            <Edit2 className="w-3.5 h-3.5 text-foreground-muted" />
                             <span>Edit client</span>
                           </button>
 
@@ -961,31 +975,31 @@ export const ClientsPage: React.FC = () => {
                               setActiveMenuId(null);
                               handleExportData([client]);
                             }}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] transition-colors cursor-pointer"
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
                           >
-                            <Download className="w-3.5 h-3.5 text-[#6B7280]" />
+                            <Download className="w-3.5 h-3.5 text-foreground-muted" />
                             <span>Export data</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleToggleArchive(client)}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-[#171717] hover:bg-[#F9FAFB] transition-colors cursor-pointer"
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
                           >
                             {!client.is_active || client.status === 'Inactive' || client.status === 'Archived' ? (
                               <>
-                                <RotateCcw className="w-3.5 h-3.5 text-[#00C951]" />
+                                <RotateCcw className="w-3.5 h-3.5 text-status-running-text" />
                                 <span>Active</span>
                               </>
                             ) : (
                               <>
-                                <Archive className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <Archive className="w-3.5 h-3.5 text-foreground-muted" />
                                 <span>Inactive</span>
                               </>
                             )}
                           </button>
 
-                          <div className="border-t border-[#F3F4F6] my-1" />
+                          <div className="border-t border-surface-hover my-1" />
 
                           <button
                             type="button"
@@ -994,9 +1008,9 @@ export const ClientsPage: React.FC = () => {
                               setDeletingClient(client);
                               setDeletingClients([]);
                             }}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-[#E32032] hover:bg-red-50 transition-colors cursor-pointer"
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-red-50 transition-colors cursor-pointer"
                           >
-                            <Trash2 className="w-3.5 h-3.5 text-[#E32032]" />
+                            <Trash2 className="w-3.5 h-3.5 text-primary" />
                             <span>Delete client</span>
                           </button>
                         </RowActionMenu>
@@ -1010,11 +1024,11 @@ export const ClientsPage: React.FC = () => {
         </div>
 
         {/* 5. Pagination Footer */}
-        <div className="pt-3.5 mt-3 border-t border-[#E5E7EB] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#6B7280] select-none">
+        <div className="pt-3.5 mt-3 border-t border-border-default flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-foreground-muted select-none">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5">
               <span>Page</span>
-              <span className="font-semibold text-[#171717] px-2 py-0.5 rounded border border-[#E5E7EB] bg-[#F9FAFB]">
+              <span className="font-semibold text-foreground px-2 py-0.5 rounded border border-border-default bg-surface-muted">
                 {currentPage}
               </span>
               <span>of {totalPages}</span>
@@ -1032,7 +1046,7 @@ export const ClientsPage: React.FC = () => {
                     localStorage.setItem('foodie_rows_per_page', String(val));
                   } catch {}
                 }}
-                className="px-2 py-0.5 rounded border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none"
+                className="px-2 py-0.5 rounded border border-border-default bg-white text-foreground font-semibold text-xs cursor-pointer focus:outline-none"
               >
                 <option value={10}>10</option>
                 <option value={20}>20</option>
@@ -1042,7 +1056,7 @@ export const ClientsPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="text-[11px] text-[#888888]">
+            <div className="text-[11px] text-foreground-dim">
               Showing {totalItems > 0 ? startIndex + 1 : 0}–{endIndex} of {totalItems} clients
             </div>
           </div>
@@ -1052,7 +1066,7 @@ export const ClientsPage: React.FC = () => {
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage(1)}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronsLeft className="w-3.5 h-3.5" />
             </button>
@@ -1061,7 +1075,7 @@ export const ClientsPage: React.FC = () => {
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
@@ -1075,8 +1089,8 @@ export const ClientsPage: React.FC = () => {
                   onClick={() => setCurrentPage(pageNum)}
                   className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-red-50 text-[#E32032] border border-red-200'
-                      : 'border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB]'
+                      ? 'bg-red-50 text-primary border border-red-200'
+                      : 'border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted'
                   }`}
                 >
                   {pageNum}
@@ -1088,7 +1102,7 @@ export const ClientsPage: React.FC = () => {
               type="button"
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
@@ -1097,7 +1111,7 @@ export const ClientsPage: React.FC = () => {
               type="button"
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage(totalPages)}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
             >
               <ChevronsRight className="w-3.5 h-3.5" />
             </button>

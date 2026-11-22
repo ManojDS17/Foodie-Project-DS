@@ -18,17 +18,17 @@ export const PlaceholderView: React.FC<PlaceholderViewProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white rounded-2xl border border-[#E3E4E6] p-5 sm:p-12 text-center max-w-2xl mx-auto shadow-xs my-4 sm:my-8">
-      <div className="w-12 h-12 rounded-xl bg-red-50 text-[#E32032] border border-red-200 flex items-center justify-center mx-auto mb-4">
+    <div className="bg-surface-card rounded-2xl border border-border-subtle p-5 sm:p-12 text-center max-w-2xl mx-auto shadow-xs my-4 sm:my-8">
+      <div className="w-12 h-12 rounded-xl bg-primary-light text-primary border border-primary-border flex items-center justify-center mx-auto mb-4">
         <Sparkles className="w-6 h-6" />
       </div>
 
-      <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-slate-100 text-[#666666] border border-slate-200 mb-3">
+      <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-slate-100 text-foreground-muted border border-slate-200 mb-3">
         {tag}
       </span>
 
-      <h1 className="text-xl font-extrabold text-[#171717]">{title}</h1>
-      <p className="text-xs text-[#666666] mt-2 max-w-md mx-auto leading-relaxed">
+      <h1 className="text-xl font-extrabold text-foreground">{title}</h1>
+      <p className="text-xs text-foreground-muted mt-2 max-w-md mx-auto leading-relaxed">
         {subtitle}
       </p>
 
@@ -36,14 +36,14 @@ export const PlaceholderView: React.FC<PlaceholderViewProps> = ({
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="px-4 py-2 rounded-lg text-xs font-bold bg-[#171717] text-white hover:bg-black transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
+          className="px-4 py-2 rounded-lg text-xs font-bold bg-foreground text-white hover:bg-black transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Return to Dashboard</span>
         </button>
       </div>
 
-      <div className="mt-6 pt-4 border-t border-[#F2F2F2] flex items-center justify-center gap-1.5 text-[11px] text-[#888888]">
+      <div className="mt-6 pt-4 border-t border-surface-page flex items-center justify-center gap-1.5 text-[11px] text-foreground-dim">
         <Clock className="w-3.5 h-3.5" />
         <span>{footerText}</span>
       </div>

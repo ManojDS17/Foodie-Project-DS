@@ -53,26 +53,45 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
     with get_db_cursor() as cur:
         cur.execute("""
-            SELECT id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, token_version
-            FROM users WHERE id = %s;
+            SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, 
+                   u.phone_number, u.is_active, u.is_deleted, u.last_login_at, u.created_at, u.updated_at, 
+                   u.token_version, o.is_active AS org_is_active, o.is_deleted AS org_is_deleted,
+                   o.status AS org_status
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            WHERE u.id = %s;
         """, (user_id,))
         row = cur.fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found.")
 
         cols = [desc[0] for desc in cur.description]
         user_dict = dict(zip(cols, row))
 
+        if user_dict.get("is_deleted"):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account has been deleted.")
+
         if not user_dict.get("is_active"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated.")
 
-        # Invalidate token if token_version does not match current DB version (e.g. after logout)
-        token_version = payload.get("token_version")
-        if token_version is not None and user_dict.get("token_version") is not None:
-            if user_dict["token_version"] != token_version:
+        # Check client organization status for non-OEM accounts
+        if user_dict.get("role") != "OEM_MANAGER" and user_dict.get("organization_id"):
+            org_status = str(user_dict.get("org_status") or "").lower()
+            if user_dict.get("org_is_active") is False or user_dict.get("org_is_deleted") is True or org_status in ("inactive", "archived"):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token has been revoked or invalidated. Please sign in again."
+                    detail="Client organization account has been suspended or deactivated."
                 )
+
+        # Enforce token revocation check
+        raw_token_version = payload.get("token_version")
+        token_version = int(raw_token_version) if raw_token_version is not None else 1
+        db_token_version = user_dict.get("token_version") or 1
+
+        if token_version != db_token_version:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked or invalidated. Please sign in again."
+            )
 
         return user_dict

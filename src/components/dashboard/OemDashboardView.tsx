@@ -8,6 +8,7 @@ import {
   Leaf,
   Plus,
   UserPlus,
+  ArrowRight,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
 import { FleetEnergyChart } from './FleetEnergyChart';
@@ -155,10 +156,10 @@ export const OemDashboardView: React.FC = () => {
       {/* Top Welcome Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
             Welcome, {user ? `${user.first_name} ${user.last_name}` : 'PowerTech Admin'}
           </h1>
-          <p className="text-xs text-[#888888] mt-0.5">
+          <p className="text-xs text-foreground-dim mt-0.5">
             Fleet overview across all clients · Live database &amp; telemetry
           </p>
         </div>
@@ -168,25 +169,25 @@ export const OemDashboardView: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsAddClientOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-[#D1D5DB] bg-white text-[#171717] hover:bg-[#F9FAFB] transition-all cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-border-strong bg-white text-foreground hover:bg-surface-muted transition-all cursor-pointer shadow-2xs"
           >
-            <Plus className="w-3.5 h-3.5 text-[#171717]" />
+            <Plus className="w-3.5 h-3.5 text-foreground" />
             <span>Add client</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsAddMachineOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-[#D1D5DB] bg-white text-[#171717] hover:bg-[#F9FAFB] transition-all cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-border-strong bg-white text-foreground hover:bg-surface-muted transition-all cursor-pointer shadow-2xs"
           >
-            <Plus className="w-3.5 h-3.5 text-[#171717]" />
+            <Plus className="w-3.5 h-3.5 text-foreground" />
             <span>Add machine</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsAddOperatorOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary hover:bg-primary-hover text-white transition-all cursor-pointer shadow-2xs"
           >
             <UserPlus className="w-3.5 h-3.5 text-white" />
             <span>Add operator</span>
@@ -235,7 +236,7 @@ export const OemDashboardView: React.FC = () => {
           id="metric-alerts"
           title="Open alerts"
           value={dashboardStats ? dashboardStats.open_alerts_count : 0}
-          valueColor="text-[#E32032]"
+          valueColor="text-primary"
           subtitle={
             dashboardStats && dashboardStats.open_alerts_count > 0
               ? `Across ${dashboardStats.alert_clients_count} client${dashboardStats.alert_clients_count === 1 ? '' : 's'}`
@@ -264,24 +265,24 @@ export const OemDashboardView: React.FC = () => {
           <FleetEnergyChart data={dashboardStats?.energy_history_14d || []} />
 
           {/* 2. Recently Onboarded Clients Table (Live from PostgreSQL) */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[#F3F4F6]">
-              <h2 className="text-sm font-bold text-[#171717]">
+          <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-surface-hover">
+              <h2 className="text-sm font-bold text-foreground">
                 Recently onboarded clients
               </h2>
               <button
                 type="button"
                 onClick={() => navigate('/clients')}
-                className="text-xs font-bold text-[#E32032] hover:underline flex items-center gap-1 cursor-pointer"
+                className="group text-xs font-bold text-primary flex items-center gap-1 cursor-pointer"
               >
-                <span>All clients</span>
-                <span className="text-sm">→</span>
+                <span className="group-hover:underline">All clients</span>
+                <ArrowRight className="w-3.5 h-3.5 inline-block shrink-0 transition-transform group-hover:translate-x-0.5" />
               </button>
             </div>
 
             <div className="overflow-x-auto mt-2">
               {recentClients.length === 0 ? (
-                <div className="py-8 text-center text-[#888888] text-xs">
+                <div className="py-8 text-center text-foreground-dim text-xs">
                   {isLoading
                     ? 'Loading live clients...'
                     : 'No clients onboarded yet. Click "Add client" above to onboard your first client.'}
@@ -289,7 +290,7 @@ export const OemDashboardView: React.FC = () => {
               ) : (
                 <table className="w-full text-left border-collapse text-xs min-w-[520px]">
                   <thead>
-                    <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280]">
+                    <tr className="border-b border-border-default text-[11px] font-bold text-foreground-muted">
                       <th className="py-2.5 px-3 font-semibold">Client ID</th>
                       <th className="py-2.5 px-3 font-semibold">Company name</th>
                       <th className="py-2.5 px-3 font-semibold">Onboarding date</th>
@@ -297,30 +298,30 @@ export const OemDashboardView: React.FC = () => {
                       <th className="py-2.5 px-3 font-semibold">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#F3F4F6]">
+                  <tbody className="divide-y divide-surface-hover">
                     {recentClients.map((client) => (
                       <tr
                         key={client.id}
                         onClick={() => navigate(`/clients?select=${client.id}`)}
-                        className="hover:bg-[#F9FAFB] transition-colors cursor-pointer"
+                        className="hover:bg-surface-muted transition-colors cursor-pointer"
                       >
                         <td className="py-2.5 px-3">
-                          <span className="font-bold text-[#E32032] underline hover:text-[#C1121F]">
+                          <span className="font-bold text-primary underline hover:text-primary-hover">
                             {client.client_code}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 font-medium text-[#171717]">
+                        <td className="py-2.5 px-3 font-medium text-foreground">
                           {client.company_name}
                         </td>
-                        <td className="py-2.5 px-3 text-[#6B7280]">
+                        <td className="py-2.5 px-3 text-foreground-muted">
                           {client.onboard_date}
                         </td>
-                        <td className="py-2.5 px-3 text-[#171717] font-medium">
+                        <td className="py-2.5 px-3 text-foreground font-medium">
                           {client.machines_count}
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#00C951]" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot" />
                             <span>{client.status}</span>
                           </span>
                         </td>
@@ -336,42 +337,42 @@ export const OemDashboardView: React.FC = () => {
         {/* Right Column (33% Width): Machines needing attention + Upcoming maintenance */}
         <div className="lg:col-span-4 flex flex-col gap-5">
           {/* 1. Machines Needing Attention (Live alerts & connectivity) */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[#F3F4F6]">
-              <h2 className="text-sm font-bold text-[#171717]">
+          <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-surface-hover">
+              <h2 className="text-sm font-bold text-foreground">
                 Machines needing attention
               </h2>
               <button
                 type="button"
                 onClick={() => navigate('/machines')}
-                className="text-xs font-bold text-[#E32032] hover:underline flex items-center gap-1 cursor-pointer"
+                className="group text-xs font-bold text-primary flex items-center gap-1 cursor-pointer"
               >
-                <span>All machines</span>
-                <span className="text-sm">→</span>
+                <span className="group-hover:underline">All machines</span>
+                <ArrowRight className="w-3.5 h-3.5 inline-block shrink-0 transition-transform group-hover:translate-x-0.5" />
               </button>
             </div>
 
             {machines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-[#6B7280] bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] my-2">
+              <div className="py-6 text-center text-xs text-foreground-muted bg-surface-muted rounded-lg border border-border-default my-2">
                 No machines currently in fleet.
               </div>
             ) : attentionMachines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-[#16A34A] bg-emerald-50/50 rounded-lg border border-emerald-100 my-2">
+              <div className="py-6 text-center text-xs text-status-running-text bg-emerald-50/50 rounded-lg border border-emerald-100 my-2">
                 ✓ All machines operating normally. No active alerts.
               </div>
             ) : (
-              <div className="divide-y divide-[#F3F4F6] mt-1">
+              <div className="divide-y divide-surface-hover mt-1">
                 {attentionMachines.map((m) => (
                   <div key={m.id} className="py-3 flex items-center justify-between text-xs">
                     <div className="min-w-0 pr-2">
                       <button
                         type="button"
                         onClick={() => navigate(`/machines?select=${m.id}`)}
-                        className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left cursor-pointer"
+                        className="font-bold text-primary underline hover:text-primary-hover block text-left cursor-pointer"
                       >
                         {m.machine_code}
                       </button>
-                      <div className="text-[11px] text-[#6B7280] mt-0.5 truncate">
+                      <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
                         {m.client} · {m.issue}
                       </div>
                     </div>
@@ -379,18 +380,18 @@ export const OemDashboardView: React.FC = () => {
                     <span
                       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border flex-shrink-0 ${
                         m.variant === 'offline'
-                          ? 'bg-slate-100 text-[#4B5563] border-slate-200'
+                          ? 'bg-slate-100 text-foreground-body border-slate-200'
                           : m.variant === 'high' || m.variant === 'danger'
-                          ? 'bg-red-50 text-[#E32032] border-red-200'
+                          ? 'bg-red-50 text-primary border-red-200'
                           : 'bg-amber-50 text-amber-700 border-amber-200'
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
                           m.variant === 'offline'
-                            ? 'bg-[#9CA3AF]'
+                            ? 'bg-foreground-subtle'
                             : m.variant === 'high' || m.variant === 'danger'
-                            ? 'bg-[#E32032]'
+                            ? 'bg-primary'
                             : 'bg-amber-500'
                         }`}
                       />
@@ -403,35 +404,35 @@ export const OemDashboardView: React.FC = () => {
           </div>
 
           {/* 2. Upcoming Maintenance (Live from maintenance_schedules table) */}
-          <div className="bg-white rounded-xl border border-[#E3E4E6] p-5 shadow-xs">
-            <div className="pb-3 border-b border-[#F3F4F6]">
-              <h2 className="text-sm font-bold text-[#171717]">
+          <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs">
+            <div className="pb-3 border-b border-surface-hover">
+              <h2 className="text-sm font-bold text-foreground">
                 Upcoming maintenance
               </h2>
             </div>
 
             {upcomingMaintenance.length === 0 ? (
-              <div className="py-6 text-center text-xs text-[#888888] bg-gray-50/50 rounded-lg border border-gray-100 my-2">
+              <div className="py-6 text-center text-xs text-foreground-dim bg-gray-50/50 rounded-lg border border-gray-100 my-2">
                 No maintenance scheduled for the next 30 days.
               </div>
             ) : (
-              <div className="divide-y divide-[#F3F4F6] mt-1">
+              <div className="divide-y divide-surface-hover mt-1">
                 {upcomingMaintenance.map((item) => (
                   <div key={item.id} className="py-3 flex items-center justify-between text-xs">
                     <div className="min-w-0 pr-2">
                       <button
                         type="button"
                         onClick={() => navigate('/machines')}
-                        className="font-bold text-[#E32032] underline hover:text-[#C1121F] block text-left"
+                        className="font-bold text-primary underline hover:text-primary-hover block text-left"
                       >
                         {item.machine_code}
                       </button>
-                      <div className="text-[11px] text-[#6B7280] mt-0.5 truncate">
+                      <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
                         {item.client} · {item.task}
                       </div>
                     </div>
 
-                    <span className="text-[11px] font-bold text-[#171717] flex-shrink-0">
+                    <span className="text-[11px] font-bold text-foreground flex-shrink-0">
                       {item.date}
                     </span>
                   </div>

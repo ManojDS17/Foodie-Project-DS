@@ -9,7 +9,7 @@ import {
 import { machinesApi } from '../../services/api';
 import { Button } from '../common/ui';
 import type { Organization, Machine } from '../../types';
-import { AssignMachinesSection } from './AssignMachinesSection';
+import { AssignMachinesSection, calculateOneYearLeaseEndDate } from './AssignMachinesSection';
 import type { AssignMachineRow } from './AssignMachinesSection';
 
 export type { AssignMachineRow };
@@ -34,7 +34,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
       machine_id: '',
       location: '',
       lease_start_date: todayStr,
-      lease_end_date: '',
+      lease_end_date: calculateOneYearLeaseEndDate(todayStr),
     },
   ]);
 
@@ -64,7 +64,16 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
   const handleRowChange = (index: number, field: keyof AssignMachineRow, value: string) => {
     setRows((prev) => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
+      if (field === 'lease_start_date') {
+        const autoEnd = calculateOneYearLeaseEndDate(value);
+        copy[index] = {
+          ...copy[index],
+          lease_start_date: value,
+          lease_end_date: autoEnd || copy[index].lease_end_date,
+        };
+      } else {
+        copy[index] = { ...copy[index], [field]: value };
+      }
       return copy;
     });
     if (error) setError(null);
@@ -78,7 +87,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
         machine_id: '',
         location: '',
         lease_start_date: today,
-        lease_end_date: '',
+        lease_end_date: calculateOneYearLeaseEndDate(today),
       },
     ]);
   };
@@ -91,7 +100,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
           machine_id: '',
           location: '',
           lease_start_date: today,
-          lease_end_date: '',
+          lease_end_date: calculateOneYearLeaseEndDate(today),
         },
       ]);
       return;
@@ -131,7 +140,7 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
         selectedRows.map((row) =>
           machinesApi.update(row.machine_id, {
             organization_id: client.id,
-            location_label: row.location.trim() ? row.location.trim() : null,
+            lease_location_label: row.location.trim() ? row.location.trim() : null,
             lease_start_date: row.lease_start_date || undefined,
             lease_end_date: row.lease_end_date || undefined,
             lease_status: 'Active',
@@ -149,30 +158,30 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
 
   return (
     <div className="flex flex-col gap-6 max-w-[1400px] w-full min-w-0 mx-auto select-none pb-12">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-[#6B7280] pt-1">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-foreground-muted pt-1">
         <button
           type="button"
           onClick={onBack}
-          className="hover:text-[#111827] cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>{client.company_name}</span>
         </button>
-        <span className="text-[#9CA3AF]">/</span>
-        <span className="font-bold text-[#111827]">Assign machine</span>
+        <span className="text-foreground-subtle">/</span>
+        <span className="font-bold text-foreground">Assign machine</span>
       </nav>
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-surface-card rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-[#FFF5F5] text-[#E32032] font-bold text-xl flex items-center justify-center border border-[#FEE2E2] shrink-0">
-            <Cpu className="w-7 h-7 text-[#E32032]" />
+          <div className="w-14 h-14 rounded-xl bg-primary-light text-primary font-bold text-xl flex items-center justify-center border border-primary-border shrink-0">
+            <Cpu className="w-7 h-7 text-primary" />
           </div>
 
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-[#111827] tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
               Assign machine
             </h1>
-            <p className="text-xs text-[#6B7280] mt-1">
+            <p className="text-xs text-foreground-muted mt-1">
               Lease Foodie composter units to {client.company_name}.
             </p>
           </div>
@@ -200,43 +209,43 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
       </div>
 
       {error && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 flex items-start gap-3 text-xs text-[#991B1B] animate-in fade-in duration-200">
-          <AlertCircle className="w-4 h-4 shrink-0 text-[#DC2626] mt-0.5" />
+        <div className="bg-primary-light border border-primary-border rounded-xl p-4 flex items-start gap-3 text-xs text-primary animate-in fade-in duration-200">
+          <AlertCircle className="w-4 h-4 shrink-0 text-status-fault-text mt-0.5" />
           <div className="flex-1 font-medium">{error}</div>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-[#991B1B] hover:text-[#7F1D1D] p-0.5 rounded cursor-pointer"
+            className="text-primary hover:text-primary-hover p-0.5 rounded cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
+      <div className="bg-surface-card rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
           <div>
-            <span className="text-[#6B7280] block text-[11px] mb-1 font-medium">Client</span>
-            <span className="font-bold text-[#111827] text-sm block truncate">{client.company_name}</span>
+            <span className="text-foreground-muted block text-[11px] mb-1 font-medium">Client</span>
+            <span className="font-bold text-foreground text-sm block truncate">{client.company_name}</span>
           </div>
 
           <div>
-            <span className="text-[#6B7280] block text-[11px] mb-1 font-medium">Client ID</span>
-            <span className="font-mono font-bold text-[#E32032] text-sm block">
+            <span className="text-foreground-muted block text-[11px] mb-1 font-medium">Client ID</span>
+            <span className="font-mono font-bold text-primary text-sm block">
               {client.client_code || '—'}
             </span>
           </div>
 
           <div>
-            <span className="text-[#6B7280] block text-[11px] mb-1 font-medium">Machines Assigned</span>
-            <span className="font-bold text-[#111827] text-sm block">
+            <span className="text-foreground-muted block text-[11px] mb-1 font-medium">Machines Assigned</span>
+            <span className="font-bold text-foreground text-sm block">
               {assignedMachinesCount}
             </span>
           </div>
 
           <div>
-            <span className="text-[#6B7280] block text-[11px] mb-1 font-medium">Available Inventory</span>
-            <span className="font-bold text-[#059669] text-sm block">
+            <span className="text-foreground-muted block text-[11px] mb-1 font-medium">Available Inventory</span>
+            <span className="font-bold text-status-running-text text-sm block">
               {isLoadingMachines ? 'Checking...' : `${availableMachines.length} units`}
             </span>
           </div>

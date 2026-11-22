@@ -37,7 +37,6 @@ export interface Organization {
   billing_address?: string;
   shipping_address?: string;
   payment_terms?: string;
-  preferred_currency?: string;
   total_machines?: number;
   comms_preference?: string;
   is_active: boolean;
@@ -103,6 +102,7 @@ export interface User {
   role: UserRole;
   phone_number?: string;
   is_active: boolean;
+  status?: 'Active' | 'Pending' | 'Inactive';
   is_deleted?: boolean;
   deleted_at?: string;
   company_name?: string | null;
@@ -167,6 +167,7 @@ export interface Machine {
   site_code?: string | null;
   site_name?: string | null;
   location_label?: string | null;
+  lease_location_label?: string | null;
   location_description?: string | null;
   plc_software_version?: string | null;
   energy_meter_model?: string | null;
@@ -180,6 +181,7 @@ export interface Machine {
   lease_reference?: string | null;
   manufacture_date?: string | null;
   warranty_expiry_date?: string | null;
+  total_batches?: number | string | null;
   connectivity_status: string;
   operational_status?: string;
   is_active: boolean;

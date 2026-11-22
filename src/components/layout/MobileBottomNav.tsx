@@ -21,7 +21,7 @@ export const MobileBottomNav: React.FC = () => {
   return (
     <nav
       aria-label="Mobile Navigation"
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E3E4E6] flex items-center justify-around py-1.5 px-2 shadow-lg select-none"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border-subtle flex items-center justify-around py-1.5 px-2 shadow-lg select-none"
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -33,8 +33,8 @@ export const MobileBottomNav: React.FC = () => {
             className={({ isActive }) =>
               `flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-150 relative cursor-pointer min-w-[56px] ${
                 isActive
-                  ? 'text-[#E32032] font-bold'
-                  : 'text-[#666666] hover:text-[#171717]'
+                  ? 'text-primary font-bold'
+                  : 'text-foreground-muted hover:text-foreground'
               }`
             }
           >
@@ -47,7 +47,7 @@ export const MobileBottomNav: React.FC = () => {
                     }`}
                   />
                   {item.badge && item.badge > 0 && (
-                    <span className="absolute -top-1 -right-2 bg-[#E32032] text-white text-[9px] font-extrabold w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none">
+                    <span className="absolute -top-1 -right-2 bg-primary text-white text-[9px] font-extrabold w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none">
                       {item.badge}
                     </span>
                   )}
@@ -56,7 +56,7 @@ export const MobileBottomNav: React.FC = () => {
                   {item.label}
                 </span>
                 {isActive && (
-                  <span className="w-1 h-1 rounded-full bg-[#E32032] mt-0.5" />
+                  <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />
                 )}
               </>
             )}

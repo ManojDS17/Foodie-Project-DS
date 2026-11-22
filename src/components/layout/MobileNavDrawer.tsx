@@ -93,6 +93,8 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
       }`}
       aria-modal="true"
       role="dialog"
+      aria-hidden={!isOpen}
+      {...(!isOpen ? { inert: true } : {})}
     >
       {/* Backdrop Overlay */}
       <div
@@ -107,12 +109,12 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
         }`}
       >
         {/* Top Header */}
-        <div className="p-4 border-b border-[#E3E4E6] flex items-center justify-between">
+        <div className="p-4 border-b border-border-subtle flex items-center justify-between">
           <FoodieLogo size="sm" showEndorsement={true} />
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-[#666666] hover:text-[#171717] hover:bg-[#F3F4F6] transition-colors"
+            className="p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors"
             aria-label="Close menu"
           >
             <X className="w-5 h-5" />
@@ -120,16 +122,16 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
         </div>
 
         {/* User Card */}
-        <div className="p-4 bg-[#F8F9FA] border-b border-[#E3E4E6]">
+        <div className="p-4 bg-surface-subtle border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#FFEBEB] text-[#991B1B] font-bold text-sm flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-full bg-primary-light text-primary font-bold text-sm flex items-center justify-center shrink-0">
               {userInitials}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold text-[#171717] truncate">{displayName}</div>
-              <div className="text-[11px] text-[#666666] truncate mt-0.5">{roleDisplay}</div>
+              <div className="text-xs font-bold text-foreground truncate">{displayName}</div>
+              <div className="text-[11px] text-foreground-muted truncate mt-0.5">{roleDisplay}</div>
               {user?.company_name && (
-                <div className="text-[10px] text-[#888888] font-mono truncate mt-0.5">
+                <div className="text-[10px] text-foreground-dim font-mono truncate mt-0.5">
                   {user.company_name}
                 </div>
               )}
@@ -146,13 +148,13 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
               return (
                 <div
                   key={item.label}
-                  className="flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-[#9CA3AF] opacity-50 cursor-not-allowed select-none"
+                  className="flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-foreground-subtle opacity-50 cursor-not-allowed select-none"
                 >
                   <div className="flex items-center gap-3">
-                    <Icon className="w-4 h-4 shrink-0 text-[#9CA3AF]" />
+                    <Icon className="w-4 h-4 shrink-0 text-foreground-subtle" />
                     <span>{item.label}</span>
                   </div>
-                  <span className="text-[9px] font-bold text-[#888888] bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md uppercase">
+                  <span className="text-[9px] font-bold text-foreground-dim bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md uppercase">
                     Soon
                   </span>
                 </div>
@@ -168,8 +170,8 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
                 className={({ isActive }) =>
                   `flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                     isActive
-                      ? 'bg-red-50 text-[#E32032] border border-red-200'
-                      : 'text-[#4B5563] hover:text-[#171717] hover:bg-[#F8F9FA]'
+                      ? 'bg-primary-light text-primary border border-primary-border'
+                      : 'text-foreground-body hover:text-foreground hover:bg-surface-subtle'
                   }`
                 }
               >
@@ -178,12 +180,12 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
                   <span>{item.label}</span>
                 </div>
                 {item.badge && (
-                  <span className="text-[9px] font-extrabold text-[#888888] bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full">
+                  <span className="text-[9px] font-extrabold text-foreground-dim bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full">
                     {item.badge}
                   </span>
                 )}
                 {item.alertCount && (
-                  <span className="bg-[#E32032] text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full leading-none">
+                  <span className="bg-primary text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full leading-none">
                     {item.alertCount}
                   </span>
                 )}
@@ -193,7 +195,7 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
         </nav>
 
         {/* Bottom Actions */}
-        <div className="p-3 border-t border-[#E3E4E6] flex items-center justify-between">
+        <div className="p-3 border-t border-border-subtle flex items-center justify-between">
           <button
             type="button"
             onClick={() => {
@@ -201,7 +203,7 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
               logout('manual');
               navigate('/login?view=signed_out', { replace: true });
             }}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-[#DC2626] hover:bg-red-50 transition-colors w-full cursor-pointer"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-status-fault-text hover:bg-status-fault-bg transition-colors w-full cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>Sign out</span>

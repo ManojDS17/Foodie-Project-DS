@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 from pydantic import BaseModel, Field, field_validator
 
-EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$'
+EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$'
 SITE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
 PHONE_REGEX = r'^\+?[0-9\s]{7,15}$'
 VALID_ROLES = ['OEM_MANAGER', 'SITE_ADMIN', 'OPERATOR']
@@ -93,6 +93,7 @@ class UserResponse(BaseModel):
     role: str
     phone_number: Optional[str] = None
     is_active: bool
+    status: Optional[str] = None
     company_name: Optional[str] = None
     client_code: Optional[str] = None
     last_login_at: Optional[datetime] = None
@@ -316,7 +317,6 @@ class OrganizationCreate(BaseModel):
     billing_address: Optional[str] = None
     shipping_address: Optional[str] = None
     payment_terms: Optional[str] = '30 days'
-    preferred_currency: Optional[str] = 'AUD'
     comms_preference: Optional[str] = 'Email'
     assigned_machines: Optional[List[MachineAssignmentItem]] = None
     is_active: Optional[bool] = True
@@ -400,7 +400,6 @@ class OrganizationUpdate(BaseModel):
     billing_address: Optional[str] = None
     shipping_address: Optional[str] = None
     payment_terms: Optional[str] = None
-    preferred_currency: Optional[str] = None
     comms_preference: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -451,7 +450,6 @@ class OrganizationResponse(BaseModel):
     billing_address: Optional[str] = None
     shipping_address: Optional[str] = None
     payment_terms: Optional[str] = None
-    preferred_currency: Optional[str] = None
     comms_preference: Optional[str] = 'Email'
     is_active: bool
     is_deleted: Optional[bool] = False
@@ -607,6 +605,7 @@ class MachineCreate(BaseModel):
     hardware_version: Optional[str] = None
     organization_id: Optional[str] = None
     location_label: Optional[str] = None
+    lease_location_label: Optional[str] = None
     location_description: Optional[str] = None
     plc_software_version: Optional[str] = None
     energy_meter_model: Optional[str] = None
@@ -660,6 +659,7 @@ class MachineUpdate(BaseModel):
     hardware_version: Optional[str] = None
     organization_id: Optional[str] = None
     location_label: Optional[str] = None
+    lease_location_label: Optional[str] = None
     location_description: Optional[str] = None
     plc_software_version: Optional[str] = None
     energy_meter_model: Optional[str] = None
@@ -693,6 +693,7 @@ class MachineResponse(BaseModel):
     client_code: Optional[str] = None
     company_name: Optional[str] = None
     location_label: Optional[str] = None
+    lease_location_label: Optional[str] = None
     location_description: Optional[str] = None
     plc_software_version: Optional[str] = None
     energy_meter_model: Optional[str] = None

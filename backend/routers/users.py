@@ -9,6 +9,13 @@ from ..email_service import send_operator_welcome_email
 
 router = APIRouter(prefix="/api/users", tags=["Users"], dependencies=[Depends(get_current_user)])
 
+def compute_user_status(is_active: bool, last_login_at) -> str:
+    if not is_active:
+        return "Inactive"
+    if not last_login_at:
+        return "Pending"
+    return "Active"
+
 @router.get("", response_model=List[UserResponse])
 def get_all_users(current_user: dict = Depends(get_current_user)):
     user_role = current_user.get("role")
@@ -63,6 +70,7 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
                 d["deleted_by"] = str(d["deleted_by"])
             if not d.get("created_by_name"):
                 d["created_by_name"] = None
+            d["status"] = compute_user_status(d.get("is_active", True), d.get("last_login_at"))
             results.append(UserResponse(**d))
         return results
 
@@ -103,6 +111,7 @@ def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user))
             if not user_org_id or target_org_id != user_org_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
+        d["status"] = compute_user_status(d.get("is_active", True), d.get("last_login_at"))
         return UserResponse(**d)
 
 @router.post("/{user_id}/resend-invite")
@@ -133,6 +142,22 @@ def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
             WHERE id = %s;
         """, (welcome_token, welcome_token_expires, current_user.get("id"), user_id))
 
+        try:
+            cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s;", (u[1],))
+            org_info = cur.fetchone()
+            c_name = org_info[0] if org_info else "PowerTech Client"
+            c_code = org_info[1] if org_info else ""
+            send_operator_welcome_email(
+                to_email=u[2],
+                raw_password="[Use invitation link to set permanent password]",
+                company_name=c_name,
+                client_code=c_code,
+                recipient_name=f"{u[3]} {u[4] or ''}".strip(),
+                reset_token=welcome_token
+            )
+        except Exception as e:
+            print(f"[Resend Invite Notice] Failed to dispatch email: {e}")
+
         return {"message": f"Invitation link successfully resent to {u[2]}."}
 
 @router.post("/{user_id}/reset-password")
@@ -162,6 +187,15 @@ def trigger_password_reset(user_id: str, current_user: dict = Depends(get_curren
                 updated_by = %s
             WHERE id = %s;
         """, (reset_token, reset_token_expires, current_user.get("id"), user_id))
+
+        try:
+            send_password_reset_email(
+                to_email=u[2],
+                token=reset_token,
+                recipient_name=f"{u[3]} {u[4] or ''}".strip()
+            )
+        except Exception as e:
+            print(f"[Password Reset Notice] Failed to dispatch email: {e}")
 
         return {"message": f"Password reset instructions generated for {u[2]}."}
 
@@ -201,7 +235,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
         if dup_org:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f'Email "{normalized_email}" is already registered to client "{dup_org[2]}" ({dup_org[1]}). Email must be unique.'
+                detail="This email address is already registered to another client organization."
             )
 
         raw_password = (payload.password or "").strip()
@@ -220,12 +254,12 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
         company_name = None
         client_code = None
         if org_id:
-            cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s AND (is_deleted IS NOT TRUE);", (org_id,))
+            cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s AND is_active = TRUE AND (is_deleted IS NOT TRUE);", (org_id,))
             org_row = cur.fetchone()
             if not org_row:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Selected client organization was not found or is inactive."
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected client organization was not found or is currently suspended/inactive."
                 )
             company_name = org_row[0]
             client_code = org_row[1]
@@ -285,7 +319,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
                     ) VALUES (
                         %s, %s, %s,
                         %s, %s, %s, %s, %s, 'Active'
-                    ) ON CONFLICT (operator_id, machine_id) DO UPDATE
+                    ) ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
                     SET status = 'Active',
                         start_date = EXCLUDED.start_date,
                         end_date = EXCLUDED.end_date,
@@ -310,11 +344,36 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             except Exception as e:
                 print(f"[Operator Welcome Email Notice] Failed to dispatch welcome email: {e}")
 
+        d["status"] = compute_user_status(d.get("is_active", True), d.get("last_login_at"))
         return UserResponse(**d)
 
 @router.put("/{user_id}", response_model=UserResponse)
 def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(get_current_user)):
-    if payload.role == "OEM_MANAGER" and current_user.get("role") != "OEM_MANAGER":
+    user_role = current_user.get("role")
+
+    if user_role == "OPERATOR":
+        if str(current_user.get("id")) != str(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Operators can only modify their own profile."
+            )
+        if payload.role is not None and payload.role != "OPERATOR":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Operators cannot change user roles."
+            )
+        if payload.is_active is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Operators cannot change account activation status."
+            )
+        if payload.email is not None and payload.email.strip().lower() != current_user.get("email", "").lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Operators cannot modify their email address."
+            )
+
+    if payload.role == "OEM_MANAGER" and user_role != "OEM_MANAGER":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Cannot elevate permissions to OEM_MANAGER."
@@ -362,7 +421,7 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                 if not (is_same_org and target_role == "SITE_ADMIN"):
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail=f'Email "{clean_email}" is already registered to client "{dup_org[2]}" ({dup_org[1]}). Email must be unique.'
+                        detail="This email address is already registered to another client organization."
                     )
                 if is_same_org and clean_email != target_current_email:
                     cur.execute("UPDATE organizations SET email = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (clean_email, target_org_id))
@@ -414,6 +473,7 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                 WHERE organization_id = %s AND role = 'OPERATOR' AND (is_deleted IS NOT TRUE);
             """, (current_user.get("id"), d["organization_id"]))
 
+        d["status"] = compute_user_status(d.get("is_active", True), d.get("last_login_at"))
         return UserResponse(**d)
 
 @router.delete("/{user_id}")

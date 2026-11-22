@@ -166,61 +166,61 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
   return (
     <div className="flex flex-col gap-6 max-w-[1400px] mx-auto select-none pb-12">
       {/* 1. Breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-[#6B7280] pt-1">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-foreground-muted pt-1">
         <button
           type="button"
           onClick={onBack}
-          className="hover:text-[#111827] cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Clients</span>
         </button>
-        <span className="text-[#9CA3AF]">/</span>
+        <span className="text-foreground-subtle">/</span>
         <button
           type="button"
           onClick={onBack}
-          className="hover:text-[#111827] cursor-pointer transition-colors"
+          className="hover:text-foreground cursor-pointer transition-colors"
         >
           {client.company_name}
         </button>
-        <span className="text-[#9CA3AF]">/</span>
-        <span className="font-bold text-[#111827]">Edit client</span>
+        <span className="text-foreground-subtle">/</span>
+        <span className="font-bold text-foreground">Edit client</span>
       </nav>
 
       {/* 2. Client Header Card (Matching Detail View) */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-[#F3F4F6] text-[#111827] font-bold text-xl flex items-center justify-center border border-[#E5E7EB] shrink-0">
+          <div className="w-14 h-14 rounded-xl bg-surface-hover text-foreground font-bold text-xl flex items-center justify-center border border-border-default shrink-0">
             {getInitials(client.company_name)}
           </div>
 
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl sm:text-2xl font-bold text-[#111827] tracking-tight">
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
                 {formData.company_name || client.company_name}
               </h1>
               <span
                 className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                   clientStatus === 'Active'
-                    ? 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]'
-                    : 'bg-[#F3F4F6] text-[#6B7280] border-[#E5E7EB]'
+                    ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
+                    : 'bg-surface-hover text-foreground-muted border-border-default'
                 }`}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
-                    clientStatus === 'Active' ? 'bg-[#10B981]' : 'bg-[#9CA3AF]'
+                    clientStatus === 'Active' ? 'bg-status-running-dot' : 'bg-foreground-subtle'
                   }`}
                 />
                 <span>{clientStatus}</span>
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-4 text-xs text-[#6B7280] mt-1.5">
-              <span className="font-mono font-semibold text-[#111827]">{client.client_code}</span>
+            <div className="flex flex-wrap items-center gap-4 text-xs text-foreground-muted mt-1.5">
+              <span className="font-mono font-semibold text-foreground">{client.client_code}</span>
               <span>{formData.business_type}</span>
               {client.billing_address && (
                 <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                  <MapPin className="w-3.5 h-3.5 text-foreground-subtle" />
                   <span>{client.billing_address}</span>
                 </span>
               )}
@@ -252,13 +252,13 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
 
       {/* Error Alert Banner */}
       {error && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 flex items-start gap-3 text-xs text-[#991B1B] animate-in fade-in duration-200">
-          <AlertCircle className="w-4 h-4 shrink-0 text-[#DC2626] mt-0.5" />
+        <div className="bg-primary-light border border-primary-border rounded-xl p-4 flex items-start gap-3 text-xs text-primary animate-in fade-in duration-200">
+          <AlertCircle className="w-4 h-4 shrink-0 text-status-fault-text mt-0.5" />
           <div className="flex-1 font-medium">{error}</div>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-[#991B1B] hover:text-[#7F1D1D] p-0.5 rounded cursor-pointer"
+            className="text-primary hover:text-primary-hover p-0.5 rounded cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -268,12 +268,12 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
       {/* 3. Form Sections (Full Page Grid) */}
       <form id="edit-client-full-form" onSubmit={handleSubmit} className="flex flex-col gap-6">
         {/* Section 1: Client Details */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-[#F3F4F6] pb-4 mb-6">
-            <h2 className="text-base font-bold text-[#111827] tracking-tight">
+        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+          <div className="border-b border-surface-hover pb-4 mb-6">
+            <h2 className="text-base font-bold text-foreground tracking-tight">
               Client details
             </h2>
-            <p className="text-xs text-[#6B7280] mt-0.5">
+            <p className="text-xs text-foreground-muted mt-0.5">
               Core legal registration, company identification, and business terms.
             </p>
           </div>
@@ -281,8 +281,8 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {/* Full Name / Company Name */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Full name / Company name <span className="text-[#DC2626]">*</span>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Full name / Company name <span className="text-status-fault-text">*</span>
               </label>
               <input
                 type="text"
@@ -290,21 +290,21 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 value={formData.company_name}
                 onChange={handleChange}
                 placeholder="e.g. Green Valley Foods Pty Ltd"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
                 required
               />
             </div>
 
             {/* Business Type */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Business type
               </label>
               <select
                 name="business_type"
                 value={formData.business_type}
                 onChange={handleChange}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
               >
                 <option value="">Select</option>
                 <option value="Corporate">Corporate</option>
@@ -315,15 +315,15 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
             {/* Tax ID (ABN) */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-[#171717]">
+                <label className="block text-xs font-semibold text-foreground">
                   Tax ID (ABN)
                 </label>
                 {duplicateClient ? (
-                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                  <span className="text-[11px] font-semibold text-status-fault-text">
                     Already registered
                   </span>
                 ) : isAbnChecksumInvalid ? (
-                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                  <span className="text-[11px] font-semibold text-status-fault-text">
                     Invalid checksum
                   </span>
                 ) : null}
@@ -340,21 +340,21 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 placeholder="e.g. 51 824 753 556"
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
                   duplicateClient || isAbnChecksumInvalid
-                    ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
-                    : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
+                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
                 }`}
               />
               {duplicateClient && (
-                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
                   <span>
                     This ABN is already in use by <strong>{duplicateClient.company_name}</strong> ({duplicateClient.client_code}). Please enter a unique ABN.
                   </span>
                 </p>
               )}
               {isAbnChecksumInvalid && !duplicateClient && (
-                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
                   <span>
                     Invalid ABN. This 11-digit number does not satisfy the official Australian Business Register Modulus 89 checksum.
                   </span>
@@ -364,7 +364,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
 
             {/* Onboarding Date */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Onboarding date
               </label>
               <input
@@ -372,20 +372,20 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 name="onboarding_date"
                 value={formData.onboarding_date}
                 onChange={handleChange}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer"
               />
             </div>
 
             {/* Comms Preference */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Comms preference
               </label>
               <select
                 name="comms_preference"
                 value={formData.comms_preference}
                 onChange={handleChange}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
               >
                 <option value="">Select</option>
                 <option value="Email">Email</option>
@@ -395,14 +395,14 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
 
             {/* Payment Terms */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Payment terms
               </label>
               <select
                 name="payment_terms"
                 value={formData.payment_terms}
                 onChange={handleChange}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
               >
                 <option value="">Select</option>
                 <option value="15 days">15 days</option>
@@ -414,12 +414,12 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
         </div>
 
         {/* Section 2: Contact Details */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-[#F3F4F6] pb-4 mb-6">
-            <h2 className="text-base font-bold text-[#111827] tracking-tight">
+        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+          <div className="border-b border-surface-hover pb-4 mb-6">
+            <h2 className="text-base font-bold text-foreground tracking-tight">
               Contact details
             </h2>
-            <p className="text-xs text-[#6B7280] mt-0.5">
+            <p className="text-xs text-foreground-muted mt-0.5">
               Authorized client contact person, direct communication channels, and physical billing/shipping locations.
             </p>
           </div>
@@ -427,8 +427,8 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {/* Point of Contact */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Point of contact <span className="text-[#DC2626]">*</span>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Point of contact <span className="text-status-fault-text">*</span>
               </label>
               <input
                 type="text"
@@ -441,11 +441,11 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 maxLength={50}
                 required
                 placeholder="e.g. Alex Morgan"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
               />
-              <p className="text-[11px] text-[#6B7280] mt-1 flex justify-between items-center">
+              <p className="text-[11px] text-foreground-muted mt-1 flex justify-between items-center">
                 <span>Primary operational contact person.</span>
-                <span className={`text-[11px] ${formData.contact_poc.length >= 50 ? 'text-[#DC2626] font-semibold' : 'text-[#9CA3AF]'}`}>
+                <span className={`text-[11px] ${formData.contact_poc.length >= 50 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
                   {formData.contact_poc.length}/50 characters
                 </span>
               </p>
@@ -453,7 +453,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
 
             {/* Phone Number */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Phone number
               </label>
               <input
@@ -467,13 +467,13 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 }}
                 maxLength={15}
                 placeholder="e.g. +61 8 8200 1100"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-mono"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-mono"
               />
             </div>
 
             {/* Email Address */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Email address
               </label>
               <input
@@ -481,13 +481,13 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 name="email"
                 value={formData.email}
                 disabled
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-[#F3F4F6] text-[#374151] text-xs font-medium cursor-not-allowed focus:outline-none"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-surface-hover text-foreground-body text-xs font-medium cursor-not-allowed focus:outline-none"
               />
             </div>
 
             {/* Website */}
             <div className="lg:col-span-3">
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Website
               </label>
               <input
@@ -496,14 +496,14 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 value={formData.website}
                 onChange={handleChange}
                 placeholder="e.g. https://company.com"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
               />
             </div>
 
             {/* Billing Address */}
             <div className="md:col-span-2 lg:col-span-3">
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Billing address <span className="text-[#DC2626]">*</span>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Billing address <span className="text-status-fault-text">*</span>
               </label>
               <input
                 type="text"
@@ -511,7 +511,7 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
                 value={formData.billing_address}
                 onChange={handleChange}
                 placeholder="e.g. Railway Ave, Mount Isa QLD 4825"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
                 required
               />
             </div>
@@ -519,11 +519,11 @@ export const EditClientView: React.FC<EditClientViewProps> = ({
         </div>
 
         {/* Docked / Bottom Action Bar */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="bg-white rounded-2xl border border-border-default p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="text-xs font-medium text-[#6B7280] hover:text-[#111827] transition-colors cursor-pointer flex items-center justify-center sm:justify-start gap-1.5 px-2 py-1"
+            className="text-xs font-medium text-foreground-muted hover:text-foreground transition-colors cursor-pointer flex items-center justify-center sm:justify-start gap-1.5 px-2 py-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Discard and return</span>

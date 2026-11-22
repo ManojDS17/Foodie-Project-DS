@@ -79,22 +79,26 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
-      tokenStorage.clear();
-      try {
-        localStorage.removeItem('foodie_auth_user_v4');
-        localStorage.removeItem('foodie_auth_user');
-      } catch {}
-      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-        const isExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
-        const expiredEmail = sessionStorage.getItem('foodie_expired_email');
-        const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+      const activeToken = tokenStorage.get();
+      // Only clear storage and redirect if the 401 corresponds to the active session
+      if (token && activeToken === token) {
+        tokenStorage.clear();
+        try {
+          localStorage.removeItem('foodie_auth_user_v4');
+          localStorage.removeItem('foodie_auth_user');
+        } catch {}
+        if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+          const isExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
+          const expiredEmail = sessionStorage.getItem('foodie_expired_email');
+          const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
 
-        if (isExpired) {
-          window.location.href = `/login?view=expired${expiredEmail ? `&email=${encodeURIComponent(expiredEmail)}` : ''}`;
-        } else if (isSignedOut) {
-          window.location.href = '/login?view=signed_out';
-        } else {
-          window.location.href = '/login';
+          if (isExpired) {
+            window.location.href = `/login?view=expired${expiredEmail ? `&email=${encodeURIComponent(expiredEmail)}` : ''}`;
+          } else if (isSignedOut) {
+            window.location.href = '/login?view=signed_out';
+          } else {
+            window.location.href = '/login';
+          }
         }
       }
     }
@@ -167,12 +171,24 @@ export const authApi = {
   },
 
   logout: async () => {
+    const departingToken = tokenStorage.get();
+    tokenStorage.clear();
     try {
-      await request<any>('/auth/logout', { method: 'POST' });
-    } catch {
-      // Ignored if offline or token already expired
-    } finally {
-      tokenStorage.clear();
+      localStorage.removeItem('foodie_auth_user_v4');
+      localStorage.removeItem('foodie_auth_user');
+    } catch {}
+
+    if (departingToken) {
+      try {
+        await request<any>('/auth/logout', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${departingToken}`,
+          },
+        });
+      } catch {
+        // Ignored if offline or token already expired
+      }
     }
   },
 };

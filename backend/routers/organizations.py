@@ -69,6 +69,8 @@ def get_organizations(current_user: dict = Depends(get_current_user)):
             d["id"] = str(d["id"])
             if d.get("created_by"):
                 d["created_by"] = str(d["created_by"])
+            if d.get("updated_by"):
+                d["updated_by"] = str(d["updated_by"])
             if d.get("deleted_by"):
                 d["deleted_by"] = str(d["deleted_by"])
             if d.get("onboarding_date"):
@@ -126,6 +128,7 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
     
     # Safe date sanitization
     onboarding_d = payload.onboarding_date.strip() if payload.onboarding_date and payload.onboarding_date.strip() else None
+    pending_welcome_email = None
 
     with get_db_cursor(commit=True) as cur:
         # Check uniqueness of client_code across all records (including archived/deleted)
@@ -162,7 +165,7 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                 if dup_abn:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Tax ID (ABN) '{payload.tax_id.strip()}' is already registered to client '{dup_abn[2]}' ({dup_abn[1]})."
+                        detail="This Tax ID (ABN) is already registered to another client organization."
                     )
 
         # Check uniqueness of email across organizations and users
@@ -177,7 +180,7 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
             if dup_org:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Email '{clean_email}' is already registered to client '{dup_org[2]}' ({dup_org[1]})."
+                    detail="This email address is already registered to another client organization."
                 )
 
             cur.execute("SELECT id, email, is_deleted FROM users WHERE LOWER(email) = %s AND (is_deleted IS NOT TRUE);", (clean_email,))
@@ -203,10 +206,10 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         cur.execute("""
             INSERT INTO organizations (
                 client_code, company_name, business_type, status, onboarding_date, tax_id, contact_poc, email, phone_number,
-                website, billing_address, shipping_address, payment_terms, preferred_currency, comms_preference, is_active,
+                website, billing_address, shipping_address, payment_terms, comms_preference, is_active,
                 created_by
             ) VALUES (
-                %s, %s, %s, %s, COALESCE(%s::DATE, CURRENT_DATE), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, COALESCE(%s::DATE, CURRENT_DATE), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s
             ) RETURNING *;
         """, (
@@ -223,7 +226,6 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
             billing_addr,
             shipping_addr,
             payload.payment_terms or '30 days',
-            payload.preferred_currency or 'AUD',
             payload.comms_preference or 'Email',
             payload.is_active if payload.is_active is not None else True,
             current_user.get("id")
@@ -251,7 +253,7 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
 
             raw_password = (payload.password or "").strip()
             if not raw_password:
-                raw_password = "Password@123"
+                raw_password = f"Pte@{secrets.token_hex(4)}!26"
             pw_hash = get_password_hash(raw_password)
 
             poc_name = (payload.contact_poc or payload.company_name or "Client Admin").strip()
@@ -270,7 +272,11 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                         role = 'SITE_ADMIN',
                         reset_token = %s,
                         reset_token_expires_at = %s,
-                        is_active = TRUE
+                        is_active = TRUE,
+                        is_deleted = FALSE,
+                        deleted_at = NULL,
+                        deleted_by = NULL,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s;
                 """, (new_org_id, pw_hash, welcome_token, welcome_token_expires, existing_user[0]))
             else:
@@ -294,17 +300,14 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                     current_user.get("id")
                 ))
 
-            try:
-                send_client_welcome_email(
-                    to_email=clean_email,
-                    raw_password=raw_password,
-                    company_name=company,
-                    client_code=code,
-                    recipient_name=poc_name,
-                    reset_token=welcome_token
-                )
-            except Exception as e:
-                print(f"[Welcome Email Notice] Failed to dispatch welcome email: {e}")
+            pending_welcome_email = {
+                "to_email": clean_email,
+                "raw_password": raw_password,
+                "company_name": company,
+                "client_code": code,
+                "recipient_name": poc_name,
+                "reset_token": welcome_token,
+            }
 
         # Assign machines and create leases if specified in payload
         if payload.assigned_machines:
@@ -322,12 +325,12 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                         start_dt = date.today()
                     l_start_str = start_dt.strftime("%Y-%m-%d")
 
-                    # Calculate 5 years later if end date is missing or empty
+                    # Calculate 1 year later if end date is missing or empty
                     if not l_end:
                         try:
-                            end_dt = start_dt.replace(year=start_dt.year + 5)
+                            end_dt = start_dt.replace(year=start_dt.year + 1)
                         except ValueError:
-                            end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 5)
+                            end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 1)
                         l_end_str = end_dt.strftime("%Y-%m-%d")
                     else:
                         try:
@@ -340,9 +343,9 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                             l_end_str = parsed_end.strftime("%Y-%m-%d")
                         except ValueError:
                             try:
-                                end_dt = start_dt.replace(year=start_dt.year + 5)
+                                end_dt = start_dt.replace(year=start_dt.year + 1)
                             except ValueError:
-                                end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 5)
+                                end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 1)
                             l_end_str = end_dt.strftime("%Y-%m-%d")
 
                     # Find machine id
@@ -352,10 +355,9 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                         mach_uuid = m_row[0]
                         cur.execute("""
                             UPDATE machines
-                            SET organization_id = %s,
-                                location_label = COALESCE(%s, location_label)
+                            SET organization_id = %s
                             WHERE id = %s;
-                        """, (new_org_id, loc, mach_uuid))
+                        """, (new_org_id, mach_uuid))
 
                         # Create machine lease record
                         lease_ref = f"LSE-{code}-{m_ident[:4]}"
@@ -390,7 +392,7 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                                 ) VALUES (
                                     %s, %s, %s,
                                     %s::DATE, %s::DATE, %s, %s, %s, 'Active'
-                                ) ON CONFLICT (operator_id, machine_id) DO UPDATE
+                                ) ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
                                 SET status = 'Active',
                                     start_date = EXCLUDED.start_date,
                                     end_date = EXCLUDED.end_date,
@@ -400,6 +402,12 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                                     updated_by = EXCLUDED.assigned_by,
                                     updated_at = CURRENT_TIMESTAMP;
                             """, (new_org_id, op[0], mach_uuid, l_start_str, l_end_str, loc, current_user.get("id"), current_user.get("id")))
+
+        if pending_welcome_email:
+            try:
+                send_client_welcome_email(**pending_welcome_email)
+            except Exception as e:
+                print(f"[Welcome Email Notice] Failed to dispatch welcome email: {e}")
 
         return OrganizationResponse(**d)
 
@@ -475,7 +483,7 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
                 if dup_abn:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Tax ID (ABN) '{str(update_data['tax_id']).strip()}' is already registered to client '{dup_abn[2]}' ({dup_abn[1]})."
+                        detail="This Tax ID (ABN) is already registered to another client organization."
                     )
 
         # Check uniqueness of email across organizations and users if updated
@@ -490,7 +498,7 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
             if dup_org:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Email '{clean_email}' is already registered to client '{dup_org[2]}' ({dup_org[1]})."
+                    detail="This email address is already registered to another client organization."
                 )
 
             cur.execute("""
@@ -519,8 +527,31 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
 
             cur.execute("""
                 UPDATE users
-                SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-                WHERE organization_id = %s AND role = 'OPERATOR';
+                SET is_active = FALSE,
+                    token_version = token_version + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE organization_id = %s;
+            """, (real_org_id,))
+
+        cur.execute("SELECT is_active, status FROM organizations WHERE id = %s;", (real_org_id,))
+        prior_org = cur.fetchone()
+        was_previously_inactive = (
+            prior_org is not None and (
+                prior_org[0] is False or
+                str(prior_org[1] or '').lower() in ('inactive', 'archived')
+            )
+        )
+
+        is_becoming_active = (
+            ('is_active' in update_data and update_data['is_active'] is True) or
+            ('status' in update_data and str(update_data['status']).lower() == 'active')
+        )
+        if is_becoming_active and was_previously_inactive:
+            cur.execute("""
+                UPDATE users
+                SET is_active = TRUE,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE organization_id = %s AND (is_deleted IS NOT TRUE);
             """, (real_org_id,))
 
         cur.execute(f"""
@@ -578,7 +609,8 @@ def delete_organization(org_id: str, current_user: dict = Depends(get_current_us
             SET is_active = FALSE,
                 is_deleted = TRUE,
                 deleted_at = CURRENT_TIMESTAMP,
-                deleted_by = %s
+                deleted_by = %s,
+                token_version = token_version + 1
             WHERE organization_id = %s AND (is_deleted IS NOT TRUE);
         """, (current_user.get("id"), real_org_id))
 
@@ -623,7 +655,8 @@ def bulk_delete_organizations(payload: BulkDeleteRequest, current_user: dict = D
             SET is_active = FALSE,
                 is_deleted = TRUE,
                 deleted_at = CURRENT_TIMESTAMP,
-                deleted_by = %s
+                deleted_by = %s,
+                token_version = token_version + 1
             WHERE organization_id::text = ANY(%s) AND (is_deleted IS NOT TRUE);
         """, (current_user.get("id"), payload.ids))
 

@@ -117,18 +117,33 @@ export const TeamPage: React.FC = () => {
     return 'U';
   };
 
+  const getUserStatus = (u: User): 'Active' | 'Pending' | 'Inactive' => {
+    if (!u.is_active) return 'Inactive';
+    if (!u.last_login_at) return 'Pending';
+    return 'Active';
+  };
+
   const getStatusBadge = (u: User) => {
-    if (!u.is_active) {
+    const status = getUserStatus(u);
+    if (status === 'Inactive') {
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#9CA3AF]"></span>
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-surface-hover text-foreground-muted border border-border-default">
+          <span className="w-1.5 h-1.5 rounded-full bg-foreground-subtle"></span>
           Inactive
         </span>
       );
     }
+    if (status === 'Pending') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          Pending
+        </span>
+      );
+    }
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
-        <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]"></span>
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-status-running-bg text-status-running-text border border-status-running-dot/30">
+        <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot"></span>
         Active
       </span>
     );
@@ -169,11 +184,11 @@ export const TeamPage: React.FC = () => {
       }
 
       // 3. Status Filter
-      if (statusFilter === 'Active' && !u.is_active) {
-        return false;
-      }
-      if (statusFilter === 'Inactive' && u.is_active) {
-        return false;
+      if (statusFilter !== 'All') {
+        const userStatus = getUserStatus(u);
+        if (userStatus !== statusFilter) {
+          return false;
+        }
       }
 
       return true;
@@ -357,10 +372,10 @@ export const TeamPage: React.FC = () => {
       {/* 1. Header Section */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#111827] tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
             Team
           </h1>
-          <p className="text-xs text-[#6B7280] mt-1">
+          <p className="text-xs text-foreground-muted mt-1">
             People who can access {clientName} on Foodie Dashboard.
           </p>
         </div>
@@ -368,7 +383,7 @@ export const TeamPage: React.FC = () => {
         <button
           type="button"
           onClick={() => setIsAddOperatorOpen(true)}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#E32032] text-white hover:bg-[#D11A2A] active:bg-[#B91826] transition-all cursor-pointer shadow-2xs self-start sm:self-auto"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-primary text-white hover:bg-primary-hover active:bg-primary-hover transition-all cursor-pointer shadow-2xs self-start sm:self-auto"
         >
           <Plus className="w-4 h-4 text-white" />
           <span>Add operator</span>
@@ -376,29 +391,29 @@ export const TeamPage: React.FC = () => {
       </div>
 
       {/* 2. Main Content Card */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-2xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border-default shadow-2xs overflow-hidden">
         {/* Filter Controls Row */}
-        <div className="p-4 sm:p-5 border-b border-[#F3F4F6] flex flex-col md:flex-row items-stretch md:items-center gap-3">
+        <div className="p-4 sm:p-5 border-b border-surface-hover flex flex-col md:flex-row items-stretch md:items-center gap-3">
           {/* Search box */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-foreground-subtle absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search name or email"
-              className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-xs text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#111827] transition-all"
+              className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-border-strong bg-white text-xs text-foreground placeholder:text-foreground-subtle focus:outline-none focus:border-foreground transition-all"
             />
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Role Filter */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#6B7280] font-medium shrink-0">Role</span>
+              <span className="text-xs text-foreground-muted font-medium shrink-0">Role</span>
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value as any)}
-                className="px-3 py-2 rounded-xl border border-[#D1D5DB] bg-white text-xs font-medium text-[#111827] focus:outline-none focus:border-[#111827] cursor-pointer min-w-[120px]"
+                className="px-3 py-2 rounded-xl border border-border-strong bg-white text-xs font-medium text-foreground focus:outline-none focus:border-foreground cursor-pointer min-w-[120px]"
               >
                 <option value="All">All</option>
                 <option value="SITE_ADMIN">Site Admin</option>
@@ -408,11 +423,11 @@ export const TeamPage: React.FC = () => {
 
             {/* Status Filter */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#6B7280] font-medium shrink-0">Status</span>
+              <span className="text-xs text-foreground-muted font-medium shrink-0">Status</span>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="px-3 py-2 rounded-xl border border-[#D1D5DB] bg-white text-xs font-medium text-[#111827] focus:outline-none focus:border-[#111827] cursor-pointer min-w-[120px]"
+                className="px-3 py-2 rounded-xl border border-border-strong bg-white text-xs font-medium text-foreground focus:outline-none focus:border-foreground cursor-pointer min-w-[120px]"
               >
                 <option value="All">All</option>
                 <option value="Active">Active</option>
@@ -427,7 +442,7 @@ export const TeamPage: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-[#F3F4F6] text-[11px] font-semibold text-[#6B7280] bg-[#F9FAFB]">
+              <tr className="border-b border-surface-hover text-[11px] font-semibold text-foreground-muted bg-surface-muted">
                 <th className="py-3 px-4 sm:px-6">Name</th>
                 <th className="py-3 px-4 sm:px-6">Email</th>
                 <th className="py-3 px-4 sm:px-6">Phone</th>
@@ -436,10 +451,10 @@ export const TeamPage: React.FC = () => {
                 <th className="py-3 px-4 sm:px-6 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#F3F4F6] text-xs">
+            <tbody className="divide-y divide-surface-hover text-xs">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-xs text-[#9CA3AF]">
+                  <td colSpan={6} className="py-12 text-center text-xs text-foreground-subtle">
                     Loading team members...
                   </td>
                 </tr>
@@ -447,15 +462,15 @@ export const TeamPage: React.FC = () => {
                 <tr>
                   <td colSpan={6} className="py-12 text-center">
                     <div className="flex flex-col items-center justify-center gap-2">
-                      <div className="w-10 h-10 rounded-full bg-[#F3F4F6] flex items-center justify-center text-[#9CA3AF]">
+                      <div className="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center text-foreground-subtle">
                         <Users className="w-5 h-5" />
                       </div>
-                      <span className="text-xs font-semibold text-[#111827]">
+                      <span className="text-xs font-semibold text-foreground">
                         {searchQuery || roleFilter !== 'All' || statusFilter !== 'All'
                           ? 'No matching team members found'
                           : 'No team members added yet'}
                       </span>
-                      <p className="text-[11px] text-[#6B7280] max-w-sm">
+                      <p className="text-[11px] text-foreground-muted max-w-sm">
                         {searchQuery || roleFilter !== 'All' || statusFilter !== 'All'
                           ? 'Try clearing your search or status filter to see all team members.'
                           : 'Add your first operator to grant them access to this facility.'}
@@ -472,7 +487,7 @@ export const TeamPage: React.FC = () => {
                   return (
                     <tr
                       key={u.id}
-                      className="hover:bg-[#F9FAFB] transition-colors group"
+                      className="hover:bg-surface-muted transition-colors group"
                     >
                       {/* Name with initials avatar */}
                       <td className="py-3.5 px-4 sm:px-6">
@@ -481,33 +496,33 @@ export const TeamPage: React.FC = () => {
                           onClick={() => setViewingUser(u)}
                           className="flex items-center gap-3 text-left hover:underline cursor-pointer"
                         >
-                          <div className="w-8 h-8 rounded-full bg-[#F3F4F6] text-[#374151] font-semibold text-xs flex items-center justify-center shrink-0 border border-[#E5E7EB]">
+                          <div className="w-8 h-8 rounded-full bg-surface-hover text-foreground-body font-semibold text-xs flex items-center justify-center shrink-0 border border-border-default">
                             {initials}
                           </div>
-                          <span className="font-semibold text-[#111827]">
+                          <span className="font-semibold text-foreground">
                             {fullName}
                           </span>
                         </button>
                       </td>
 
                       {/* Email */}
-                      <td className="py-3.5 px-4 sm:px-6 text-[#6B7280] font-normal">
+                      <td className="py-3.5 px-4 sm:px-6 text-foreground-muted font-normal">
                         {u.email}
                       </td>
 
                       {/* Phone */}
-                      <td className="py-3.5 px-4 sm:px-6 text-[#111827] font-mono">
+                      <td className="py-3.5 px-4 sm:px-6 text-foreground font-mono">
                         {u.phone_number || '—'}
                       </td>
 
                       {/* Role badge */}
                       <td className="py-3.5 px-4 sm:px-6">
                         {isSiteAdmin ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#FFF1F2] text-[#E11D48] border border-[#FFE4E6]">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary-light text-status-fault-text border border-primary-border">
                             Site Admin
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB]">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-surface-hover text-foreground-body border border-border-default">
                             Operator
                           </span>
                         )}
@@ -521,16 +536,6 @@ export const TeamPage: React.FC = () => {
                       {/* Actions */}
                       <td className="py-3.5 px-4 sm:px-6 text-right">
                         <div className="inline-flex items-center gap-2 text-left justify-end">
-                          {u.role === 'OPERATOR' && (
-                            <button
-                              type="button"
-                              onClick={() => setManagingOperator(u)}
-                              className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] text-xs font-semibold text-[#374151] transition-colors cursor-pointer"
-                            >
-                              Manage machines
-                            </button>
-                          )}
-
                           <RowActionMenu
                             isOpen={openMenuUserId === u.id}
                             onToggle={() => setOpenMenuUserId(openMenuUserId === u.id ? null : u.id)}
@@ -543,9 +548,9 @@ export const TeamPage: React.FC = () => {
                                 setOpenMenuUserId(null);
                                 setViewingUser(u);
                               }}
-                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
                             >
-                              <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
+                              <Eye className="w-3.5 h-3.5 text-foreground-muted" />
                               <span>View user</span>
                             </button>
 
@@ -555,9 +560,9 @@ export const TeamPage: React.FC = () => {
                                 setOpenMenuUserId(null);
                                 setEditingUser(u);
                               }}
-                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
                             >
-                              <Pencil className="w-3.5 h-3.5 text-[#6B7280]" />
+                              <Pencil className="w-3.5 h-3.5 text-foreground-muted" />
                               <span>Edit user</span>
                             </button>
 
@@ -568,25 +573,25 @@ export const TeamPage: React.FC = () => {
                                   setOpenMenuUserId(null);
                                   setManagingOperator(u);
                                 }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#374151] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer transition-colors"
+                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
                               >
-                                <Cpu className="w-3.5 h-3.5 text-[#6B7280]" />
+                                <Cpu className="w-3.5 h-3.5 text-foreground-muted" />
                                 <span>Manage machines</span>
                               </button>
                             )}
 
                             {u.role !== 'SITE_ADMIN' && (
                               <>
-                                <div className="my-1 border-t border-[#F3F4F6]" />
+                                <div className="my-1 border-t border-surface-hover" />
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setOpenMenuUserId(null);
                                     setRemovingUser(u);
                                   }}
-                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DC2626] hover:bg-[#FEF2F2] flex items-center gap-2 cursor-pointer transition-colors"
+                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-status-fault-text hover:bg-primary-light flex items-center gap-2 cursor-pointer transition-colors"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />
+                                  <Trash2 className="w-3.5 h-3.5 text-status-fault-text" />
                                   <span>Remove user</span>
                                 </button>
                               </>

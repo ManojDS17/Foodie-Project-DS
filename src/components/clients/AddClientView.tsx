@@ -12,7 +12,7 @@ import {
 import { orgsApi, machinesApi, usersApi } from '../../services/api';
 import { Button } from '../common/ui';
 import type { Organization, Machine, User } from '../../types';
-import { AssignMachinesSection, type AssignMachineRow } from './AssignMachinesSection';
+import { AssignMachinesSection, type AssignMachineRow, calculateOneYearLeaseEndDate } from './AssignMachinesSection';
 
 export const sanitizePhoneNumber = (val: string): string => {
   if (!val) return '';
@@ -27,7 +27,7 @@ export const isValidEmail = (email: string): boolean => {
   if (!email || typeof email !== 'string') return false;
   const clean = email.trim();
   if (clean.includes('..')) return false;
-  const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+  const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
   return EMAIL_REGEX.test(clean);
 };
 
@@ -137,7 +137,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       machine_id: '',
       location: '',
       lease_start_date: todayStr,
-      lease_end_date: '',
+      lease_end_date: calculateOneYearLeaseEndDate(todayStr),
     },
   ]);
 
@@ -207,7 +207,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
         machine_id: '',
         location: '',
         lease_start_date: today,
-        lease_end_date: '',
+        lease_end_date: calculateOneYearLeaseEndDate(today),
       },
     ]);
   };
@@ -220,7 +220,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
           machine_id: '',
           location: '',
           lease_start_date: today,
-          lease_end_date: '',
+          lease_end_date: calculateOneYearLeaseEndDate(today),
         },
       ]);
       return;
@@ -235,7 +235,16 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   ) => {
     setMachineRows((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
+      if (field === 'lease_start_date') {
+        const autoEnd = calculateOneYearLeaseEndDate(value);
+        updated[index] = {
+          ...updated[index],
+          lease_start_date: value,
+          lease_end_date: autoEnd || updated[index].lease_end_date,
+        };
+      } else {
+        updated[index] = { ...updated[index], [field]: value };
+      }
       return updated;
     });
   };
@@ -408,31 +417,31 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   return (
     <div className="flex flex-col gap-6 max-w-[1400px] mx-auto select-none pb-12">
       {/* 1. Breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-[#6B7280] pt-1">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-foreground-muted pt-1">
         <button
           type="button"
           onClick={onBack}
-          className="hover:text-[#111827] cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Clients</span>
         </button>
-        <span className="text-[#9CA3AF]">/</span>
-        <span className="font-bold text-[#111827]">Add new client</span>
+        <span className="text-foreground-subtle">/</span>
+        <span className="font-bold text-foreground">Add new client</span>
       </nav>
 
       {/* 2. Header Profile Card */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-[#F3F4F6] text-[#111827] font-bold text-xl flex items-center justify-center border border-[#E5E7EB] shrink-0">
-            <Building2 className="w-7 h-7 text-[#111827]" />
+          <div className="w-14 h-14 rounded-xl bg-surface-hover text-foreground font-bold text-xl flex items-center justify-center border border-border-default shrink-0">
+            <Building2 className="w-7 h-7 text-foreground" />
           </div>
 
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-[#111827] tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
               {companyName || 'New Client'}
             </h1>
-            <p className="text-xs text-[#6B7280] mt-1">
+            <p className="text-xs text-foreground-muted mt-1">
               Register an organization, configure commercial terms, and assign machines.
             </p>
           </div>
@@ -462,13 +471,13 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
       {/* Error Alert Banner */}
       {error && (
-        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 flex items-start gap-3 text-xs text-[#991B1B] animate-in fade-in duration-200">
-          <AlertCircle className="w-4 h-4 shrink-0 text-[#DC2626] mt-0.5" />
+        <div className="bg-primary-light border border-primary-border rounded-xl p-4 flex items-start gap-3 text-xs text-primary animate-in fade-in duration-200">
+          <AlertCircle className="w-4 h-4 shrink-0 text-status-fault-text mt-0.5" />
           <div className="flex-1 font-medium">{error}</div>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-[#991B1B] hover:text-[#7F1D1D] p-0.5 rounded cursor-pointer"
+            className="text-primary hover:text-primary-hover p-0.5 rounded cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -478,12 +487,12 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       {/* 3. Form Sections */}
       <form id="add-client-full-form" onSubmit={handleSubmit} className="flex flex-col gap-6">
         {/* Section 1: Client Details */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-[#F3F4F6] pb-4 mb-6">
-            <h2 className="text-base font-bold text-[#111827] tracking-tight">
+        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+          <div className="border-b border-surface-hover pb-4 mb-6">
+            <h2 className="text-base font-bold text-foreground tracking-tight">
               Client details
             </h2>
-            <p className="text-xs text-[#6B7280] mt-0.5">
+            <p className="text-xs text-foreground-muted mt-0.5">
               Core identification, business entity registration, and invoice payment terms.
             </p>
           </div>
@@ -491,8 +500,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {/* Full Name / Company Name */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Full name / Company name <span className="text-[#DC2626]">*</span>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Full name / Company name <span className="text-status-fault-text">*</span>
               </label>
               <input
                 type="text"
@@ -502,20 +511,20 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   if (error) setError(null);
                 }}
                 placeholder="e.g. Green Valley Foods Pty Ltd"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
                 required
               />
             </div>
 
             {/* Business Type */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Business type
               </label>
               <select
                 value={businessType}
                 onChange={(e) => setBusinessType(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
               >
                 <option value="">Select</option>
                 <option value="Corporate">Corporate</option>
@@ -526,15 +535,15 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
             {/* Tax ID (ABN) */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-[#171717]">
+                <label className="block text-xs font-semibold text-foreground">
                   Tax ID (ABN)
                 </label>
                 {duplicateClient ? (
-                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                  <span className="text-[11px] font-semibold text-status-fault-text">
                     Already registered
                   </span>
                 ) : isAbnChecksumInvalid ? (
-                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                  <span className="text-[11px] font-semibold text-status-fault-text">
                     Invalid checksum
                   </span>
                 ) : null}
@@ -550,21 +559,21 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 placeholder="e.g. 51 824 753 556"
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
                   duplicateClient || isAbnChecksumInvalid
-                    ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
-                    : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
+                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
                 }`}
               />
               {duplicateClient && (
-                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
                   <span>
                     This ABN is already in use by <strong>{duplicateClient.company_name}</strong> ({duplicateClient.client_code}). Please enter a unique ABN.
                   </span>
                 </p>
               )}
               {isAbnChecksumInvalid && !duplicateClient && (
-                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
                   <span>
                     Invalid ABN. This 11-digit number does not satisfy the official Australian Business Register Modulus 89 checksum.
                   </span>
@@ -574,26 +583,26 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
             {/* Onboarding Date */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Onboarding date
               </label>
               <input
                 type="date"
                 value={onboardingDate}
                 onChange={(e) => setOnboardingDate(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer"
               />
             </div>
 
             {/* Comms Preference */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Comms preference
               </label>
               <select
                 value={commsPreference}
                 onChange={(e) => setCommsPreference(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
               >
                 <option value="">Select</option>
                 <option value="Email">Email</option>
@@ -603,13 +612,13 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
             {/* Payment Terms */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Payment terms
               </label>
               <select
                 value={paymentTerms}
                 onChange={(e) => setPaymentTerms(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs cursor-pointer font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
               >
                 <option value="">Select</option>
                 <option value="15 days">15 days</option>
@@ -621,12 +630,12 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
         </div>
 
         {/* Section 2: Contact Details */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-[#F3F4F6] pb-4 mb-6">
-            <h2 className="text-base font-bold text-[#111827] tracking-tight">
+        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+          <div className="border-b border-surface-hover pb-4 mb-6">
+            <h2 className="text-base font-bold text-foreground tracking-tight">
               Contact details
             </h2>
-            <p className="text-xs text-[#6B7280] mt-0.5">
+            <p className="text-xs text-foreground-muted mt-0.5">
               Primary operational contact person, billing location, and delivery details.
             </p>
           </div>
@@ -634,8 +643,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {/* Point of Contact */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                Point of contact <span className="text-[#DC2626]">*</span>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Point of contact <span className="text-status-fault-text">*</span>
               </label>
               <input
                 type="text"
@@ -647,11 +656,11 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 maxLength={50}
                 required
                 placeholder="e.g. Alex Morgan"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
               />
-              <p className="text-[11px] text-[#6B7280] mt-1 flex justify-between items-center">
+              <p className="text-[11px] text-foreground-muted mt-1 flex justify-between items-center">
                 <span>Primary operational contact person.</span>
-                <span className={`text-[11px] ${contactPoc.length >= 50 ? 'text-[#DC2626] font-semibold' : 'text-[#9CA3AF]'}`}>
+                <span className={`text-[11px] ${contactPoc.length >= 50 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
                   {contactPoc.length}/50 characters
                 </span>
               </p>
@@ -659,7 +668,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
             {/* Phone Number */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Phone number
               </label>
               <input
@@ -671,22 +680,22 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 }}
                 maxLength={15}
                 placeholder="e.g. +61 8 8200 1100"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-mono"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-mono"
               />
             </div>
 
             {/* Email Address */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-[#171717]">
-                  Email address <span className="text-[#DC2626]">*</span>
+                <label className="block text-xs font-semibold text-foreground">
+                  Email address <span className="text-status-fault-text">*</span>
                 </label>
                 {isEmailDuplicate ? (
-                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                  <span className="text-[11px] font-semibold text-status-fault-text">
                     Email already exists
                   </span>
                 ) : isEmailFormatInvalid ? (
-                  <span className="text-[11px] font-semibold text-[#DC2626]">
+                  <span className="text-[11px] font-semibold text-status-fault-text">
                     Invalid email address
                   </span>
                 ) : null}
@@ -707,14 +716,14 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 placeholder="e.g. contact@company.com"
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
                   isEmailDuplicate || isEmailFormatInvalid
-                    ? 'border-[#EF4444] bg-[#FEF2F2] text-[#B91C1C] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]'
-                    : 'border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717]'
+                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
                 }`}
                 required
               />
               {isEmailDuplicate ? (
-                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
                   <span>
                     {duplicateClientByEmail
                       ? `Email is already registered to client "${duplicateClientByEmail.company_name}" (${duplicateClientByEmail.client_code}).`
@@ -722,8 +731,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   </span>
                 </p>
               ) : isEmailFormatInvalid ? (
-                <p className="text-[11px] text-[#DC2626] mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#DC2626]" />
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
                   <span>
                     Please enter a valid email address (e.g. name@company.com or name@company.com.au).
                   </span>
@@ -736,8 +745,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {/* Account Password */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                    Password <span className="text-[#DC2626]">*</span>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Password <span className="text-status-fault-text">*</span>
                   </label>
                   <div className="relative">
                     <input
@@ -749,14 +758,14 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                       }}
                       maxLength={50}
                       placeholder="At least 12 chars, 1 number, 1 symbol"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium pr-10"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium pr-10"
                       required
                       minLength={12}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717] cursor-pointer"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-dim hover:text-foreground cursor-pointer"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -765,8 +774,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
                 {/* Confirm Password */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                    Confirm password <span className="text-[#DC2626]">*</span>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Confirm password <span className="text-status-fault-text">*</span>
                   </label>
                   <div className="relative">
                     <input
@@ -778,12 +787,12 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                       }}
                       maxLength={50}
                       placeholder="Re-enter login password"
-                      className={`w-full px-3.5 py-2.5 rounded-xl border bg-white text-[#171717] focus:outline-none text-xs font-medium pr-10 ${
+                      className={`w-full px-3.5 py-2.5 rounded-xl border bg-white text-foreground focus:outline-none text-xs font-medium pr-10 ${
                         confirmPassword
                           ? confirmPassword === password
                             ? 'border-emerald-500 focus:border-emerald-500'
-                            : 'border-[#EF4444] focus:border-[#EF4444]'
-                          : 'border-[#D1D5DB] focus:border-[#171717]'
+                            : 'border-primary focus:border-primary'
+                          : 'border-border-strong focus:border-foreground'
                       }`}
                       required
                       minLength={12}
@@ -791,7 +800,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#888888] hover:text-[#171717] cursor-pointer"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-dim hover:text-foreground cursor-pointer"
                     >
                       {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -800,21 +809,21 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
               </div>
 
               {/* Interactive Password Requirements Checklist */}
-              <div className="p-3 bg-slate-50 border border-[#E5E7EB] rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                  <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+              <div className="p-3 bg-slate-50 border border-border-default rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                  <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                   <span>At least 12 characters</span>
                 </div>
-                <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                  <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                  <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                   <span>One number</span>
                 </div>
-                <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                  <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                  <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                   <span>One symbol</span>
                 </div>
-                <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                  <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                  <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                   <span>Passwords match</span>
                 </div>
               </div>
@@ -822,7 +831,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
             {/* Website */}
             <div>
-              <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Website
               </label>
               <input
@@ -830,7 +839,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                 value={website}
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="e.g. https://company.com"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
               />
             </div>
 
@@ -838,8 +847,8 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
             <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Billing Address */}
               <div>
-                <label className="block text-xs font-semibold text-[#171717] mb-1.5">
-                  Billing address <span className="text-[#DC2626]">*</span>
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
+                  Billing address <span className="text-status-fault-text">*</span>
                 </label>
                 <input
                   type="text"
@@ -849,14 +858,14 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                     if (error) setError(null);
                   }}
                   placeholder="e.g. Railway Ave, Mount Isa QLD 4825"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
                   required
                 />
               </div>
 
               {/* Shipping Address */}
               <div>
-                <label className="block text-xs font-semibold text-[#171717] mb-1.5">
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
                   Shipping address (optional)
                 </label>
                 <input
@@ -864,7 +873,7 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
                   value={shippingAddress}
                   onChange={(e) => setShippingAddress(e.target.value)}
                   placeholder="Leave blank or write 'Same as billing'"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#D1D5DB] bg-white text-[#171717] focus:outline-none focus:border-[#171717] text-xs"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
                 />
               </div>
             </div>
@@ -885,11 +894,11 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
         />
 
         {/* Docked Bottom Bar */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="bg-white rounded-2xl border border-border-default p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="text-xs font-medium text-[#6B7280] hover:text-[#111827] transition-colors cursor-pointer flex items-center justify-center sm:justify-start gap-1.5 px-2 py-1"
+            className="text-xs font-medium text-foreground-muted hover:text-foreground transition-colors cursor-pointer flex items-center justify-center sm:justify-start gap-1.5 px-2 py-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Discard and return</span>

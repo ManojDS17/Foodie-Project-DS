@@ -44,6 +44,12 @@ def create_site(payload: SiteCreate, current_user: dict = Depends(get_current_us
     if user_role != "OEM_MANAGER":
         target_org_id = current_user.get("organization_id")
 
+    if not target_org_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid client organization ID is required to register a facility site."
+        )
+
     normalized_code = payload.site_code.strip().upper()
 
     with get_db_cursor(commit=True) as cur:

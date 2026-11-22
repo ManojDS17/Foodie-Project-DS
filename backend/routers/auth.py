@@ -21,7 +21,9 @@ MAX_FORGOT_REQUESTS = 3
 FORGOT_WINDOW_SECONDS = 600
 
 def _is_login_rate_limited(email: str) -> bool:
-    return False
+    now = time.time()
+    _FAILED_LOGINS[email] = [t for t in _FAILED_LOGINS[email] if now - t < LOCKOUT_WINDOW_SECONDS]
+    return len(_FAILED_LOGINS[email]) >= MAX_FAILED_LOGINS
 
 def _record_failed_login(email: str):
     _FAILED_LOGINS[email].append(time.time())

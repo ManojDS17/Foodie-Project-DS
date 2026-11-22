@@ -31,14 +31,14 @@ export const SignedOutView: React.FC<SignedOutViewProps> = ({
 
   const cardContent = (
     <div className="text-center w-full max-w-[380px] mx-auto select-none">
-      <div className="w-12 h-12 rounded-full bg-neutral-100 text-[#4B5563] flex items-center justify-center mx-auto mb-4">
+      <div className="w-12 h-12 rounded-full bg-neutral-100 text-foreground-body flex items-center justify-center mx-auto mb-4">
         <LogOut className="w-5 h-5" />
       </div>
 
-      <h2 className="text-2xl font-bold text-[#171717] tracking-tight">
+      <h2 className="text-2xl font-bold text-foreground tracking-tight">
         {title}
       </h2>
-      <p className="text-xs sm:text-sm text-[#666666] mt-2 leading-relaxed max-w-sm mx-auto">
+      <p className="text-xs sm:text-sm text-foreground-muted mt-2 leading-relaxed max-w-sm mx-auto">
         {description}
       </p>
 
@@ -46,7 +46,7 @@ export const SignedOutView: React.FC<SignedOutViewProps> = ({
         <button
           type="button"
           onClick={handleAction}
-          className="w-full bg-[#E32032] hover:bg-[#C71828] active:bg-[#B51423] text-white py-2.5 sm:py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs hover:shadow cursor-pointer"
+          className="w-full bg-primary hover:bg-primary-hover active:bg-primary-active text-white py-2.5 sm:py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs hover:shadow cursor-pointer"
         >
           {buttonText}
         </button>
@@ -77,8 +77,8 @@ export const SignedOutView: React.FC<SignedOutViewProps> = ({
           {cardContent}
         </div>
 
-        <div className="w-full pt-4 border-t border-[#F3F4F6] flex items-center justify-center gap-2.5 flex-shrink-0">
-          <span className="text-xs text-[#6B7280] font-medium">by</span>
+        <div className="w-full pt-4 border-t border-surface-hover flex items-center justify-center gap-2.5 flex-shrink-0">
+          <span className="text-xs text-foreground-muted font-medium">by</span>
           <img
             src={BRAND_ASSETS.powertechFullLogo}
             alt="PowerTech Energy"

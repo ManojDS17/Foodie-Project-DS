@@ -9,7 +9,7 @@ export const MasterLayout: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-[#F2F2F2] w-full">
+    <div className="flex min-h-screen bg-surface-page w-full">
       {/* Desktop Sticky Left Sidebar (hidden on mobile) */}
       <div className="hidden md:flex flex-shrink-0 sticky top-0 h-screen z-30 self-start">
         <Sidebar />

@@ -41,7 +41,7 @@ export const Sidebar: React.FC = () => {
   ];
 
   return (
-    <aside className="w-[70px] sm:w-[84px] bg-white border-r border-[#E3E4E6] flex flex-col items-center justify-between py-3 sm:py-4 h-screen sticky top-0 flex-shrink-0 z-[60] select-none">
+    <aside className="w-[70px] sm:w-[84px] bg-surface-card border-r border-border-subtle flex flex-col items-center justify-between py-3 sm:py-4 h-screen sticky top-0 flex-shrink-0 z-[60] select-none">
       {/* Navigation Items (Stacked vertically with icons above labels) */}
       <nav className="flex flex-col items-center gap-3 w-full px-2 overflow-y-auto pt-1">
         {navItems.map((item) => {
@@ -52,10 +52,10 @@ export const Sidebar: React.FC = () => {
               <div
                 key={item.label}
                 title="Team management (Disabled)"
-                className="w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-not-allowed border border-transparent text-[#9CA3AF] opacity-50 select-none hover:bg-transparent"
+                className="w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-not-allowed border border-transparent text-foreground-subtle opacity-50 select-none hover:bg-transparent"
               >
                 <div className="relative">
-                  <Icon className="w-5 h-5 text-[#9CA3AF]" />
+                  <Icon className="w-5 h-5 text-foreground-subtle" />
                 </div>
                 <span className="text-[10px] font-semibold mt-1 tracking-tight text-center leading-tight">
                   {item.label}
@@ -82,15 +82,15 @@ export const Sidebar: React.FC = () => {
               }}
               className={({ isActive }) =>
                 `w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-colors duration-150 relative cursor-pointer border ${isActive
-                  ? 'bg-red-50 text-[#E32032] border-red-200 shadow-2xs'
-                  : 'border-transparent text-[#666666] hover:text-[#171717] hover:bg-[#F8F9FA]'
+                  ? 'bg-primary-light text-primary border-primary-border shadow-2xs'
+                  : 'border-transparent text-foreground-muted hover:text-foreground hover:bg-surface-subtle'
                 }`
               }
             >
               <div className="relative">
                 <Icon className="w-5 h-5" />
                 {item.badge && (
-                  <span className="absolute -top-1.5 -right-3 text-[9px] font-extrabold text-[#888888] bg-slate-100 border border-slate-200 px-1 rounded-full leading-tight">
+                  <span className="absolute -top-1.5 -right-3 text-[9px] font-extrabold text-foreground-dim bg-slate-100 border border-slate-200 px-1 rounded-full leading-tight">
                     {item.badge}
                   </span>
                 )}
@@ -103,7 +103,7 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      <div className="flex flex-col items-center justify-center py-3 border-t border-[#E3E4E6] w-full px-2">
+      <div className="flex flex-col items-center justify-center py-3 border-t border-border-subtle w-full px-2">
         <img
           src={BRAND_ASSETS.powertechIcon}
           alt="PowerTech Energy"

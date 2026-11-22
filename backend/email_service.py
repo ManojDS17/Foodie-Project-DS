@@ -1,5 +1,6 @@
 import os
 import smtplib
+import html
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -58,6 +59,10 @@ def send_password_reset_email(to_email: str, token: str, recipient_name: str = "
     display_name = recipient_name.strip() if recipient_name and recipient_name.strip() else to_email.split('@')[0]
     subject = "Reset your Foodie Dashboard password"
 
+    esc_display_name = html.escape(display_name)
+    esc_to_email = html.escape(to_email)
+    esc_reset_url = html.escape(reset_url)
+
     plain_content = f"""Hello {display_name},
 
 We received a request to reset the password for your Foodie account associated with {to_email}.
@@ -91,13 +96,13 @@ PowerTech Energy Pty Ltd
             <td style="padding: 32px;">
                 <h2 style="font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 12px 0;">Reset your password</h2>
                 <p style="font-size: 14px; color: #4B5563; line-height: 1.6; margin: 0 0 24px 0;">
-                    Hello <strong>{display_name}</strong>,<br><br>
-                    We received a request to reset the password for your account associated with <strong>{to_email}</strong>. Click the button below to choose a new password:
+                    Hello <strong>{esc_display_name}</strong>,<br><br>
+                    We received a request to reset the password for your account associated with <strong>{esc_to_email}</strong>. Click the button below to choose a new password:
                 </p>
                 <table border="0" cellpadding="0" cellspacing="0" style="margin: 28px 0;">
                     <tr>
                         <td align="center" style="border-radius: 8px; background-color: #E32032;">
-                            <a href="{reset_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 8px; display: inline-block; background-color: #E32032;">
+                            <a href="{esc_reset_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 8px; display: inline-block; background-color: #E32032;">
                                 Set a new password
                             </a>
                         </td>
@@ -110,7 +115,7 @@ PowerTech Energy Pty Ltd
                 <hr style="border: 0; border-top: 1px solid #E5E7EB; margin: 28px 0 20px 0;">
                 <p style="font-size: 11px; color: #9CA3AF; line-height: 1.4; margin: 0;">
                     If the button does not work, copy and paste this link into your browser:<br>
-                    <a href="{reset_url}" style="color: #E32032; word-break: break-all;">{reset_url}</a>
+                    <a href="{esc_reset_url}" style="color: #E32032; word-break: break-all;">{esc_reset_url}</a>
                 </p>
             </td>
         </tr>
@@ -142,9 +147,17 @@ def send_client_welcome_email(
     display_name = recipient_name.strip() if recipient_name and recipient_name.strip() else to_email.split('@')[0]
     subject = f"Welcome to Foodie Platform - Account Credentials for {company_name}"
 
+    esc_display_name = html.escape(display_name)
+    esc_company_name = html.escape(company_name)
+    esc_client_code = html.escape(client_code)
+    esc_to_email = html.escape(to_email)
+    esc_raw_password = html.escape(raw_password)
+    esc_login_url = html.escape(login_url)
+    esc_setup_url = html.escape(setup_url)
+
     plain_content = f"""Hello {display_name},
 
-Welcome to the Foodie Platform! Your client organization {company_name} ({client_code}) has been set up successfully.
+Welcome to the Foodie Platform! Your client organization {company_name} has been set up successfully.
 
 Your Site Administrator account credentials are:
   - Portal URL: {FRONTEND_URL}/login
@@ -181,22 +194,22 @@ PowerTech Energy Pty Ltd
             <td style="padding: 32px;">
                 <h2 style="font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 12px 0;">Welcome to Foodie Platform</h2>
                 <p style="font-size: 14px; color: #4B5563; line-height: 1.6; margin: 0 0 20px 0;">
-                    Hello <strong>{display_name}</strong>,<br><br>
-                    Your organization account for <strong>{company_name}</strong> ({client_code}) has been created on the Foodie Platform. Your <strong>Site Administrator</strong> credentials are ready:
+                    Hello <strong>{esc_display_name}</strong>,<br><br>
+                    Your organization account for <strong>{esc_company_name}</strong> has been created on the Foodie Platform. Your <strong>Site Administrator</strong> credentials are ready:
                 </p>
 
                 <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; margin: 20px 0; padding: 18px 22px;">
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280; width: 110px;">Portal:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">{FRONTEND_URL}/login</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">{esc_login_url}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Email:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600; font-family: monospace;">{to_email}</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600; font-family: monospace;">{esc_to_email}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Password:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #E32032; font-weight: 700; font-family: monospace;">{raw_password}</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #E32032; font-weight: 700; font-family: monospace;">{esc_raw_password}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Role:</td>
@@ -207,7 +220,7 @@ PowerTech Energy Pty Ltd
                 <table border="0" cellpadding="0" cellspacing="0" style="margin: 28px 0 20px 0;">
                     <tr>
                         <td align="center" style="border-radius: 8px; background-color: #E32032;">
-                            <a href="{setup_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 13px 30px; border-radius: 8px; display: inline-block; background-color: #E32032;">
+                            <a href="{esc_setup_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 13px 30px; border-radius: 8px; display: inline-block; background-color: #E32032;">
                                 Set Password & Sign In
                             </a>
                         </td>
@@ -220,7 +233,7 @@ PowerTech Energy Pty Ltd
                 <hr style="border: 0; border-top: 1px solid #E5E7EB; margin: 24px 0 18px 0;">
                 <p style="font-size: 11px; color: #9CA3AF; line-height: 1.4; margin: 0;">
                     If the button does not work, copy and paste this link into your browser:<br>
-                    <a href="{setup_url}" style="color: #E32032; word-break: break-all;">{setup_url}</a>
+                    <a href="{esc_setup_url}" style="color: #E32032; word-break: break-all;">{esc_setup_url}</a>
                 </p>
             </td>
         </tr>
@@ -252,16 +265,24 @@ def send_operator_welcome_email(
     display_name = recipient_name.strip() if recipient_name and recipient_name.strip() else to_email.split('@')[0]
     subject = f"Welcome to Foodie Platform - Operator Credentials for {company_name}"
 
+    esc_display_name = html.escape(display_name)
+    esc_company_name = html.escape(company_name)
+    esc_client_code = html.escape(client_code)
+    esc_to_email = html.escape(to_email)
+    esc_raw_password = html.escape(raw_password)
+    esc_login_url = html.escape(login_url)
+    esc_setup_url = html.escape(setup_url)
+
     plain_content = f"""Hello {display_name},
 
-Welcome to the Foodie Platform! You have been registered as a Facility Operator for {company_name} ({client_code}).
+Welcome to the Foodie Platform! You have been registered as a Facility Operator for {company_name}.
 
 Your Operator account credentials are:
   - Portal URL: {FRONTEND_URL}/login
   - Email: {to_email}
   - Password: {raw_password}
   - Role: Facility Operator
-  - Assigned Client: {company_name} ({client_code})
+  - Assigned Client: {company_name}
 
 To set your permanent password or sign in, click the link below (valid for 7 days):
 {setup_url}
@@ -292,22 +313,22 @@ PowerTech Energy Pty Ltd
             <td style="padding: 32px;">
                 <h2 style="font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 12px 0;">Welcome to Foodie Platform</h2>
                 <p style="font-size: 14px; color: #4B5563; line-height: 1.6; margin: 0 0 20px 0;">
-                    Hello <strong>{display_name}</strong>,<br><br>
-                    You have been onboarded as a <strong>Facility Operator</strong> for <strong>{company_name}</strong> ({client_code}). Your login credentials are ready:
+                    Hello <strong>{esc_display_name}</strong>,<br><br>
+                    You have been onboarded as a <strong>Facility Operator</strong> for <strong>{esc_company_name}</strong>. Your login credentials are ready:
                 </p>
 
                 <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; margin: 20px 0; padding: 18px 22px;">
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280; width: 110px;">Portal:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">{FRONTEND_URL}/login</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">{esc_login_url}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Email:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600; font-family: monospace;">{to_email}</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600; font-family: monospace;">{esc_to_email}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Password:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #E32032; font-weight: 700; font-family: monospace;">{raw_password}</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #E32032; font-weight: 700; font-family: monospace;">{esc_raw_password}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Role:</td>
@@ -315,14 +336,14 @@ PowerTech Energy Pty Ltd
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Client:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">{company_name} ({client_code})</td>
+                        <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">{esc_company_name}</td>
                     </tr>
                 </table>
 
                 <table border="0" cellpadding="0" cellspacing="0" style="margin: 28px 0 20px 0;">
                     <tr>
                         <td align="center" style="border-radius: 8px; background-color: #E32032;">
-                            <a href="{setup_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 13px 30px; border-radius: 8px; display: inline-block; background-color: #E32032;">
+                            <a href="{esc_setup_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 13px 30px; border-radius: 8px; display: inline-block; background-color: #E32032;">
                                 Set Password & Sign In
                             </a>
                         </td>
@@ -335,7 +356,7 @@ PowerTech Energy Pty Ltd
                 <hr style="border: 0; border-top: 1px solid #E5E7EB; margin: 24px 0 18px 0;">
                 <p style="font-size: 11px; color: #9CA3AF; line-height: 1.4; margin: 0;">
                     If the button does not work, copy and paste this link into your browser:<br>
-                    <a href="{setup_url}" style="color: #E32032; word-break: break-all;">{setup_url}</a>
+                    <a href="{esc_setup_url}" style="color: #E32032; word-break: break-all;">{esc_setup_url}</a>
                 </p>
             </td>
         </tr>

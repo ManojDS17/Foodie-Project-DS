@@ -95,21 +95,21 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
       />
 
       {/* Confirmation Dialog Card */}
-      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-[#E3E4E6] overflow-hidden z-10 animate-in zoom-in-95 duration-200 p-5 sm:p-7">
+      <div className="relative bg-surface-card w-full max-w-lg rounded-2xl shadow-2xl border border-border-subtle overflow-hidden z-10 animate-in zoom-in-95 duration-200 p-5 sm:p-7">
         {/* Title */}
-        <h3 className="text-base sm:text-lg font-bold text-[#171717] tracking-tight">
+        <h3 className="text-base sm:text-lg font-bold text-foreground tracking-tight">
           {title}
         </h3>
 
         {/* Explanatory Text */}
-        <p className="text-xs sm:text-[13px] text-[#4B5563] mt-3 leading-relaxed">
+        <p className="text-xs sm:text-[13px] text-foreground-body mt-3 leading-relaxed">
           {hasAssignedMachines
             ? 'This client organization currently has active machines assigned. System rules require all machines to be unassigned before the client record can be deleted.'
             : 'The client record is archived and then permanently removed along with its contact associations. Every deletion is recorded in the audit log.'}
         </p>
 
         {hasAssignedMachines && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#E32032] flex items-start gap-2">
+          <div className="mt-4 p-3 bg-primary-light border border-primary-border rounded-xl text-xs text-primary flex items-start gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>
               <strong>Action Blocked:</strong> {clientsWithMachines.map((c) => `${c.company_name} has ${getMachineCount(c)} active machine(s)`).join(', ')}. Please unassign all machines from the client detail view before deleting.
@@ -119,7 +119,7 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
 
         {/* Error Alert */}
         {error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#E32032] flex items-center gap-2">
+          <div className="mt-4 p-3 bg-primary-light border border-primary-border rounded-xl text-xs text-primary flex items-center gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>{error}</span>
           </div>
@@ -131,7 +131,7 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isDeleting}
-            className="px-4 py-2 rounded-lg text-xs font-semibold border border-[#D1D5DB] bg-white text-[#171717] hover:bg-slate-50 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-lg text-xs font-semibold border border-border-strong bg-surface-card text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -140,7 +140,7 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
             type="button"
             onClick={handleDelete}
             disabled={isDeleting || hasAssignedMachines}
-            className="px-4 py-2 rounded-lg text-xs font-bold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-2 rounded-lg text-xs font-bold bg-primary hover:bg-primary-hover text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isDeleting ? (
               <>

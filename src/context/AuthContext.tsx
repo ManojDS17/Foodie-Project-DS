@@ -37,6 +37,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  useEffect(() => {
+    if (token) {
+      authApi.getMe().then((freshUser) => {
+        setUser(freshUser);
+      }).catch(() => {});
+    }
+
+    const handleFocus = () => {
+      if (tokenStorage.get()) {
+        authApi.getMe().then((freshUser) => {
+          setUser(freshUser);
+        }).catch(() => {});
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [token]);
+
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       const res = await authApi.login(email, password);

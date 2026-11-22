@@ -22,9 +22,9 @@ export const Toast: React.FC<ToastProps> = ({
   }, [onClose, duration]);
 
   const bgStyles = {
-    success: 'bg-[#0A7135] text-white',
-    error: 'bg-[#E32032] text-white',
-    info: 'bg-[#171717] text-white',
+    success: 'bg-status-running-text text-white',
+    error: 'bg-primary text-white',
+    info: 'bg-foreground text-white',
   };
 
   const icons = {

@@ -121,7 +121,7 @@ export const LoginPage: React.FC = () => {
       setErrorMessage('Please enter your email address.');
       return;
     }
-    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
     if (!EMAIL_REGEX.test(email.trim()) || email.includes('..')) {
       setErrorMessage('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
@@ -153,7 +153,7 @@ export const LoginPage: React.FC = () => {
       setErrorMessage('Please enter your email address.');
       return;
     }
-    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
     if (!EMAIL_REGEX.test(email.trim()) || email.includes('..')) {
       setErrorMessage('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
@@ -234,10 +234,10 @@ export const LoginPage: React.FC = () => {
             <div>
               {/* Header */}
               <div className="mb-5">
-                <h2 className="text-2xl font-semibold text-[#171717] tracking-tight leading-snug">
+                <h2 className="text-2xl font-semibold text-foreground tracking-tight leading-snug">
                   {BRAND_COPY.authWelcomeTitle}
                 </h2>
-                <p className="text-sm text-[#666666] mt-1.5 leading-normal">
+                <p className="text-sm text-foreground-muted mt-1.5 leading-normal">
                   {BRAND_COPY.authWelcomeSubtitle}
                 </p>
               </div>
@@ -245,7 +245,7 @@ export const LoginPage: React.FC = () => {
               {/* Error Banner */}
               {errorMessage && (
                 <div className="mb-4 p-3 bg-red-50/90 border border-red-200 rounded-lg flex items-start gap-2.5 text-xs text-red-800 animate-fadeIn">
-                  <AlertTriangle className="w-4 h-4 text-[#E32032] flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
                   <div className="font-medium leading-relaxed">
                     {errorMessage}
                   </div>
@@ -256,7 +256,7 @@ export const LoginPage: React.FC = () => {
               <form onSubmit={handleLogin} className="space-y-3.5">
                 {/* Email Field */}
                 <div>
-                  <label className="block text-xs font-medium text-[#666666] mb-1">
+                  <label className="block text-xs font-medium text-foreground-muted mb-1">
                     Email
                   </label>
                   <input
@@ -268,13 +268,13 @@ export const LoginPage: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }}
                     placeholder="name@company.com"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
                   />
                 </div>
 
                 {/* Password Field with Eye Toggle */}
                 <div>
-                  <label className="block text-xs font-medium text-[#666666] mb-1">
+                  <label className="block text-xs font-medium text-foreground-muted mb-1">
                     Password
                   </label>
                   <div className="relative">
@@ -287,16 +287,16 @@ export const LoginPage: React.FC = () => {
                         if (errorMessage) setErrorMessage(null);
                       }}
                       placeholder="••••••••••••••"
-                      className={`w-full px-3.5 py-2.5 pr-10 rounded-lg border text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] transition-all bg-white ${
+                      className={`w-full px-3.5 py-2.5 pr-10 rounded-lg border text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary transition-all bg-white ${
                         errorMessage
                           ? 'border-red-400 focus:border-red-500'
-                          : 'border-[#D1D5DB] focus:border-[#E32032]'
+                          : 'border-border-strong focus:border-primary'
                       }`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6B7280] hover:text-[#111827] transition-colors p-1"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors p-1"
                       aria-label="Toggle password visibility"
                     >
                       {showPassword ? (
@@ -315,9 +315,9 @@ export const LoginPage: React.FC = () => {
                       type="checkbox"
                       checked={keepSignedIn}
                       onChange={(e) => setKeepSignedIn(e.target.checked)}
-                      className="w-4 h-4 rounded text-[#E32032] border-[#D1D5DB] focus:ring-[#E32032] accent-[#E32032] cursor-pointer"
+                      className="w-4 h-4 rounded text-primary border-border-strong focus:ring-primary accent-primary cursor-pointer"
                     />
-                    <span className="text-[#666666] font-medium">Keep me signed in</span>
+                    <span className="text-foreground-muted font-medium">Keep me signed in</span>
                   </label>
 
                   <button
@@ -326,7 +326,7 @@ export const LoginPage: React.FC = () => {
                       setErrorMessage(null);
                       setView('FORGOT_PASSWORD');
                     }}
-                    className="text-[#E32032] hover:text-[#C71828] font-semibold underline underline-offset-2 transition-colors cursor-pointer"
+                    className="text-primary hover:text-primary-hover font-semibold underline underline-offset-2 transition-colors cursor-pointer"
                   >
                     Forgot password?
                   </button>
@@ -336,7 +336,7 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs hover:shadow active:scale-[0.99] disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2 mt-2"
+                  className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs hover:shadow active:scale-[0.99] disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2 mt-2"
                 >
                   {isLoading ? (
                     <>
@@ -349,7 +349,7 @@ export const LoginPage: React.FC = () => {
                 </button>
 
                 {/* Accounts setup notice directly below Sign In button */}
-                <p className="text-xs text-[#666666] text-center mt-3.5 leading-relaxed font-normal">
+                <p className="text-xs text-foreground-muted text-center mt-3.5 leading-relaxed font-normal">
                   Accounts are set up by your Site Admin or PowerTech Energy.
                 </p>
               </form>
@@ -362,10 +362,10 @@ export const LoginPage: React.FC = () => {
           {view === 'FORGOT_PASSWORD' && (
             <div>
               <div className="mb-5">
-                <h2 className="text-2xl font-semibold text-[#171717] tracking-tight leading-snug">
+                <h2 className="text-2xl font-semibold text-foreground tracking-tight leading-snug">
                   Reset your password
                 </h2>
-                <p className="text-sm text-[#666666] mt-1.5 leading-normal">
+                <p className="text-sm text-foreground-muted mt-1.5 leading-normal">
                   Enter the email linked to your account and we'll send you a reset link.
                 </p>
               </div>
@@ -378,7 +378,7 @@ export const LoginPage: React.FC = () => {
 
               <form onSubmit={handleSendResetLink} className="space-y-3.5">
                 <div>
-                  <label className="block text-xs font-medium text-[#666666] mb-1">
+                  <label className="block text-xs font-medium text-foreground-muted mb-1">
                     Email
                   </label>
                   <input
@@ -390,14 +390,14 @@ export const LoginPage: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }}
                     placeholder="name@company.com"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
+                  className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -416,7 +416,7 @@ export const LoginPage: React.FC = () => {
                       setErrorMessage(null);
                       setView('SIGN_IN');
                     }}
-                    className="text-xs font-medium text-[#666666] hover:text-[#111827] flex items-center justify-center gap-1.5 mx-auto transition-colors"
+                    className="text-xs font-medium text-foreground-muted hover:text-foreground flex items-center justify-center gap-1.5 mx-auto transition-colors"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                     <span>Back to sign in</span>
@@ -431,15 +431,15 @@ export const LoginPage: React.FC = () => {
           {/* ======================================================== */}
           {view === 'CHECK_EMAIL' && (
             <div className="text-center">
-              <div className="w-11 h-11 rounded-full bg-red-50 text-[#E32032] flex items-center justify-center mx-auto mb-3.5 border border-red-100">
+              <div className="w-11 h-11 rounded-full bg-red-50 text-primary flex items-center justify-center mx-auto mb-3.5 border border-red-100">
                 <Mail className="w-5 h-5" />
               </div>
 
-              <h2 className="text-2xl font-semibold text-[#171717] tracking-tight">
+              <h2 className="text-2xl font-semibold text-foreground tracking-tight">
                 Check your email
               </h2>
-              <p className="text-sm text-[#666666] mt-1.5 leading-relaxed max-w-sm mx-auto">
-                We sent a reset link to <span className="font-semibold text-[#111827]">{email}</span>. The link expires in 30 minutes.
+              <p className="text-sm text-foreground-muted mt-1.5 leading-relaxed max-w-sm mx-auto">
+                We sent a reset link to <span className="font-semibold text-foreground">{email}</span>. The link expires in 30 minutes.
               </p>
 
               <div className="mt-5 space-y-2.5">
@@ -448,18 +448,18 @@ export const LoginPage: React.FC = () => {
                   onClick={() => {
                     setView('SIGN_IN');
                   }}
-                  className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
+                  className="w-full bg-white hover:bg-neutral-50 border border-border-strong text-foreground-body py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
                 >
                   Back to sign in
                 </button>
               </div>
 
-              <p className="text-xs text-[#666666] mt-5 leading-relaxed">
+              <p className="text-xs text-foreground-muted mt-5 leading-relaxed">
                 Didn't get the email? Check your spam folder or{' '}
                 <button
                   type="button"
                   onClick={handleSendResetLink}
-                  className="text-[#E32032] underline hover:text-[#C71828] font-medium cursor-pointer"
+                  className="text-primary underline hover:text-primary-hover font-medium cursor-pointer"
                 >
                   resend the link
                 </button>
@@ -475,20 +475,20 @@ export const LoginPage: React.FC = () => {
             <div>
               {isVerifyingToken ? (
                 <div className="py-10 text-center">
-                  <Loader2 className="w-7 h-7 animate-spin text-[#E32032] mx-auto mb-2.5" />
-                  <p className="text-xs sm:text-sm font-medium text-[#4B5563]">
+                  <Loader2 className="w-7 h-7 animate-spin text-primary mx-auto mb-2.5" />
+                  <p className="text-xs sm:text-sm font-medium text-foreground-body">
                     Verifying security token...
                   </p>
                 </div>
               ) : isTokenValid === false ? (
                 <div className="text-center py-3">
-                  <div className="w-11 h-11 rounded-full bg-red-50 text-[#E32032] flex items-center justify-center mx-auto mb-3 border border-red-100">
+                  <div className="w-11 h-11 rounded-full bg-red-50 text-primary flex items-center justify-center mx-auto mb-3 border border-red-100">
                     <AlertTriangle className="w-5 h-5" />
                   </div>
-                  <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
+                  <h2 className="text-lg sm:text-xl font-bold text-foreground tracking-tight">
                     Reset link invalid or expired
                   </h2>
-                  <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1.5 mb-5 leading-relaxed max-w-sm mx-auto">
+                  <p className="text-xs sm:text-[13px] text-foreground-body mt-1.5 mb-5 leading-relaxed max-w-sm mx-auto">
                     {errorMessage || 'This password reset link is invalid or has expired (valid for 30 minutes). Please request a new link.'}
                   </p>
                   <div className="space-y-2.5">
@@ -498,7 +498,7 @@ export const LoginPage: React.FC = () => {
                         setErrorMessage(null);
                         setView('FORGOT_PASSWORD');
                       }}
-                      className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
+                      className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
                     >
                       Request a new reset link
                     </button>
@@ -508,7 +508,7 @@ export const LoginPage: React.FC = () => {
                         setErrorMessage(null);
                         setView('SIGN_IN');
                       }}
-                      className="w-full bg-white hover:bg-neutral-50 border border-[#D1D5DB] text-[#374151] py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
+                      className="w-full bg-white hover:bg-neutral-50 border border-border-strong text-foreground-body py-2.5 rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
                     >
                       Back to sign in
                     </button>
@@ -517,10 +517,10 @@ export const LoginPage: React.FC = () => {
               ) : (
                 <div>
                   <div className="mb-5">
-                    <h2 className="text-xl sm:text-[22px] font-bold text-[#111827] tracking-tight leading-snug">
+                    <h2 className="text-xl sm:text-[22px] font-bold text-foreground tracking-tight leading-snug">
                       Set a new password
                     </h2>
-                    <p className="text-xs sm:text-[13px] text-[#4B5563] mt-1 leading-normal">
+                    <p className="text-xs sm:text-[13px] text-foreground-body mt-1 leading-normal">
                       Choose a password you haven’t used for Foodie Dashboard before.
                     </p>
                   </div>
@@ -534,7 +534,7 @@ export const LoginPage: React.FC = () => {
                   <form onSubmit={handleUpdatePassword} className="space-y-3.5">
                     {/* New Password */}
                     <div>
-                      <label className="block text-xs font-medium text-[#666666] mb-1">
+                      <label className="block text-xs font-medium text-foreground-muted mb-1">
                         New password
                       </label>
                       <div className="relative">
@@ -544,12 +544,12 @@ export const LoginPage: React.FC = () => {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="••••••••••••••••"
-                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] outline-none"
+                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-border-subtle text-sm text-foreground focus:ring-2 focus:ring-primary focus:border-primary outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6B7280]"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted"
                         >
                           {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -558,7 +558,7 @@ export const LoginPage: React.FC = () => {
 
                     {/* Confirm Password */}
                     <div>
-                      <label className="block text-xs font-medium text-[#666666] mb-1">
+                      <label className="block text-xs font-medium text-foreground-muted mb-1">
                         Confirm new password
                       </label>
                       <div className="relative">
@@ -568,12 +568,12 @@ export const LoginPage: React.FC = () => {
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           placeholder="••••••••••••••••"
-                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] outline-none"
+                          className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-border-subtle text-sm text-foreground focus:ring-2 focus:ring-primary focus:border-primary outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6B7280]"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted"
                         >
                           {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -582,20 +582,20 @@ export const LoginPage: React.FC = () => {
 
                     {/* Interactive Requirements Checkmarks */}
                     <div className="space-y-1 py-0.5 text-[11px] sm:text-xs">
-                      <div className={`flex items-center gap-2 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                        <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                      <div className={`flex items-center gap-2 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                        <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                         <span>At least 12 characters</span>
                       </div>
-                      <div className={`flex items-center gap-2 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                        <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                      <div className={`flex items-center gap-2 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                        <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                         <span>One number</span>
                       </div>
-                      <div className={`flex items-center gap-2 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                        <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                      <div className={`flex items-center gap-2 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                        <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                         <span>One symbol</span>
                       </div>
-                      <div className={`flex items-center gap-2 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-[#6B7280]'}`}>
-                        <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-[#9CA3AF]'}`} />
+                      <div className={`flex items-center gap-2 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
+                        <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
                         <span>Passwords match</span>
                       </div>
                     </div>
@@ -603,7 +603,7 @@ export const LoginPage: React.FC = () => {
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
+                      className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       {isLoading ? (
                         <>
@@ -629,10 +629,10 @@ export const LoginPage: React.FC = () => {
                 <CheckCircle2 className="w-5 h-5" />
               </div>
 
-              <h2 className="text-2xl font-semibold text-[#171717] tracking-tight">
+              <h2 className="text-2xl font-semibold text-foreground tracking-tight">
                 Password updated
               </h2>
-              <p className="text-sm text-[#666666] mt-1.5 leading-relaxed max-w-sm mx-auto">
+              <p className="text-sm text-foreground-muted mt-1.5 leading-relaxed max-w-sm mx-auto">
                 Your password has been changed. Sign in with your new password to continue.
               </p>
 
@@ -645,7 +645,7 @@ export const LoginPage: React.FC = () => {
                     setNewPassword('');
                     setConfirmPassword('');
                   }}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
+                  className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer"
                 >
                   Sign in
                 </button>
@@ -677,15 +677,15 @@ export const LoginPage: React.FC = () => {
                 <div className="w-11 h-11 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 border border-amber-100">
                   <Clock className="w-5 h-5" />
                 </div>
-                <h2 className="text-2xl font-semibold text-[#171717]">Session expired</h2>
-                <p className="text-sm text-[#666666] mt-1.5 leading-normal">
+                <h2 className="text-2xl font-semibold text-foreground">Session expired</h2>
+                <p className="text-sm text-foreground-muted mt-1.5 leading-normal">
                   You were signed out after a period of inactivity. Sign in again to pick up where you left off.
                 </p>
               </div>
 
               {errorMessage && (
                 <div className="mb-4 p-3 bg-red-50/90 border border-red-200 rounded-lg flex items-start gap-2.5 text-xs text-red-800 animate-fadeIn">
-                  <AlertTriangle className="w-4 h-4 text-[#E32032] flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
                   <div className="font-medium leading-relaxed">
                     {errorMessage}
                   </div>
@@ -694,7 +694,7 @@ export const LoginPage: React.FC = () => {
 
               <form onSubmit={handleLogin} className="space-y-3.5">
                 <div>
-                  <label className="block text-xs font-medium text-[#666666] mb-1">
+                  <label className="block text-xs font-medium text-foreground-muted mb-1">
                     Email
                   </label>
                   <input
@@ -706,11 +706,11 @@ export const LoginPage: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }}
                     placeholder="name@company.com"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[#666666] mb-1">
+                  <label className="block text-xs font-medium text-foreground-muted mb-1">
                     Password
                   </label>
                   <div className="relative">
@@ -723,12 +723,12 @@ export const LoginPage: React.FC = () => {
                         if (errorMessage) setErrorMessage(null);
                       }}
                       placeholder="••••••••••••••"
-                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-[#E3E4E6] text-sm text-[#171717] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E32032] focus:border-[#E32032] transition-all bg-white"
+                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6B7280] hover:text-[#111827] transition-colors p-1"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors p-1"
                       aria-label="Toggle password visibility"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -738,7 +738,7 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#E32032] hover:bg-[#C71828] text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
+                  className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -758,7 +758,7 @@ export const LoginPage: React.FC = () => {
                       setPassword('');
                       setView('SIGN_IN');
                     }}
-                    className="text-xs font-medium text-[#666666] hover:text-[#111827] transition-colors"
+                    className="text-xs font-medium text-foreground-muted hover:text-foreground transition-colors"
                   >
                     Sign in with a different account
                   </button>
@@ -769,8 +769,8 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Bottom Footer: Official PowerTech Energy attribution - centered in the middle of right half */}
-        <div className="w-full pt-4 border-t border-[#F3F4F6] flex items-center justify-center gap-2.5 flex-shrink-0">
-          <span className="text-xs text-[#6B7280] font-medium">by</span>
+        <div className="w-full pt-4 border-t border-surface-hover flex items-center justify-center gap-2.5 flex-shrink-0">
+          <span className="text-xs text-foreground-muted font-medium">by</span>
           <img
             src={BRAND_ASSETS.powertechFullLogo}
             alt="PowerTech Energy"

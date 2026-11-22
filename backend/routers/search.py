@@ -47,7 +47,7 @@ def search_entities(
                     phone_number=r[5],
                     status=r[6] or "Active"
                 ))
-        elif user_org_id:
+        elif user_role == "SITE_ADMIN" and user_org_id:
             cur.execute("""
                 SELECT id, client_code, company_name, contact_poc, email, phone_number, status
                 FROM organizations
@@ -109,13 +109,49 @@ def search_entities(
                     connectivity_status=r[7] or "Offline",
                     temp="62°C"
                 ))
-        elif user_org_id:
+        elif user_role == "OPERATOR":
             cur.execute("""
                 SELECT m.id, m.machine_code, m.serial_number, m.model,
-                       COALESCE(m.location_label, '') AS location,
+                       COALESCE(mato.location, ml.location_label, '') AS location,
                        o.company_name,
                        m.operational_status, m.connectivity_status
                 FROM machines m
+                JOIN machine_assign_to_operators mato 
+                  ON m.id = mato.machine_id 
+                 AND mato.operator_id = %s 
+                 AND mato.status = 'Active'
+                LEFT JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
+                LEFT JOIN organizations o ON m.organization_id = o.id
+                WHERE (m.is_deleted IS NOT TRUE)
+                  AND (
+                    m.machine_code ILIKE %s
+                    OR m.serial_number ILIKE %s
+                    OR m.model ILIKE %s
+                    OR COALESCE(mato.location, ml.location_label, '') ILIKE %s
+                  )
+                ORDER BY m.created_at DESC
+                LIMIT 8;
+            """, (current_user.get("id"), search_pattern, search_pattern, search_pattern, search_pattern))
+            for r in cur.fetchall():
+                machines.append(SearchResultItemMachine(
+                    id=str(r[0]),
+                    machine_code=r[1] or "",
+                    serial_number=r[2] or "",
+                    model=r[3] or "",
+                    location=r[4] or "",
+                    company_name=r[5] or "",
+                    status=r[6] or "Idle",
+                    connectivity_status=r[7] or "Offline",
+                    temp="62°C"
+                ))
+        elif user_org_id:
+            cur.execute("""
+                SELECT m.id, m.machine_code, m.serial_number, m.model,
+                       COALESCE(ml.location_label, '') AS location,
+                       o.company_name,
+                       m.operational_status, m.connectivity_status
+                FROM machines m
+                LEFT JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
                 LEFT JOIN organizations o ON m.organization_id = o.id
                 WHERE (m.is_deleted IS NOT TRUE)
                   AND m.organization_id = %s
@@ -123,7 +159,7 @@ def search_entities(
                     m.machine_code ILIKE %s
                     OR m.serial_number ILIKE %s
                     OR m.model ILIKE %s
-                    OR COALESCE(m.location_label, '') ILIKE %s
+                    OR COALESCE(ml.location_label, '') ILIKE %s
                   )
                 ORDER BY m.created_at DESC
                 LIMIT 8;
