@@ -63,6 +63,16 @@ export const OemDashboardView: React.FC = () => {
     fetchData(false);
   }, []);
 
+  useEffect(() => {
+    const handleResetHome = () => {
+      setIsAddClientOpen(false);
+      setIsAddMachineOpen(false);
+      setIsAddOperatorOpen(false);
+    };
+    window.addEventListener('foodie:reset-home-view', handleResetHome);
+    return () => window.removeEventListener('foodie:reset-home-view', handleResetHome);
+  }, []);
+
   useSilentRefresh(() => fetchData(true), {
     intervalMs: 12000,
     enabled: !isAddClientOpen && !isAddMachineOpen && !isAddOperatorOpen,

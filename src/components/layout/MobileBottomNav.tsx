@@ -30,6 +30,11 @@ export const MobileBottomNav: React.FC = () => {
             key={item.to}
             to={item.to}
             end={item.end}
+            onClick={() => {
+              if (item.to === '/') {
+                window.dispatchEvent(new CustomEvent('foodie:reset-home-view'));
+              }
+            }}
             className={({ isActive }) =>
               `flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-150 relative cursor-pointer min-w-[56px] ${
                 isActive

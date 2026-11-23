@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 from pydantic import BaseModel, Field, field_validator
 
-EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$'
+EMAIL_REGEX = r'^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,63}$'
 SITE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
 PHONE_REGEX = r'^\+?[0-9\s]{7,15}$'
 VALID_ROLES = ['OEM_MANAGER', 'SITE_ADMIN', 'OPERATOR']
@@ -12,7 +12,7 @@ def validate_email_address(v: Optional[str]) -> Optional[str]:
     if not v or not v.strip():
         return None
     clean = v.strip().lower()
-    if '..' in clean or not re.match(EMAIL_REGEX, clean):
+    if clean.startswith('.') or clean.endswith('.') or '..' in clean or '.@' in clean or '@.' in clean or not re.match(EMAIL_REGEX, clean):
         raise ValueError('Please enter a valid business email address (e.g. name@company.com or name@company.com.au).')
     return clean
 
@@ -68,6 +68,28 @@ def validate_abn(v: Optional[str]) -> Optional[str]:
         raise ValueError('Invalid Australian Business Number (ABN). The number does not pass the official ABR Modulus 89 checksum.')
     return f"{clean[:2]} {clean[2:5]} {clean[5:8]} {clean[8:]}"
 
+def validate_location_string(v: Optional[str]) -> Optional[str]:
+    if not v or not v.strip():
+        return None
+    clean = v.strip()
+    if len(clean) < 3:
+        raise ValueError('Location must be at least 3 characters long.')
+    if len(clean) > 100:
+        raise ValueError('Location cannot exceed 100 characters.')
+    if re.search(r'[;<>{}]|--|/\*', clean) or not re.match(r"^[A-Za-z0-9\s,.\-#/()'&]+$", clean):
+        raise ValueError('Location can only contain letters, numbers, spaces, and standard address punctuation (e.g. commas, hyphens, periods, #). Special characters and code symbols are not permitted.')
+    return clean
+
+def validate_description_string(v: Optional[str]) -> Optional[str]:
+    if not v or not v.strip():
+        return None
+    clean = v.strip()
+    if len(clean) > 300:
+        raise ValueError('Location description cannot exceed 300 characters.')
+    if re.search(r'[<>{}]|--|/\*|;', clean):
+        raise ValueError('Location description contains invalid characters or code tags.')
+    return clean
+
 # --------------------------------------------------------------------------
 # Authentication Schemas
 # --------------------------------------------------------------------------
@@ -78,10 +100,10 @@ class LoginRequest(BaseModel):
     @field_validator('email')
     @classmethod
     def validate_email(cls, v: str) -> str:
-        clean = v.strip()
-        if not re.match(EMAIL_REGEX, clean):
+        clean = v.strip().lower()
+        if clean.startswith('.') or clean.endswith('.') or '..' in clean or '.@' in clean or '@.' in clean or not re.match(EMAIL_REGEX, clean):
             raise ValueError('Please enter a valid email address.')
-        return clean.lower()
+        return clean
 
 class UserResponse(BaseModel):
     id: str
@@ -115,7 +137,7 @@ class ForgotPasswordRequest(BaseModel):
     @classmethod
     def validate_email(cls, v: str) -> str:
         clean = v.strip().lower()
-        if not re.match(EMAIL_REGEX, clean):
+        if clean.startswith('.') or clean.endswith('.') or '..' in clean or '.@' in clean or '@.' in clean or not re.match(EMAIL_REGEX, clean):
             raise ValueError('Please enter a valid email address.')
         return clean
 
@@ -644,6 +666,16 @@ class MachineCreate(BaseModel):
             raise ValueError('Model is required.')
         return clean
 
+    @field_validator('location_label', 'lease_location_label')
+    @classmethod
+    def check_location_label(cls, v: Optional[str]) -> Optional[str]:
+        return validate_location_string(v)
+
+    @field_validator('location_description')
+    @classmethod
+    def check_location_description(cls, v: Optional[str]) -> Optional[str]:
+        return validate_description_string(v)
+
     @field_validator('connectivity_status')
     @classmethod
     def check_connectivity(cls, v: Optional[str]) -> str:
@@ -673,6 +705,16 @@ class MachineUpdate(BaseModel):
     lease_start_date: Optional[str] = None
     lease_end_date: Optional[str] = None
     lease_status: Optional[str] = None
+
+    @field_validator('location_label', 'lease_location_label')
+    @classmethod
+    def check_location_label(cls, v: Optional[str]) -> Optional[str]:
+        return validate_location_string(v)
+
+    @field_validator('location_description')
+    @classmethod
+    def check_location_description(cls, v: Optional[str]) -> Optional[str]:
+        return validate_description_string(v)
 
     @field_validator('connectivity_status')
     @classmethod

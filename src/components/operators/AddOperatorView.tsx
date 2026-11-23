@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   UserPlus,
   AlertCircle,
   Save,
   ArrowLeft,
+  Home,
   X,
   Eye,
   EyeOff,
@@ -37,6 +39,13 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
   onSuccess,
 }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleGoHome = () => {
+    window.dispatchEvent(new CustomEvent('foodie:reset-home-view'));
+    navigate('/');
+    onBack();
+  };
   const effectiveOrgId = initialClientId || (user?.role === 'SITE_ADMIN' ? user.organization_id : '') || '';
   const isLocked = Boolean(isClientLocked || user?.role === 'SITE_ADMIN');
 
@@ -226,12 +235,33 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium p-1 -ml-1 rounded-md hover:bg-surface-subtle"
+          title="Go back"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>{backLabel || 'Home'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleGoHome}
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          title="Go to Home"
+        >
+          <Home className="w-3.5 h-3.5" />
+          <span>Home</span>
         </button>
         <span className="text-foreground-subtle">/</span>
+        {backLabel && backLabel !== 'Home' && (
+          <>
+            <button
+              type="button"
+              onClick={onBack}
+              className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+            >
+              <span>{backLabel}</span>
+            </button>
+            <span className="text-foreground-subtle">/</span>
+          </>
+        )}
         <span className="font-bold text-foreground">Add new operator</span>
       </nav>
 

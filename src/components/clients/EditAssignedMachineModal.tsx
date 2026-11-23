@@ -3,6 +3,7 @@ import { X, Cpu, MapPin, AlertCircle } from 'lucide-react';
 import { Button } from '../common/ui';
 import { machinesApi } from '../../services/api';
 import { calculateOneYearLeaseEndDate } from './AssignMachinesSection';
+import { validateLocationInput } from '../machines/AddMachineView';
 import type { Machine } from '../../types';
 
 export interface EditAssignedMachineModalProps {
@@ -49,6 +50,13 @@ export const EditAssignedMachineModal: React.FC<EditAssignedMachineModalProps> =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (location.trim()) {
+      const locErr = validateLocationInput(location);
+      if (locErr) {
+        setError(locErr);
+        return;
+      }
+    }
     if (leaseStartDate && leaseEndDate && leaseEndDate < leaseStartDate) {
       setError('Lease end date cannot be earlier than lease start date.');
       return;
@@ -126,9 +134,14 @@ export const EditAssignedMachineModal: React.FC<EditAssignedMachineModalProps> =
           </div>
 
           <div>
-            <label htmlFor="assigned-machine-location" className="block text-xs font-semibold text-foreground mb-1.5">
-              Installation location
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="assigned-machine-location" className="block text-xs font-semibold text-foreground">
+                Installation location
+              </label>
+              <span className={`text-[11px] ${location.length >= 100 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
+                {location.length}/100 characters
+              </span>
+            </div>
             <div className="relative">
               <input
                 id="assigned-machine-location"
@@ -138,6 +151,7 @@ export const EditAssignedMachineModal: React.FC<EditAssignedMachineModalProps> =
                   setLocation(e.target.value);
                   if (error) setError(null);
                 }}
+                maxLength={100}
                 placeholder="e.g. Kitchen Loading Bay"
                 className="w-full px-3.5 py-2 pl-9 rounded-xl border border-border-strong bg-surface-card text-xs text-foreground focus:outline-none focus:border-foreground"
               />

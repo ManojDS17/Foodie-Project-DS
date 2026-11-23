@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../services/api';
+import { isValidEmail } from '../components/clients/AddClientView';
 import { AuthHero } from '../components/auth/AuthHero';
 import { SignedOutView } from '../components/auth/SignedOutView';
 import { BRAND_ASSETS, BRAND_COPY } from '../config/brandConfig';
@@ -121,8 +122,7 @@ export const LoginPage: React.FC = () => {
       setErrorMessage('Please enter your email address.');
       return;
     }
-    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
-    if (!EMAIL_REGEX.test(email.trim()) || email.includes('..')) {
+    if (!isValidEmail(email)) {
       setErrorMessage('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
     }
@@ -153,8 +153,7 @@ export const LoginPage: React.FC = () => {
       setErrorMessage('Please enter your email address.');
       return;
     }
-    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
-    if (!EMAIL_REGEX.test(email.trim()) || email.includes('..')) {
+    if (!isValidEmail(email)) {
       setErrorMessage('Please enter a valid email address (e.g. name@company.com or name@company.com.au).');
       return;
     }

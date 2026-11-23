@@ -70,6 +70,9 @@ export const Sidebar: React.FC = () => {
               to={item.to}
               end={item.to === '/'}
               onClick={() => {
+                if (item.to === '/') {
+                  window.dispatchEvent(new CustomEvent('foodie:reset-home-view'));
+                }
                 if (item.to === '/clients') {
                   window.dispatchEvent(new CustomEvent('foodie:reset-clients-view'));
                 }

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Cpu,
   AlertCircle,
   Save,
   ArrowLeft,
+  Home,
   X,
 } from 'lucide-react';
 import { machinesApi } from '../../services/api';
@@ -15,11 +17,37 @@ export interface AddMachineViewProps {
   onSuccess: (newMachine: Machine) => void;
 }
 
+export const validateLocationInput = (loc: string): string | null => {
+  const clean = loc.trim();
+  if (!clean) return 'Installation location is required.';
+  if (clean.length < 3) return 'Installation location must be at least 3 characters.';
+  if (clean.length > 100) return 'Installation location cannot exceed 100 characters.';
+  if (/[<>{}]|--|\/\*|;/.test(clean)) {
+    return 'Location cannot contain code symbols or SQL characters (e.g. <, >, ;, --).';
+  }
+  if (!/^[A-Za-z0-9\s,.\-#/()'&]+$/.test(clean)) {
+    return 'Location can only contain letters, numbers, spaces, and standard address punctuation (e.g. commas, hyphens, periods, #).';
+  }
+  return null;
+};
+
+export const validateLocationDescription = (desc: string): string | null => {
+  const clean = desc.trim();
+  if (!clean) return null;
+  if (clean.length > 300) return 'Location description cannot exceed 300 characters.';
+  if (/[<>{}]|--|\/\*|;/.test(clean)) {
+    return 'Location description cannot contain code tags or SQL characters (e.g. <, >, ;, --).';
+  }
+  return null;
+};
+
 export const AddMachineView: React.FC<AddMachineViewProps> = ({
   onBack,
   onSuccess,
 }) => {
+  const navigate = useNavigate();
   const [machineModels, setMachineModels] = useState<MachineModel[]>([]);
+  const [locationTouched, setLocationTouched] = useState(false);
   const [formData, setFormData] = useState({
     serial_number: '',
     model: '',
@@ -93,8 +121,15 @@ export const AddMachineView: React.FC<AddMachineViewProps> = ({
       setError('Model is required.');
       return;
     }
-    if (!formData.location.trim()) {
-      setError('Installation location is required.');
+    const locErr = validateLocationInput(formData.location);
+    if (locErr) {
+      setLocationTouched(true);
+      setError(locErr);
+      return;
+    }
+    const descErr = validateLocationDescription(formData.location_description);
+    if (descErr) {
+      setError(descErr);
       return;
     }
     if (!formData.plc_software_version.trim()) {
@@ -144,6 +179,9 @@ export const AddMachineView: React.FC<AddMachineViewProps> = ({
     }
   };
 
+  const locationError = locationTouched ? validateLocationInput(formData.location) : null;
+  const descError = validateLocationDescription(formData.location_description);
+
   return (
     <div className="flex flex-col gap-6 max-w-[1400px] mx-auto select-none pb-12">
       {/* 1. Breadcrumbs */}
@@ -151,9 +189,29 @@ export const AddMachineView: React.FC<AddMachineViewProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium p-1 -ml-1 rounded-md hover:bg-surface-subtle"
+          title="Go back"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('foodie:reset-home-view'));
+            navigate('/');
+          }}
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          title="Go to Home"
+        >
+          <Home className="w-3.5 h-3.5" />
+          <span>Home</span>
+        </button>
+        <span className="text-foreground-subtle">/</span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+        >
           <span>Machines</span>
         </button>
         <span className="text-foreground-subtle">/</span>
@@ -312,33 +370,70 @@ export const AddMachineView: React.FC<AddMachineViewProps> = ({
           <div className="space-y-4">
             {/* Location */}
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Location <span className="text-status-fault-text">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-foreground">
+                  Location <span className="text-status-fault-text">*</span>
+                </label>
+                <span className={`text-[11px] ${formData.location.length >= 100 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
+                  {formData.location.length}/100 characters
+                </span>
+              </div>
               <input
                 type="text"
                 name="location"
                 value={formData.location}
                 onChange={handleChange}
+                onBlur={() => setLocationTouched(true)}
+                maxLength={100}
                 placeholder="e.g. 2 Discovery Way, Mawson Lakes 5095"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                  locationError
+                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
+                }`}
                 required
               />
+              {locationError ? (
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
+                  <span>{locationError}</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-foreground-muted mt-1">
+                  Physical installation address or facility department. Letters, numbers, and standard address punctuation only.
+                </p>
+              )}
             </div>
 
             {/* Location Description */}
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Location description (optional)
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-foreground">
+                  Location description (optional)
+                </label>
+                <span className={`text-[11px] ${formData.location_description.length >= 300 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
+                  {formData.location_description.length}/300 characters
+                </span>
+              </div>
               <textarea
                 name="location_description"
                 value={formData.location_description}
                 onChange={handleChange}
+                maxLength={300}
                 rows={2}
                 placeholder="e.g. Installed at the carpark shed of the client's location"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs resize-none"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs resize-none transition-colors ${
+                  descError
+                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
+                }`}
               />
+              {descError && (
+                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
+                  <span>{descError}</span>
+                </p>
+              )}
             </div>
           </div>
         </div>

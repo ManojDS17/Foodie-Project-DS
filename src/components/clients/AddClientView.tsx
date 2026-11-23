@@ -25,9 +25,10 @@ export const sanitizePhoneNumber = (val: string): string => {
 
 export const isValidEmail = (email: string): boolean => {
   if (!email || typeof email !== 'string') return false;
-  const clean = email.trim();
-  if (clean.includes('..')) return false;
-  const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
+  const clean = email.trim().toLowerCase();
+  if (clean.startsWith('.') || clean.endsWith('.')) return false;
+  if (clean.includes('..') || clean.includes('.@') || clean.includes('@.')) return false;
+  const EMAIL_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,63}$/;
   return EMAIL_REGEX.test(clean);
 };
 
