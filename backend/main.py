@@ -1,7 +1,8 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from .auth import get_current_user
 from .database import init_db
 from .routers import auth, users, organizations, search, machines, dashboard
 
@@ -52,7 +53,7 @@ app.include_router(machines.router)
 app.include_router(dashboard.router)
 
 @app.get("/api/machine-models", tags=["Machines"])
-def get_machine_models_alias():
+def get_machine_models_alias(current_user: dict = Depends(get_current_user)):
     return machines.get_machine_models()
 
 @app.get("/", tags=["Health"])

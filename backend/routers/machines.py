@@ -575,10 +575,19 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
 @router.put("/{machine_id}", response_model=MachineResponse)
 def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict = Depends(get_current_user)):
     user_role = current_user.get("role")
-    if user_role == "OPERATOR":
+
+    # user_role = current_user.get("role")
+    # if user_role == "OPERATOR":
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="Access denied: Operators cannot modify machine configurations."
+    #     )
+
+    
+    if user_role != "OEM_MANAGER":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: Operators cannot modify machine configurations."
+            detail="Access denied: Only OEM Managers can modify machine configurations or lease terms."
         )
 
     with get_db_cursor(commit=True) as cur:
@@ -594,14 +603,15 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
             )
         real_machine_id = str(existing[0])
 
-        if user_role != "OEM_MANAGER":
-            user_org_id = str(current_user.get("organization_id") or "")
-            mach_org_id = str(existing[3] or "")
-            if not user_org_id or mach_org_id != user_org_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: You do not have permission to modify this machine."
-                )
+            #   if user_role != "OEM_MANAGER":
+            # user_org_id = str(current_user.get("organization_id") or "")
+            # mach_org_id = str(existing[3] or "")
+            # if not user_org_id or mach_org_id != user_org_id:
+            #     raise HTTPException(
+            #         status_code=status.HTTP_403_FORBIDDEN,
+            #         detail="Access denied: You do not have permission to modify this machine."
+            #     )
+
 
         if payload.serial_number:
             normalized_serial = payload.serial_number.strip().upper()
@@ -632,11 +642,11 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
         is_lease_edit = ("lease_location_label" in payload.model_fields_set or "lease_start_date" in payload.model_fields_set or "lease_end_date" in payload.model_fields_set)
 
         if is_lease_assign:
-            if user_role != "OEM_MANAGER":
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: Only OEM Managers can assign, transfer, or unassign machine leases."
-                )
+            # if user_role != "OEM_MANAGER":
+            #     raise HTTPException(
+            #         status_code=status.HTTP_403_FORBIDDEN,
+            #         detail="Access denied: Only OEM Managers can assign, transfer, or unassign machine leases."
+            #     )
             cur.execute("UPDATE machines SET organization_id = %s WHERE id = %s;", (payload.organization_id, real_machine_id))
             if payload.organization_id is None:
                 cur.execute("UPDATE machine_leases SET lease_status = 'Terminated', terminated_at = CURRENT_TIMESTAMP, terminated_by = %s WHERE machine_id = %s AND lease_status = 'Active';", (current_user.get("id"), real_machine_id))

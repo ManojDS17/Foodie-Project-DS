@@ -136,7 +136,6 @@ PowerTech Energy Pty Ltd
 
 def send_client_welcome_email(
     to_email: str,
-    raw_password: str,
     company_name: str,
     client_code: str,
     recipient_name: str = "",
@@ -145,13 +144,12 @@ def send_client_welcome_email(
     login_url = f"{FRONTEND_URL}/login?email={quote_plus(to_email)}"
     setup_url = f"{FRONTEND_URL}/login?view=reset&token={reset_token}&email={quote_plus(to_email)}" if reset_token else login_url
     display_name = recipient_name.strip() if recipient_name and recipient_name.strip() else to_email.split('@')[0]
-    subject = f"Welcome to Foodie Platform - Account Credentials for {company_name}"
+    subject = f"Welcome to Foodie Platform - Set Up Your Account for {company_name}"
 
     esc_display_name = html.escape(display_name)
     esc_company_name = html.escape(company_name)
     esc_client_code = html.escape(client_code)
     esc_to_email = html.escape(to_email)
-    esc_raw_password = html.escape(raw_password)
     esc_login_url = html.escape(login_url)
     esc_setup_url = html.escape(setup_url)
 
@@ -159,17 +157,13 @@ def send_client_welcome_email(
 
 Welcome to the Foodie Platform! Your client organization {company_name} has been set up successfully.
 
-Your Site Administrator account credentials are:
+Your Site Administrator account details:
   - Portal URL: {FRONTEND_URL}/login
   - Email: {to_email}
-  - Password: {raw_password}
   - Role: Site Administrator
 
-To set your permanent password or sign in, click the link below (valid for 7 days):
+Use the one-time setup link below to choose your password and activate your account (valid for 7 days):
 {setup_url}
-
-You can also sign in directly using your temporary credentials at:
-{login_url}
 
 Foodie Platform
 PowerTech Energy Pty Ltd
@@ -195,7 +189,7 @@ PowerTech Energy Pty Ltd
                 <h2 style="font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 12px 0;">Welcome to Foodie Platform</h2>
                 <p style="font-size: 14px; color: #4B5563; line-height: 1.6; margin: 0 0 20px 0;">
                     Hello <strong>{esc_display_name}</strong>,<br><br>
-                    Your organization account for <strong>{esc_company_name}</strong> has been created on the Foodie Platform. Your <strong>Site Administrator</strong> credentials are ready:
+                    Your organization account for <strong>{esc_company_name}</strong> has been created on the Foodie Platform. Complete your <strong>Site Administrator</strong> setup using the secure link below:
                 </p>
 
                 <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; margin: 20px 0; padding: 18px 22px;">
@@ -208,10 +202,6 @@ PowerTech Energy Pty Ltd
                         <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600; font-family: monospace;">{esc_to_email}</td>
                     </tr>
                     <tr>
-                        <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Password:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #E32032; font-weight: 700; font-family: monospace;">{esc_raw_password}</td>
-                    </tr>
-                    <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Role:</td>
                         <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600;">Site Administrator</td>
                     </tr>
@@ -221,14 +211,14 @@ PowerTech Energy Pty Ltd
                     <tr>
                         <td align="center" style="border-radius: 8px; background-color: #E32032;">
                             <a href="{esc_setup_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 13px 30px; border-radius: 8px; display: inline-block; background-color: #E32032;">
-                                Set Password & Sign In
+                                Set Password &amp; Sign In
                             </a>
                         </td>
                     </tr>
                 </table>
 
                 <p style="font-size: 12px; color: #6B7280; line-height: 1.5; margin: 16px 0 0 0;">
-                    This initial password setup link is valid for <strong>7 days</strong>. You can also sign in directly using your temporary password.
+                    For your security, passwords are never sent via email. This one-time setup link is valid for <strong>7 days</strong>.
                 </p>
                 <hr style="border: 0; border-top: 1px solid #E5E7EB; margin: 24px 0 18px 0;">
                 <p style="font-size: 11px; color: #9CA3AF; line-height: 1.4; margin: 0;">
@@ -254,7 +244,6 @@ PowerTech Energy Pty Ltd
 
 def send_operator_welcome_email(
     to_email: str,
-    raw_password: str,
     company_name: str,
     client_code: str,
     recipient_name: str = "",
@@ -263,13 +252,12 @@ def send_operator_welcome_email(
     login_url = f"{FRONTEND_URL}/login?email={quote_plus(to_email)}"
     setup_url = f"{FRONTEND_URL}/login?view=reset&token={reset_token}&email={quote_plus(to_email)}" if reset_token else login_url
     display_name = recipient_name.strip() if recipient_name and recipient_name.strip() else to_email.split('@')[0]
-    subject = f"Welcome to Foodie Platform - Operator Credentials for {company_name}"
+    subject = f"Welcome to Foodie Platform - Set Up Your Operator Account for {company_name}"
 
     esc_display_name = html.escape(display_name)
     esc_company_name = html.escape(company_name)
     esc_client_code = html.escape(client_code)
     esc_to_email = html.escape(to_email)
-    esc_raw_password = html.escape(raw_password)
     esc_login_url = html.escape(login_url)
     esc_setup_url = html.escape(setup_url)
 
@@ -277,18 +265,14 @@ def send_operator_welcome_email(
 
 Welcome to the Foodie Platform! You have been registered as a Facility Operator for {company_name}.
 
-Your Operator account credentials are:
+Your Operator account details:
   - Portal URL: {FRONTEND_URL}/login
   - Email: {to_email}
-  - Password: {raw_password}
   - Role: Facility Operator
   - Assigned Client: {company_name}
 
-To set your permanent password or sign in, click the link below (valid for 7 days):
+Use the one-time setup link below to choose your password and sign in (valid for 7 days):
 {setup_url}
-
-You can also sign in directly using your temporary credentials at:
-{login_url}
 
 Foodie Platform
 PowerTech Energy Pty Ltd
@@ -314,7 +298,7 @@ PowerTech Energy Pty Ltd
                 <h2 style="font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 12px 0;">Welcome to Foodie Platform</h2>
                 <p style="font-size: 14px; color: #4B5563; line-height: 1.6; margin: 0 0 20px 0;">
                     Hello <strong>{esc_display_name}</strong>,<br><br>
-                    You have been onboarded as a <strong>Facility Operator</strong> for <strong>{esc_company_name}</strong>. Your login credentials are ready:
+                    You have been onboarded as a <strong>Facility Operator</strong> for <strong>{esc_company_name}</strong>. Use the secure setup link below to choose your password:
                 </p>
 
                 <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; margin: 20px 0; padding: 18px 22px;">
@@ -325,10 +309,6 @@ PowerTech Energy Pty Ltd
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Email:</td>
                         <td style="padding: 6px 0; font-size: 13px; color: #111827; font-weight: 600; font-family: monospace;">{esc_to_email}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Password:</td>
-                        <td style="padding: 6px 0; font-size: 13px; color: #E32032; font-weight: 700; font-family: monospace;">{esc_raw_password}</td>
                     </tr>
                     <tr>
                         <td style="padding: 6px 0; font-size: 13px; color: #6B7280;">Role:</td>
@@ -344,14 +324,14 @@ PowerTech Energy Pty Ltd
                     <tr>
                         <td align="center" style="border-radius: 8px; background-color: #E32032;">
                             <a href="{esc_setup_url}" target="_blank" style="font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 13px 30px; border-radius: 8px; display: inline-block; background-color: #E32032;">
-                                Set Password & Sign In
+                                Set Password &amp; Sign In
                             </a>
                         </td>
                     </tr>
                 </table>
 
                 <p style="font-size: 12px; color: #6B7280; line-height: 1.5; margin: 16px 0 0 0;">
-                    This initial password setup link is valid for <strong>7 days</strong>. You can also sign in directly using your temporary password.
+                    For your security, passwords are never sent via email. This one-time setup link is valid for <strong>7 days</strong>.
                 </p>
                 <hr style="border: 0; border-top: 1px solid #E5E7EB; margin: 24px 0 18px 0;">
                 <p style="font-size: 11px; color: #9CA3AF; line-height: 1.4; margin: 0;">

@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
 from ..schemas import UserCreate, UserUpdate, UserResponse
-from ..auth import get_password_hash, get_current_user
+from ..auth import get_password_hash, get_current_user, hash_reset_token
 from ..email_service import send_operator_welcome_email
 
 router = APIRouter(prefix="/api/users", tags=["Users"], dependencies=[Depends(get_current_user)])
@@ -77,6 +77,11 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user)):
     user_role = current_user.get("role")
+    if user_role == "OPERATOR" and str(current_user.get("id")).strip().lower() != str(user_id).strip().lower():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Operators can only view their own user profile."
+        )
     with get_db_cursor() as cur:
         cur.execute("""
             SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
@@ -106,6 +111,11 @@ def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user))
             d["created_by_name"] = None
 
         if user_role != "OEM_MANAGER":
+            if user_role == "OPERATOR" and str(current_user.get("id")).strip().lower() != d["id"].lower():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Operators can only view their own user profile."
+                )
             user_org_id = str(current_user.get("organization_id") or "")
             target_org_id = str(d.get("organization_id") or "")
             if not user_org_id or target_org_id != user_org_id:
@@ -127,10 +137,11 @@ def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
         if user_role == "SITE_ADMIN":
-            if str(current_user.get("organization_id")) != str(u[1]):
+            if str(current_user.get("organization_id")) != str(u[1]) or u[5] in ("SITE_ADMIN", "OEM_MANAGER"):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
         welcome_token = secrets.token_urlsafe(32)
+        welcome_token_hash = hash_reset_token(welcome_token)
         welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
 
         cur.execute("""
@@ -140,7 +151,7 @@ def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
                 updated_at = CURRENT_TIMESTAMP,
                 updated_by = %s
             WHERE id = %s;
-        """, (welcome_token, welcome_token_expires, current_user.get("id"), user_id))
+        """, (welcome_token_hash, welcome_token_expires, current_user.get("id"), user_id))
 
         try:
             cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s;", (u[1],))
@@ -149,7 +160,6 @@ def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
             c_code = org_info[1] if org_info else ""
             send_operator_welcome_email(
                 to_email=u[2],
-                raw_password="[Use invitation link to set permanent password]",
                 company_name=c_name,
                 client_code=c_code,
                 recipient_name=f"{u[3]} {u[4] or ''}".strip(),
@@ -167,16 +177,17 @@ def trigger_password_reset(user_id: str, current_user: dict = Depends(get_curren
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, organization_id, email, first_name, last_name FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        cur.execute("SELECT id, organization_id, email, first_name, last_name, role FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
         u = cur.fetchone()
         if not u:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
         if user_role == "SITE_ADMIN":
-            if str(current_user.get("organization_id")) != str(u[1]):
+            if str(current_user.get("organization_id")) != str(u[1]) or u[5] in ("SITE_ADMIN", "OEM_MANAGER"):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
         reset_token = secrets.token_urlsafe(32)
+        reset_token_hash = hash_reset_token(reset_token)
         reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
 
         cur.execute("""
@@ -186,7 +197,7 @@ def trigger_password_reset(user_id: str, current_user: dict = Depends(get_curren
                 updated_at = CURRENT_TIMESTAMP,
                 updated_by = %s
             WHERE id = %s;
-        """, (reset_token, reset_token_expires, current_user.get("id"), user_id))
+        """, (reset_token_hash, reset_token_expires, current_user.get("id"), user_id))
 
         try:
             send_password_reset_email(
@@ -265,6 +276,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             client_code = org_row[1]
 
         welcome_token = secrets.token_urlsafe(32)
+        welcome_token_hash = hash_reset_token(welcome_token)
         welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
 
         cur.execute("""
@@ -282,7 +294,7 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             (payload.last_name or "").strip(),
             payload.role,
             payload.phone_number.strip() if payload.phone_number else None,
-            welcome_token,
+            welcome_token_hash,
             welcome_token_expires,
             current_user.get("id")
         ))
@@ -335,7 +347,6 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
             try:
                 send_operator_welcome_email(
                     to_email=normalized_email,
-                    raw_password=raw_password,
                     company_name=company_name or "Assigned Client",
                     client_code=client_code or "",
                     recipient_name=poc_name,
@@ -395,7 +406,29 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Access denied: Cannot modify users of another organization."
                 )
-            if str(current_user.get("id")) == str(user_id) and payload.email and payload.email.strip().lower() != target_current_email:
+            if target_role == "OEM_MANAGER":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Site Administrators cannot modify OEM Manager accounts."
+                )
+            is_self = str(current_user.get("id")).strip().lower() == str(user_id).strip().lower()
+            if target_role == "SITE_ADMIN":
+                if not is_self:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Site Administrators cannot modify or deactivate other Site Administrator accounts."
+                    )
+                if payload.is_active is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Site Administrators cannot change activation status on Site Administrator accounts."
+                    )
+                if payload.role is not None and payload.role != "SITE_ADMIN":
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Site Administrators cannot modify Site Administrator roles."
+                    )
+            if is_self and payload.email and payload.email.strip().lower() != target_current_email:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Access denied: Site Administrators cannot modify their own email address."

@@ -113,7 +113,8 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         cur.execute("SELECT to_regclass('public.machine_telemetry_daily');")
         has_telemetry = cur.fetchone()[0] is not None
         if has_telemetry:
-            if is_client:
+            user_role = current_user.get("role")
+            if user_role == "OPERATOR":
                 cur.execute("""
                     SELECT 
                         COALESCE(SUM(t.energy_kwh), 0),
@@ -121,36 +122,118 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                         COALESCE(SUM(t.compost_produced_kg), 0)
                     FROM machine_telemetry_daily t
                     JOIN machines m ON t.machine_id = m.id
-                    WHERE t.date = CURRENT_DATE AND m.organization_id = %s;
+                    JOIN machine_assign_to_operators mato
+                      ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                    WHERE t.date = CURRENT_DATE
+                      AND (m.is_deleted IS NOT TRUE);
+                """, (current_user.get("id"),))
+                row = cur.fetchone()
+            elif is_client:
+                cur.execute("""
+                    SELECT 
+                        COALESCE(SUM(t.energy_kwh), 0),
+                        COALESCE(SUM(t.waste_intake_kg), 0),
+                        COALESCE(SUM(t.compost_produced_kg), 0)
+                    FROM machine_telemetry_daily t
+                    JOIN machines m ON t.machine_id = m.id
+                    WHERE t.date = CURRENT_DATE
+                      AND (m.is_deleted IS NOT TRUE)
+                      AND m.organization_id = %s;
                 """, (client_org_id,))
+                row = cur.fetchone()
+            elif user_role != "OEM_MANAGER":
+                row = (0.0, 0.0, 0.0)
             else:
                 cur.execute("""
                     SELECT 
-                        COALESCE(SUM(energy_kwh), 0),
-                        COALESCE(SUM(waste_intake_kg), 0),
-                        COALESCE(SUM(compost_produced_kg), 0)
-                    FROM machine_telemetry_daily
-                    WHERE date = CURRENT_DATE;
+                        COALESCE(SUM(t.energy_kwh), 0),
+                        COALESCE(SUM(t.waste_intake_kg), 0),
+                        COALESCE(SUM(t.compost_produced_kg), 0)
+                    FROM machine_telemetry_daily t
+                    JOIN machines m ON t.machine_id = m.id
+                    WHERE t.date = CURRENT_DATE
+                      AND (m.is_deleted IS NOT TRUE);
                 """)
-            row = cur.fetchone()
+                row = cur.fetchone()
             energy_today = float(row[0]) if row and row[0] is not None else 0.0
             waste_today = float(row[1]) if row and row[1] is not None else 0.0
             compost_today = float(row[2]) if row and row[2] is not None else 0.0
 
-            cur.execute("""
-                SELECT 
-                    d.date::text, 
-                    TO_CHAR(d.date, 'FMDD Mon') AS display_date,
-                    TO_CHAR(d.date, 'FMDD Mon YYYY') AS full_date,
-                    COALESCE(SUM(t.energy_kwh), 0) AS total_kwh
-                FROM (
-                    SELECT CURRENT_DATE - i AS date
-                    FROM generate_series(13, 0, -1) AS i
-                ) d
-                LEFT JOIN machine_telemetry_daily t ON d.date = t.date
-                GROUP BY d.date
-                ORDER BY d.date ASC;
-            """)
+            if user_role == "OPERATOR":
+                cur.execute("""
+                    SELECT 
+                        d.date::text, 
+                        TO_CHAR(d.date, 'FMDD Mon') AS display_date,
+                        TO_CHAR(d.date, 'FMDD Mon YYYY') AS full_date,
+                        COALESCE(SUM(t.energy_kwh), 0) AS total_kwh
+                    FROM (
+                        SELECT CURRENT_DATE - i AS date
+                        FROM generate_series(13, 0, -1) AS i
+                    ) d
+                    LEFT JOIN (
+                        SELECT t.date, t.energy_kwh
+                        FROM machine_telemetry_daily t
+                        JOIN machines m ON t.machine_id = m.id
+                        JOIN machine_assign_to_operators mato
+                          ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                        WHERE (m.is_deleted IS NOT TRUE)
+                    ) t ON d.date = t.date
+                    GROUP BY d.date
+                    ORDER BY d.date ASC;
+                """, (current_user.get("id"),))
+            elif is_client:
+                cur.execute("""
+                    SELECT 
+                        d.date::text, 
+                        TO_CHAR(d.date, 'FMDD Mon') AS display_date,
+                        TO_CHAR(d.date, 'FMDD Mon YYYY') AS full_date,
+                        COALESCE(SUM(t.energy_kwh), 0) AS total_kwh
+                    FROM (
+                        SELECT CURRENT_DATE - i AS date
+                        FROM generate_series(13, 0, -1) AS i
+                    ) d
+                    LEFT JOIN (
+                        SELECT t.date, t.energy_kwh
+                        FROM machine_telemetry_daily t
+                        JOIN machines m ON t.machine_id = m.id
+                        WHERE (m.is_deleted IS NOT TRUE) AND m.organization_id = %s
+                    ) t ON d.date = t.date
+                    GROUP BY d.date
+                    ORDER BY d.date ASC;
+                """, (client_org_id,))
+            elif user_role != "OEM_MANAGER":
+                cur.execute("""
+                    SELECT 
+                        d.date::text, 
+                        TO_CHAR(d.date, 'FMDD Mon') AS display_date,
+                        TO_CHAR(d.date, 'FMDD Mon YYYY') AS full_date,
+                        0.0 AS total_kwh
+                    FROM (
+                        SELECT CURRENT_DATE - i AS date
+                        FROM generate_series(13, 0, -1) AS i
+                    ) d
+                    ORDER BY d.date ASC;
+                """)
+            else:
+                cur.execute("""
+                    SELECT 
+                        d.date::text, 
+                        TO_CHAR(d.date, 'FMDD Mon') AS display_date,
+                        TO_CHAR(d.date, 'FMDD Mon YYYY') AS full_date,
+                        COALESCE(SUM(t.energy_kwh), 0) AS total_kwh
+                    FROM (
+                        SELECT CURRENT_DATE - i AS date
+                        FROM generate_series(13, 0, -1) AS i
+                    ) d
+                    LEFT JOIN (
+                        SELECT t.date, t.energy_kwh
+                        FROM machine_telemetry_daily t
+                        JOIN machines m ON t.machine_id = m.id
+                        WHERE (m.is_deleted IS NOT TRUE)
+                    ) t ON d.date = t.date
+                    GROUP BY d.date
+                    ORDER BY d.date ASC;
+                """)
             energy_rows = cur.fetchall()
             energy_history = [
                 EnergyHistoryPoint(

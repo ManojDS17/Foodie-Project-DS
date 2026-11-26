@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, status, Depends
 from ..database import get_db_cursor
 from ..schemas import OrganizationCreate, OrganizationUpdate, OrganizationResponse, BulkDeleteRequest
-from ..auth import get_current_user, get_password_hash
+from ..auth import get_current_user, get_password_hash, hash_reset_token
 from ..email_service import send_client_welcome_email
 
 router = APIRouter(prefix="/api/organizations", tags=["Organizations"], dependencies=[Depends(get_current_user)])
@@ -245,11 +245,9 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         if d.get("onboarding_date"):
             d["onboarding_date"] = str(d["onboarding_date"])
 
-        # Automatically create or link client login user account with custom password
+        # Automatically create a fresh client login user account (never resurrect soft-deleted users)
         if payload.email and payload.email.strip():
             clean_email = payload.email.strip().lower()
-            cur.execute("SELECT id FROM users WHERE LOWER(email) = %s;", (clean_email,))
-            existing_user = cur.fetchone()
 
             raw_password = (payload.password or "").strip()
             if not raw_password:
@@ -262,47 +260,31 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
             last_name = name_parts[1] if len(name_parts) > 1 else ""
 
             welcome_token = secrets.token_urlsafe(32)
+            welcome_token_hash = hash_reset_token(welcome_token)
             welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
 
-            if existing_user:
-                cur.execute("""
-                    UPDATE users
-                    SET organization_id = %s,
-                        password_hash = %s,
-                        role = 'SITE_ADMIN',
-                        reset_token = %s,
-                        reset_token_expires_at = %s,
-                        is_active = TRUE,
-                        is_deleted = FALSE,
-                        deleted_at = NULL,
-                        deleted_by = NULL,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = %s;
-                """, (new_org_id, pw_hash, welcome_token, welcome_token_expires, existing_user[0]))
-            else:
-                cur.execute("""
-                    INSERT INTO users (
-                        organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active,
-                        reset_token, reset_token_expires_at, created_by
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, 'SITE_ADMIN', %s, TRUE,
-                        %s, %s, %s
-                    );
-                """, (
-                    new_org_id,
-                    clean_email,
-                    pw_hash,
-                    first_name,
-                    last_name,
-                    payload.phone_number.strip() if payload.phone_number else None,
-                    welcome_token,
-                    welcome_token_expires,
-                    current_user.get("id")
-                ))
+            cur.execute("""
+                INSERT INTO users (
+                    organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active,
+                    reset_token, reset_token_expires_at, created_by
+                ) VALUES (
+                    %s, %s, %s, %s, %s, 'SITE_ADMIN', %s, TRUE,
+                    %s, %s, %s
+                );
+            """, (
+                new_org_id,
+                clean_email,
+                pw_hash,
+                first_name,
+                last_name,
+                payload.phone_number.strip() if payload.phone_number else None,
+                welcome_token_hash,
+                welcome_token_expires,
+                current_user.get("id")
+            ))
 
             pending_welcome_email = {
                 "to_email": clean_email,
-                "raw_password": raw_password,
                 "company_name": company,
                 "client_code": code,
                 "recipient_name": poc_name,
@@ -413,9 +395,11 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
 
 @router.put("/{org_id}", response_model=OrganizationResponse)
 def update_organization(org_id: str, payload: OrganizationUpdate, current_user: dict = Depends(get_current_user)):
-    user_role = current_user.get("role")
-    if user_role == "OPERATOR":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot modify organizations.")
+    if current_user.get("role") != "OEM_MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only OEM Managers can modify client organization details or billing terms."
+        )
 
     update_data = payload.model_dump(exclude_unset=True)
     if not update_data:
@@ -438,12 +422,6 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
         if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client organization '{org_id}' not found.")
         real_org_id = str(existing[0])
-
-        if user_role != "OEM_MANAGER" and str(current_user.get("organization_id")) != real_org_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: You do not have permission to modify another client's organization."
-            )
 
         set_clauses = []
         params = []

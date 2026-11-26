@@ -1,22 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Eye,
-  EyeOff,
   AlertTriangle,
-  Mail,
+  ArrowLeft,
+  Check,
   CheckCircle2,
   Clock,
-  ArrowLeft,
+  Eye,
+  EyeOff,
   Loader2,
-  Check,
+  Mail,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { authApi } from '../services/api';
-import { isValidEmail } from '../components/clients/AddClientView';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthHero } from '../components/auth/AuthHero';
 import { SignedOutView } from '../components/auth/SignedOutView';
+import { isValidEmail } from '../components/clients/AddClientView';
 import { BRAND_ASSETS, BRAND_COPY } from '../config/brandConfig';
+import { useAuth } from '../context/AuthContext';
+import { authApi } from '../services/api';
 
 type AuthView =
   | 'SIGN_IN'
@@ -66,8 +66,7 @@ export const LoginPage: React.FC = () => {
     const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
     const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
     const storedExpiredEmail = sessionStorage.getItem('foodie_expired_email');
-
-    const queryPassword = searchParams.get('password') || searchParams.get('p');
+        // const queryPassword = searchParams.get('password') || searchParams.get('p');
 
     if (queryEmail) {
       setEmail(queryEmail);
@@ -75,9 +74,10 @@ export const LoginPage: React.FC = () => {
       setEmail(storedExpiredEmail);
     }
 
-    if (queryPassword) {
-      setPassword(queryPassword);
-    }
+    //     if (queryPassword) {
+    //   setPassword(queryPassword);
+    // }
+
 
     if (token) {
       setResetToken(token);

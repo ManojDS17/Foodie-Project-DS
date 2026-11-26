@@ -16,24 +16,20 @@ const getApiBaseUrl = (): string => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
-const TOKEN_KEY = 'foodie_jwt_token_v1';
 
-export const tokenStorage = {
-  get: (): string | null => localStorage.getItem(TOKEN_KEY),
-  set: (token: string): void => localStorage.setItem(TOKEN_KEY, token),
-  clear: (): void => localStorage.removeItem(TOKEN_KEY),
-};
+export function clearLegacyAuthStorage(): void {
+  try {
+    localStorage.removeItem('foodie_jwt_token_v1');
+    localStorage.removeItem('foodie_auth_user_v4');
+    localStorage.removeItem('foodie_auth_user');
+  } catch {}
+}
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = tokenStorage.get();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
   const primaryUrl = `${API_BASE_URL}${endpoint}`;
   let response: Response;
@@ -41,6 +37,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   try {
     response = await fetch(primaryUrl, {
       ...options,
+      credentials: 'include',
       headers,
     });
   } catch (fetchErr: any) {
@@ -53,6 +50,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       try {
         response = await fetch(fallbackUrl, {
           ...options,
+          credentials: 'include',
           headers,
         });
       } catch {
@@ -79,15 +77,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
-      const activeToken = tokenStorage.get();
-      // Only clear storage and redirect if the 401 corresponds to the active session
-      if (token && activeToken === token) {
-        tokenStorage.clear();
-        try {
-          localStorage.removeItem('foodie_auth_user_v4');
-          localStorage.removeItem('foodie_auth_user');
-        } catch {}
-        if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+      clearLegacyAuthStorage();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('foodie:unauthorized'));
+        if (!endpoint.includes('/auth/me') && !endpoint.includes('/auth/logout') && !window.location.pathname.includes('/login')) {
           const isExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
           const expiredEmail = sessionStorage.getItem('foodie_expired_email');
           const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
@@ -136,20 +129,19 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // AUTHENTICATION API (JWT Based)
 // ----------------------------------------------------------------------------
 export const authApi = {
-  login: async (email: string, password: string): Promise<{ token: string; user: User }> => {
-    const res = await request<{ token: string; user: User }>('/auth/login', {
+  login: async (email: string, password: string): Promise<{ user: User; expires_at?: string | null }> => {
+    clearLegacyAuthStorage();
+    return request<{ user: User; expires_at?: string | null }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    tokenStorage.set(res.token);
-    return res;
   },
 
-  getMe: async (): Promise<User> => {
-    return request<User>('/auth/me');
+  getMe: async (): Promise<User & { expires_at?: string | null }> => {
+    return request<User & { expires_at?: string | null }>('/auth/me');
   },
 
-  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; email: string; expires_in_minutes: number; reset_url?: string }> => {
+  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; expires_in_minutes: number }> => {
     return request('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
@@ -171,24 +163,13 @@ export const authApi = {
   },
 
   logout: async () => {
-    const departingToken = tokenStorage.get();
-    tokenStorage.clear();
+    clearLegacyAuthStorage();
     try {
-      localStorage.removeItem('foodie_auth_user_v4');
-      localStorage.removeItem('foodie_auth_user');
-    } catch {}
-
-    if (departingToken) {
-      try {
-        await request<any>('/auth/logout', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${departingToken}`,
-          },
-        });
-      } catch {
-        // Ignored if offline or token already expired
-      }
+      await request<any>('/auth/logout', {
+        method: 'POST',
+      });
+    } catch {
+      // Ignored if offline or cookie already expired
     }
   },
 };
