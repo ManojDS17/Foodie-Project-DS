@@ -459,13 +459,16 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                 if is_same_org and clean_email != target_current_email:
                     cur.execute("UPDATE organizations SET email = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (clean_email, target_org_id))
 
+        has_phone_update = "phone_number" in payload.model_fields_set
+        clean_phone = payload.phone_number.strip() if payload.phone_number else None
+
         cur.execute("""
             UPDATE users
             SET first_name = COALESCE(%s, first_name),
                 last_name = COALESCE(%s, last_name),
                 email = COALESCE(%s, email),
                 role = COALESCE(%s, role),
-                phone_number = %s,
+                phone_number = CASE WHEN %s IS TRUE THEN %s ELSE phone_number END,
                 is_active = COALESCE(%s, is_active),
                 updated_by = %s,
                 updated_at = CURRENT_TIMESTAMP
@@ -476,7 +479,8 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
             payload.last_name.strip() if payload.last_name else None,
             clean_email,
             payload.role,
-            payload.phone_number.strip() if payload.phone_number else None,
+            has_phone_update,
+            clean_phone,
             payload.is_active,
             current_user.get("id"),
             user_id
