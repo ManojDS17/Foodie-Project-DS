@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks';
 
 // Production session idle timeout: strictly 15 minutes (900,000 ms)
 export const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -11,35 +11,53 @@ export const SessionTimeoutTracker: React.FC = () => {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const lastWriteRef = useRef<number>(Date.now());
+  const lastWriteRef = useRef<number>(0);
+  const locationRef = useRef(location);
+  const userEmailRef = useRef<string>(user?.email || '');
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    userEmailRef.current = user?.email || '';
+  }, [user?.email]);
 
   useEffect(() => {
     // Only track idle session timeout when the user is logged in
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      lastWriteRef.current = 0;
+      return;
+    }
 
-    // Initialize last active timestamp on login
-    const initialNow = Date.now();
-    localStorage.setItem(LAST_ACTIVE_KEY, initialNow.toString());
-    lastWriteRef.current = initialNow;
+    const now = Date.now();
+    const existingRaw = localStorage.getItem(LAST_ACTIVE_KEY);
+    const existingParsed = existingRaw ? Number(existingRaw) : NaN;
+    if (!Number.isFinite(existingParsed) || existingParsed <= 0) {
+      localStorage.setItem(LAST_ACTIVE_KEY, now.toString());
+      lastWriteRef.current = now;
+    } else {
+      lastWriteRef.current = existingParsed;
+    }
 
-    // Get effective timeout (supports optional dev override: window.__FOODIE_SESSION_TIMEOUT_MS__)
     const getEffectiveTimeout = (): number => {
       const devOverride = (window as any).__FOODIE_SESSION_TIMEOUT_MS__;
       return typeof devOverride === 'number' && devOverride > 0 ? devOverride : IDLE_TIMEOUT_MS;
     };
 
     const handleExpire = () => {
-      const userEmail = user?.email || '';
-      // Save current page path so user picks up right where they left off upon signing in
-      if (location.pathname && location.pathname !== '/login') {
-        sessionStorage.setItem('foodie_redirect_after_login', location.pathname + location.search);
+      const currentLoc = locationRef.current;
+      const userEmail = userEmailRef.current;
+      if (currentLoc.pathname && currentLoc.pathname !== '/login') {
+        sessionStorage.setItem('foodie_redirect_after_login', currentLoc.pathname + currentLoc.search);
       }
       sessionStorage.setItem('foodie_session_expired', 'true');
+      sessionStorage.removeItem('foodie_signed_out');
       if (userEmail) {
         sessionStorage.setItem('foodie_expired_email', userEmail);
       }
       localStorage.removeItem(LAST_ACTIVE_KEY);
-      logout();
+      logout('session_expired');
       navigate(`/login?view=expired${userEmail ? `&email=${encodeURIComponent(userEmail)}` : ''}`, {
         replace: true,
       });
@@ -49,32 +67,26 @@ export const SessionTimeoutTracker: React.FC = () => {
       const storedTimeStr = localStorage.getItem(LAST_ACTIVE_KEY);
       const lastActive = storedTimeStr ? Number(storedTimeStr) : Date.now();
       const elapsed = Date.now() - lastActive;
-      const timeoutLimit = getEffectiveTimeout();
-
-      if (elapsed >= timeoutLimit) {
+      if (elapsed >= getEffectiveTimeout()) {
         handleExpire();
       }
     };
 
-    // Throttled activity recorder across all user interactions
     const recordUserActivity = () => {
-      const now = Date.now();
-      if (now - lastWriteRef.current > THROTTLE_INTERVAL_MS) {
-        lastWriteRef.current = now;
-        localStorage.setItem(LAST_ACTIVE_KEY, now.toString());
+      const ts = Date.now();
+      if (ts - lastWriteRef.current > THROTTLE_INTERVAL_MS) {
+        lastWriteRef.current = ts;
+        localStorage.setItem(LAST_ACTIVE_KEY, ts.toString());
       }
     };
 
-    // High-fidelity user interaction listeners (keyboard, mouse, touch, scroll)
     const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
     activityEvents.forEach((event) => {
       window.addEventListener(event, recordUserActivity, { passive: true });
     });
 
-    // Check periodically every 5 seconds
     const intervalId = window.setInterval(checkInactivity, 5000);
 
-    // Cross-tab synchronization via storage event
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === LAST_ACTIVE_KEY && e.newValue) {
         lastWriteRef.current = Number(e.newValue);
@@ -82,7 +94,6 @@ export const SessionTimeoutTracker: React.FC = () => {
     };
     window.addEventListener('storage', handleStorageChange);
 
-    // Immediate check when waking from system sleep or switching back to the tab
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === 'visible') {
         checkInactivity();
@@ -100,7 +111,7 @@ export const SessionTimeoutTracker: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [isAuthenticated, user, logout, navigate, location]);
+  }, [isAuthenticated, logout, navigate]);
 
   return null;
 };

@@ -32,19 +32,19 @@ export const AuthHero: React.FC<AuthHeroProps> = ({
         <img
           src={BRAND_ASSETS.foodieLogo}
           alt="Foodie Logo"
-          className="h-8 xl:h-9 w-auto object-contain brightness-0 invert drop-shadow-sm"
+          className="h-10 xl:h-11 w-auto object-contain brightness-0 invert drop-shadow-sm"
         />
       </div>
 
       {/* Bottom Left Hero Copy */}
       <div className="relative z-10 max-w-lg">
-        <h1 className="text-2xl sm:text-3xl xl:text-4xl font-extrabold text-white tracking-tight leading-tight mb-3 drop-shadow-md">
+        <h1 className="text-2xl sm:text-3xl xl:text-4xl font-semibold text-white tracking-tight leading-tight mb-3 drop-shadow-md">
           {headline}
         </h1>
-        <div className="text-xs sm:text-sm font-bold text-white tracking-wide drop-shadow-sm">
+        <div className="text-xs sm:text-sm font-semibold text-white tracking-wide drop-shadow-sm">
           {subHeadline}
         </div>
-        <p className="text-[11px] sm:text-xs text-white/80 mt-1 font-medium leading-relaxed drop-shadow-sm">
+        <p className="text-xs text-white/90 mt-1 font-normal leading-relaxed drop-shadow-sm">
           {descriptor}
         </p>
       </div>

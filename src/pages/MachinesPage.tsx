@@ -1,14 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Search,
   Plus,
   SlidersHorizontal,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  MoreHorizontal,
   Eye,
   Edit2,
   Trash2,
@@ -16,28 +11,47 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { machinesApi, orgsApi } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { AddMachineDrawer } from '../components/machines/AddMachineDrawer';
-import { MachineDetailDrawer } from '../components/machines/MachineDetailDrawer';
-import { EditMachineDrawer } from '../components/machines/EditMachineDrawer';
+import {
+  machinesApi,
+  orgsApi,
+  formatDate,
+  formatMachineLocation as formatLocation,
+} from '../services/api';
+import { useAuth } from '../hooks';
+import { AddMachineView } from '../components/machines/AddMachineView';
+import { MachineDetailView } from '../components/machines/MachineDetailView';
+import { EditMachineView } from '../components/machines/EditMachineView';
 import { DeleteMachineModal } from '../components/machines/DeleteMachineModal';
-import { Toast } from '../components/common/Toast';
+import { RowActionMenu, PaginationBar } from '../components/common/RowActionMenu';
+import { Button } from '../components/common/ui';
+import { Toast, LoadErrorBanner } from '../components/common/Toast';
 import type { Machine, Organization } from '../types';
+
+const fetchMachinesPageBundle = async (isOem: boolean, signal?: AbortSignal) => {
+  const [machineList, orgList] = await Promise.all([
+    machinesApi.getAll(undefined, signal),
+    isOem ? orgsApi.getAll(undefined, signal) : Promise.resolve([]),
+  ]);
+  return { machineList, orgList };
+};
 
 export const MachinesPage: React.FC = () => {
   const { user } = useAuth();
   const isOem = user?.role === 'OEM_MANAGER';
-  const [searchParams] = useSearchParams();
+  const isOperator = user?.role === 'OPERATOR';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlSearchQuery = searchParams.get('search') || searchParams.get('q') || '';
 
   // Live PostgreSQL Data States
   const [machines, setMachines] = useState<Machine[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
 
   // Search & Filter States
-  const [searchQuery, setSearchQuery] = useState('');
+  const [prevUrlSearch, setPrevUrlSearch] = useState(urlSearchQuery);
+  const [searchQuery, setSearchQuery] = useState(() => urlSearchQuery);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [clientFilter, setClientFilter] = useState<string>('All clients');
   const [locationFilter, setLocationFilter] = useState<string>('All locations');
@@ -46,7 +60,16 @@ export const MachinesPage: React.FC = () => {
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('foodie_rows_per_page');
+      if (saved) {
+        const parsed = Number(saved);
+        if ([5, 10, 20, 25, 50, 100].includes(parsed)) return parsed;
+      }
+    } catch {}
+    return 10;
+  });
 
   // Row Actions Dropdown Menu State
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -59,47 +82,129 @@ export const MachinesPage: React.FC = () => {
   const [deletingMachine, setDeletingMachine] = useState<Machine | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Load live data from PostgreSQL API
-  const fetchData = async () => {
-    setIsLoading(true);
+  // Load live data from PostgreSQL API (only fetch organizations for OEM_MANAGER to prevent Operator 403s)
+  const fetchData = useCallback(async (showSpinner = false, signal?: AbortSignal) => {
+    if (showSpinner) setIsLoading(true);
     try {
-      const [machineList, orgList] = await Promise.all([
-        machinesApi.getAll().catch(() => []),
-        orgsApi.getAll().catch(() => []),
-      ]);
+      const { machineList, orgList } = await fetchMachinesPageBundle(isOem, signal);
+      if (signal?.aborted) return;
       setMachines(machineList);
       setOrganizations(orgList);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to load fleet machines data:', err);
+      setLoadError(err?.message || 'Unable to load fleet machines. Please try again.');
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
-  };
+  }, [isOem]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    const controller = new AbortController();
+    fetchMachinesPageBundle(isOem, controller.signal)
+      .then(({ machineList, orgList }) => {
+        if (controller.signal.aborted) return;
+        setMachines(machineList);
+        setOrganizations(orgList);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Failed to load fleet machines data:', err);
+        setLoadError(err?.message || 'Unable to load fleet machines. Please try again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, [isOem]);
 
+  // Reset drawer views to show the machines list when clicking Machines in left menu
   useEffect(() => {
-    const q = searchParams.get('search') || searchParams.get('serial') || searchParams.get('q');
-    if (q) {
-      setSearchQuery(q);
+    const handleResetView = () => {
+      setSelectedMachine(null);
+      setEditingMachine(null);
+      setIsAddMachineOpen(false);
+      setDeletingMachine(null);
+      setSearchParams({});
+    };
+
+    window.addEventListener('foodie:reset-machines-view', handleResetView);
+    return () => window.removeEventListener('foodie:reset-machines-view', handleResetView);
+  }, [setSearchParams]);
+
+  if (urlSearchQuery !== prevUrlSearch) {
+    setPrevUrlSearch(urlSearchQuery);
+    if (urlSearchQuery) {
+      setSearchQuery(urlSearchQuery);
     }
-  }, [searchParams]);
+  }
 
-  useEffect(() => {
-    const targetSerial = searchParams.get('serial') || searchParams.get('search');
-    if (targetSerial && machines.length > 0) {
-      const found = machines.find(
+  const targetMachineParam = searchParams.get('select') || searchParams.get('serial');
+  const [prevTargetMachineParam, setPrevTargetMachineParam] = useState<string | null>(targetMachineParam);
+
+  if (targetMachineParam !== prevTargetMachineParam) {
+    setPrevTargetMachineParam(targetMachineParam);
+    if (!targetMachineParam) {
+      setSelectedMachine(null);
+    } else {
+      setIsAddMachineOpen(false);
+      setEditingMachine(null);
+      setDeletingMachine(null);
+      const cached = machines.find(
         (m) =>
-          (m.serial_number && m.serial_number.toLowerCase() === targetSerial.toLowerCase()) ||
-          (m.machine_code && m.machine_code.toLowerCase() === targetSerial.toLowerCase())
+          m.id === targetMachineParam ||
+          (m.serial_number && m.serial_number.toLowerCase() === targetMachineParam.toLowerCase()) ||
+          (m.machine_code && m.machine_code.toLowerCase() === targetMachineParam.toLowerCase())
       );
-      if (found) {
-        setSelectedMachine(found);
+      if (cached) {
+        setSelectedMachine(cached);
       }
     }
-  }, [searchParams, machines]);
+  }
+
+  useEffect(() => {
+    if (!targetMachineParam) return;
+    let isActive = true;
+
+    machinesApi
+      .getById(targetMachineParam)
+      .then((verified) => {
+        if (!isActive) return;
+        setSelectedMachine(verified);
+        setMachines((prev) =>
+          prev.map((m) => (m.id === verified.id ? verified : m))
+        );
+      })
+      .catch((err: any) => {
+        if (!isActive) return;
+        setSelectedMachine(null);
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('select');
+          next.delete('serial');
+          return next;
+        });
+        setToast({
+          message: err?.message || 'Access denied: Machine not found or unauthorized.',
+          type: 'error',
+        });
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [targetMachineParam, setSearchParams]);
+
+  const handleSelectMachine = (machine: Machine) => {
+    setSelectedMachine(machine);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('select', machine.id);
+      return next;
+    });
+  };
 
   // Click outside listener for the row action menu
   useEffect(() => {
@@ -124,39 +229,19 @@ export const MachinesPage: React.FC = () => {
     (m) => (m.operational_status || '').toLowerCase() === 'maintenance'
   ).length;
 
-  // Date Formatter: "19 May 2026"
-  const formatDate = (dateStr?: string | null): string => {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
-  // Location Formatter
-  const formatLocation = (machine: Machine): string => {
-    if (machine.location_label && machine.location_label.trim()) {
-      return machine.location_label;
-    }
-    if (machine.site_name) {
-      const parts = machine.site_name.split('—').map((s) => s.trim());
-      return parts[parts.length - 1] || machine.site_name;
-    }
-    return '—';
-  };
-
   // Unique locations / sites from fleet
   const uniqueLocations = useMemo(() => {
     const locSet = new Set<string>();
     machines.forEach((m) => {
-      if (m.site_name) locSet.add(m.site_name);
-      else if (m.location_label) locSet.add(m.location_label);
+      const isAssigned = Boolean(m.organization_id);
+      if (isAssigned) {
+        if (m.lease_location_label?.trim()) locSet.add(m.lease_location_label.trim());
+      } else if (isOem) {
+        if (m.location_label?.trim()) locSet.add(m.location_label.trim());
+      }
     });
     return Array.from(locSet).filter(Boolean);
-  }, [machines]);
+  }, [machines, isOem]);
 
   // Filter Pipeline
   const filteredMachines = useMemo(() => {
@@ -168,6 +253,7 @@ export const MachinesPage: React.FC = () => {
       const model = (machine.model || '').toLowerCase();
       const client = (machine.company_name || '').toLowerCase();
       const location = (machine.location_label || '').toLowerCase();
+      const leaseLocation = (machine.lease_location_label || '').toLowerCase();
       const site = (machine.site_name || '').toLowerCase();
 
       const matchesSearch =
@@ -177,6 +263,7 @@ export const MachinesPage: React.FC = () => {
         model.includes(q) ||
         client.includes(q) ||
         location.includes(q) ||
+        leaseLocation.includes(q) ||
         site.includes(q);
 
       // 2. Status Filter
@@ -195,10 +282,14 @@ export const MachinesPage: React.FC = () => {
         machine.organization_id === clientFilter;
 
       // 4. Site / Location Filter (Site wise)
+      const effectiveLoc = machine.organization_id
+        ? (machine.lease_location_label || '').toLowerCase()
+        : isOem
+        ? (machine.location_label || '').toLowerCase()
+        : '';
       const matchesLocation =
         locationFilter === 'All locations' ||
-        (machine.site_name && machine.site_name.toLowerCase().includes(locationFilter.toLowerCase())) ||
-        (machine.location_label && machine.location_label.toLowerCase().includes(locationFilter.toLowerCase()));
+        effectiveLoc.includes(locationFilter.toLowerCase());
 
       // 5. Model Filter
       const matchesModel =
@@ -225,6 +316,7 @@ export const MachinesPage: React.FC = () => {
     clientFilter,
     locationFilter,
     modelFilter,
+    isOem,
   ]);
 
   // Pagination Slice
@@ -235,8 +327,8 @@ export const MachinesPage: React.FC = () => {
   const paginatedMachines = filteredMachines.slice(startIndex, endIndex);
 
   // Soft Delete handler
-  const handleConfirmDelete = async () => {
-    if (!deletingMachine) return;
+  const handleConfirmDelete = async (): Promise<boolean> => {
+    if (!deletingMachine) return false;
     setIsDeleting(true);
     try {
       await machinesApi.delete(deletingMachine.id);
@@ -245,22 +337,124 @@ export const MachinesPage: React.FC = () => {
         setSelectedMachine(null);
       }
       setDeletingMachine(null);
-    } catch (err) {
+      setToast({
+        message: 'Machine removed from fleet inventory successfully.',
+        type: 'info',
+      });
+      return true;
+    } catch (err: any) {
       console.error('Failed to soft delete machine:', err);
+      setToast({
+        message: err?.message || 'Failed to delete machine. Machines assigned to clients cannot be removed.',
+        type: 'error',
+      });
+      return false;
     } finally {
       setIsDeleting(false);
     }
   };
+
+  if (isAddMachineOpen) {
+    return (
+      <div className="select-none">
+        <AddMachineView
+          onBack={() => setIsAddMachineOpen(false)}
+          onSuccess={(newMachine) => {
+            setMachines((prev) => [newMachine, ...prev]);
+            setIsAddMachineOpen(false);
+            setToast({
+              message: `Machine ${newMachine.serial_number || newMachine.machine_code} added successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (editingMachine) {
+    return (
+      <div className="select-none">
+        <EditMachineView
+          machine={editingMachine}
+          organizations={organizations}
+          onBack={() => setEditingMachine(null)}
+          onSuccess={(updated) => {
+            setMachines((prev) =>
+              prev.map((m) => (m.id === updated.id ? updated : m))
+            );
+            if (selectedMachine && selectedMachine.id === updated.id) {
+              setSelectedMachine(updated);
+            }
+            setEditingMachine(null);
+            setToast({
+              message: `Machine ${updated.serial_number || updated.machine_code} updated successfully!`,
+              type: 'success',
+            });
+          }}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (selectedMachine) {
+    return (
+      <div className="select-none">
+        <MachineDetailView
+          machine={selectedMachine}
+          onBack={() => {
+            setSelectedMachine(null);
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete('select');
+              next.delete('serial');
+              return next;
+            });
+          }}
+          onEdit={(m) => setEditingMachine(m)}
+          onDelete={(m) => setDeletingMachine(m)}
+        />
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+        <DeleteMachineModal
+          isOpen={!!deletingMachine}
+          machine={deletingMachine}
+          onClose={() => setDeletingMachine(null)}
+          onConfirm={handleConfirmDelete}
+          isDeleting={isDeleting}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] mx-auto pb-10">
       {/* 1. Header Area */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#171717] tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
             {isOem ? 'All machines' : 'My machines'}
           </h1>
-          <p className="text-xs text-[#888888] mt-0.5">
+          <p className="text-xs text-foreground-dim mt-0.5">
             {isOem
               ? 'Every Foodie machine across all clients.'
               : `Commercial composter units assigned to ${user?.company_name || 'your facility'}.`}
@@ -270,58 +464,62 @@ export const MachinesPage: React.FC = () => {
         {/* Action Button: + Add machine (OEM only) */}
         {isOem && (
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="md"
               onClick={() => setIsAddMachineOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-[#E32032] hover:bg-[#C1121F] text-white transition-all cursor-pointer shadow-2xs"
+              leftIcon={<Plus className="w-3.5 h-3.5 text-white" />}
             >
-              <Plus className="w-3.5 h-3.5 text-white" />
-              <span>Add machine</span>
-            </button>
+              Add machine
+            </Button>
           </div>
         )}
       </div>
 
+      {loadError && (
+        <LoadErrorBanner message={loadError} onRetry={() => fetchData(true)} />
+      )}
+
       {/* 2. Top Metric Status Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
         {/* Card 1: Total Machines */}
-        <div className="bg-white rounded-xl border border-[#E3E4E6] p-4 flex items-center shadow-xs">
-          <span className="text-2xl font-extrabold text-[#171717] tracking-tight">
+        <div className="bg-white rounded-xl border border-border-subtle p-4 flex items-center shadow-xs">
+          <span className="text-2xl font-extrabold text-foreground tracking-tight">
             {totalCount}
           </span>
-          <span className="text-xs text-[#6B7280] font-medium ml-2.5">
+          <span className="text-xs text-foreground-muted font-medium ml-2.5">
             Machines
           </span>
         </div>
 
         {/* Card 2: Running Machines */}
-        <div className="bg-white rounded-xl border border-[#E3E4E6] p-4 flex items-center shadow-xs">
-          <span className="text-2xl font-extrabold text-[#171717] tracking-tight">
+        <div className="bg-white rounded-xl border border-border-subtle p-4 flex items-center shadow-xs">
+          <span className="text-2xl font-extrabold text-foreground tracking-tight">
             {runningCount}
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EAFBF1] text-[#0A7135] border border-[#B7F4CE] ml-2.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#00C951]" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-status-running-bg text-status-running-text border border-status-running-dot/30 ml-2.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot" />
             <span>Running</span>
           </span>
         </div>
 
         {/* Card 3: Idle Machines */}
-        <div className="bg-white rounded-xl border border-[#E3E4E6] p-4 flex items-center shadow-xs">
-          <span className="text-2xl font-extrabold text-[#171717] tracking-tight">
+        <div className="bg-white rounded-xl border border-border-subtle p-4 flex items-center shadow-xs">
+          <span className="text-2xl font-extrabold text-foreground tracking-tight">
             {idleCount}
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A] ml-2.5">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-status-idle-bg text-status-idle-text border border-status-idle-dot/30 ml-2.5">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
             <span>Idle</span>
           </span>
         </div>
 
         {/* Card 4: Maintenance Machines */}
-        <div className="bg-white rounded-xl border border-[#E3E4E6] p-4 flex items-center shadow-xs">
-          <span className="text-2xl font-extrabold text-[#171717] tracking-tight">
+        <div className="bg-white rounded-xl border border-border-subtle p-4 flex items-center shadow-xs">
+          <span className="text-2xl font-extrabold text-foreground tracking-tight">
             {maintenanceCount}
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] ml-2.5">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-status-maint-bg text-status-maint-text border border-status-maint-dot/30 ml-2.5">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
             <span>Maintenance</span>
           </span>
@@ -329,11 +527,11 @@ export const MachinesPage: React.FC = () => {
       </div>
 
       {/* 3. Search & Filter Bar Container */}
-      <div className="bg-white rounded-xl border border-[#E3E4E6] p-3 shadow-xs flex flex-col gap-3">
+      <div className="bg-white rounded-xl border border-border-subtle p-3 shadow-xs flex flex-col gap-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Search Input */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-foreground-subtle absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
@@ -342,13 +540,13 @@ export const MachinesPage: React.FC = () => {
                 setCurrentPage(1);
               }}
               placeholder="Search serial number, client or model"
-              className="w-full pl-9 pr-3.5 py-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] text-[#171717] placeholder-[#9CA3AF] text-xs focus:outline-none focus:border-[#171717] focus:bg-white transition-all"
+              className="w-full pl-9 pr-3.5 py-2 rounded-lg border border-border-default bg-surface-muted text-foreground placeholder:text-foreground-subtle text-xs focus:outline-none focus:border-foreground focus:bg-white transition-all"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#171717] cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-subtle hover:text-foreground cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -359,34 +557,33 @@ export const MachinesPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             {/* Status Dropdown */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[#6B7280] font-medium text-[11px]">Status</span>
+              <span className="text-foreground-muted font-medium text-[11px]">Status</span>
               <select
                 value={statusFilter}
                 onChange={(e) => {
                   setStatusFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="px-2.5 py-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none focus:border-[#171717]"
+                className="px-2.5 py-1.5 rounded-lg border border-border-default bg-white text-foreground font-semibold text-xs cursor-pointer focus:outline-none focus:border-foreground"
               >
                 <option value="All">All</option>
                 <option value="Running">Running</option>
                 <option value="Idle">Idle</option>
                 <option value="Maintenance">Maintenance</option>
-                <option value="Offline">Offline</option>
               </select>
             </div>
 
             {/* Client Dropdown (OEM only) */}
             {isOem && (
               <div className="flex items-center gap-1.5">
-                <span className="text-[#6B7280] font-medium text-[11px]">Client</span>
+                <span className="text-foreground-muted font-medium text-[11px]">Client</span>
                 <select
                   value={clientFilter}
                   onChange={(e) => {
                     setClientFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none focus:border-[#171717] max-w-[180px] truncate"
+                  className="px-2.5 py-1.5 rounded-lg border border-border-default bg-white text-foreground font-semibold text-xs cursor-pointer focus:outline-none focus:border-foreground max-w-[180px] truncate"
                 >
                   <option value="All clients">All clients</option>
                   {organizations.map((org) => (
@@ -400,14 +597,14 @@ export const MachinesPage: React.FC = () => {
 
             {/* Location Dropdown (Site / Location wise) */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[#6B7280] font-medium text-[11px]">Location</span>
+              <span className="text-foreground-muted font-medium text-[11px]">Location</span>
               <select
                 value={locationFilter}
                 onChange={(e) => {
                   setLocationFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="px-2.5 py-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none focus:border-[#171717] max-w-[180px] truncate"
+                className="px-2.5 py-1.5 rounded-lg border border-border-default bg-white text-foreground font-semibold text-xs cursor-pointer focus:outline-none focus:border-foreground max-w-[180px] truncate"
               >
                 <option value="All locations">All locations</option>
                 {uniqueLocations.map((loc) => (
@@ -421,11 +618,12 @@ export const MachinesPage: React.FC = () => {
             {/* More filters Button */}
             <button
               type="button"
-              onClick={() => setShowMoreFilters(!showMoreFilters)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                showMoreFilters
-                  ? 'border-[#171717] bg-[#171717] text-white'
-                  : 'border-[#E5E7EB] bg-white text-[#171717] hover:bg-[#F9FAFB]'
+              onClick={() => setShowMoreFilters((prev) => !prev)}
+              aria-expanded={showMoreFilters}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs cursor-pointer select-none transition-colors ${
+                showMoreFilters || modelFilter !== 'All'
+                  ? 'border-primary bg-primary-light text-primary'
+                  : 'border-border-default bg-white hover:bg-surface-subtle text-foreground'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -436,9 +634,9 @@ export const MachinesPage: React.FC = () => {
 
         {/* Expandable More Filters Row */}
         {showMoreFilters && (
-          <div className="pt-3 border-t border-[#F3F4F6] flex flex-wrap items-center gap-4 text-xs animate-in slide-in-from-top-2 duration-200">
+          <div className="pt-3 border-t border-surface-hover flex flex-wrap items-center gap-4 text-xs animate-in slide-in-from-top-2 duration-200">
             <div className="flex items-center gap-2">
-              <span className="text-[#6B7280] font-medium">Model filter:</span>
+              <span className="text-foreground-muted font-medium">Model filter:</span>
               <div className="flex items-center gap-1.5">
                 {['All', 'Foodie F25', 'Foodie F100', 'Foodie F500', 'Foodie F1000'].map((m) => (
                   <button
@@ -450,8 +648,8 @@ export const MachinesPage: React.FC = () => {
                     }}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
                       modelFilter === m
-                        ? 'bg-[#E32032] text-white'
-                        : 'bg-[#F3F4F6] text-[#4B5563] hover:bg-[#E5E7EB]'
+                        ? 'bg-primary text-white'
+                        : 'bg-surface-hover text-foreground-body hover:bg-border-default'
                     }`}
                   >
                     {m}
@@ -463,7 +661,7 @@ export const MachinesPage: React.FC = () => {
             {(searchQuery ||
               statusFilter !== 'All' ||
               clientFilter !== 'All clients' ||
-              locationFilter !== 'All states' ||
+              locationFilter !== 'All locations' ||
               modelFilter !== 'All') && (
               <button
                 type="button"
@@ -471,11 +669,11 @@ export const MachinesPage: React.FC = () => {
                   setSearchQuery('');
                   setStatusFilter('All');
                   setClientFilter('All clients');
-                  setLocationFilter('All states');
+                  setLocationFilter('All locations');
                   setModelFilter('All');
                   setCurrentPage(1);
                 }}
-                className="text-xs text-[#E32032] font-semibold hover:underline cursor-pointer ml-auto"
+                className="text-xs text-primary font-semibold hover:underline cursor-pointer ml-auto"
               >
                 Reset all filters
               </button>
@@ -484,15 +682,140 @@ export const MachinesPage: React.FC = () => {
         )}
       </div>
 
-      {/* 4. Machines Main Data Table */}
-      <div className="bg-white rounded-xl border border-[#E3E4E6] shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+      {/* 4. Machines Main Data Table & Mobile Cards */}
+      <div className="bg-white rounded-xl border border-border-subtle shadow-xs overflow-hidden">
+        {/* Mobile View: Dedicated Thumb-Friendly Machine Cards (< md) */}
+        <div className="md:hidden divide-y divide-surface-hover">
+          {isLoading ? (
+            <div className="py-10 text-center text-foreground-muted">
+              <div className="flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+                <span>Loading fleet machines from database...</span>
+              </div>
+            </div>
+          ) : paginatedMachines.length === 0 ? (
+            <div className="py-10 text-center text-foreground-muted px-4">
+              <Cpu className="w-8 h-8 text-foreground-subtle mx-auto mb-2" />
+              <p className="font-bold text-foreground">No machines match current filters</p>
+              <p className="text-xs text-foreground-dim mt-1">
+                Try clearing search or adjusting your status, client, or location dropdowns.
+              </p>
+            </div>
+          ) : (
+            paginatedMachines.map((m) => {
+              const isOnline = m.connectivity_status?.toLowerCase() === 'online';
+              const opStatus = m.operational_status || 'Idle';
+
+              return (
+                <div
+                  key={m.id}
+                  className="p-3.5 hover:bg-surface-muted transition-colors flex flex-col gap-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectMachine(m)}
+                        className="font-mono font-bold text-sm text-primary underline hover:text-primary-hover cursor-pointer text-left"
+                      >
+                        {m.machine_code || m.serial_number}
+                      </button>
+                      <div className="text-xs font-semibold text-foreground mt-0.5">
+                        {m.model} {m.capacity ? `· ${m.capacity}` : ''}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          isOnline
+                            ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
+                            : 'bg-surface-hover text-foreground-body border-border-default'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            isOnline ? 'bg-status-running-dot' : 'bg-foreground-subtle'
+                          }`}
+                        />
+                        <span>{isOnline ? 'Online' : 'Offline'}</span>
+                      </span>
+
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          opStatus === 'Running'
+                            ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
+                            : opStatus === 'Idle'
+                            ? 'bg-status-idle-bg text-status-idle-text border-status-idle-dot/30'
+                            : opStatus === 'Maintenance'
+                            ? 'bg-status-maint-bg text-status-maint-text border-status-maint-dot/30'
+                            : 'bg-surface-hover text-foreground-body border-border-default'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            opStatus === 'Running'
+                              ? 'bg-status-running-dot'
+                              : opStatus === 'Idle'
+                              ? 'bg-amber-500'
+                              : opStatus === 'Maintenance'
+                              ? 'bg-blue-500'
+                              : 'bg-foreground-subtle'
+                          }`}
+                        />
+                        <span>{opStatus}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-foreground-muted">
+                    {isOem ? (
+                      <span>Client: <strong className="text-foreground">{m.company_name || 'Unassigned'}</strong></span>
+                    ) : isOperator ? (
+                      <span>Total batches: <strong className="text-foreground">{m.total_batches ?? '—'}</strong></span>
+                    ) : null}
+                    <span>{formatLocation(m)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-surface-hover">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectMachine(m)}
+                      className="px-3 py-1.5 rounded-lg border border-border-strong text-xs font-semibold text-foreground hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-foreground-muted" />
+                      <span>View details</span>
+                    </button>
+                    {isOem && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingMachine(m)}
+                        className="px-3 py-1.5 rounded-lg border border-border-strong text-xs font-semibold text-foreground hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-foreground-muted" />
+                        <span>Edit</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop / Tablet View: Full Table (>= md) */}
+        <div className="hidden md:block overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <table className="w-full text-left border-collapse text-xs min-w-[750px]">
             <thead>
-              <tr className="border-b border-[#E5E7EB] bg-[#F9FAFB] text-[11px] font-bold text-[#6B7280]">
+              <tr className="border-b border-border-default bg-surface-muted text-[11px] font-bold text-foreground-muted">
                 <th className="py-3 px-4 font-semibold">Serial Number</th>
                 <th className="py-3 px-4 font-semibold">Model</th>
-                <th className="py-3 px-4 font-semibold">Client</th>
+                {isOem && (
+                  <th className="py-3 px-4 font-semibold">Client</th>
+                )}
+                {isOperator && (
+                  <th className="py-3 px-4 font-semibold">Total batches</th>
+                )}
                 <th className="py-3 px-4 font-semibold">Location</th>
                 <th className="py-3 px-4 font-semibold">Lease start date</th>
                 <th className="py-3 px-4 font-semibold">Connectivity</th>
@@ -500,22 +823,22 @@ export const MachinesPage: React.FC = () => {
                 <th className="py-3 px-4 font-semibold text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#F3F4F6]">
+            <tbody className="divide-y divide-surface-hover">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-[#6B7280]">
+                  <td colSpan={isOem || isOperator ? 8 : 7} className="py-12 text-center text-foreground-muted">
                     <div className="flex items-center justify-center gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-[#E32032]" />
+                      <RefreshCw className="w-4 h-4 animate-spin text-primary" />
                       <span>Loading fleet machines from database...</span>
                     </div>
                   </td>
                 </tr>
               ) : paginatedMachines.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-[#6B7280]">
-                    <Cpu className="w-8 h-8 text-[#CBD5E1] mx-auto mb-2" />
-                    <p className="font-bold text-[#171717]">No machines match current filters</p>
-                    <p className="text-xs text-[#888888] mt-1">
+                  <td colSpan={isOem || isOperator ? 8 : 7} className="py-12 text-center text-foreground-muted">
+                    <Cpu className="w-8 h-8 text-foreground-subtle mx-auto mb-2" />
+                    <p className="font-bold text-foreground">No machines match current filters</p>
+                    <p className="text-xs text-foreground-dim mt-1">
                       Try clearing search or adjusting your status, client, or location dropdowns.
                     </p>
                   </td>
@@ -528,14 +851,14 @@ export const MachinesPage: React.FC = () => {
                   return (
                     <tr
                       key={m.id}
-                      className="hover:bg-[#F9FAFB] transition-colors"
+                      className="hover:bg-surface-muted transition-colors"
                     >
                       {/* Serial Number (Clickable in red underline) */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => setSelectedMachine(m)}
-                          className="font-bold text-[#E32032] underline hover:text-[#C1121F] cursor-pointer whitespace-nowrap font-mono inline-block"
+                          onClick={() => handleSelectMachine(m)}
+                          className="font-bold text-primary underline hover:text-primary-hover cursor-pointer whitespace-nowrap font-mono inline-block"
                         >
                           {m.machine_code || m.serial_number}
                         </button>
@@ -543,26 +866,35 @@ export const MachinesPage: React.FC = () => {
 
                       {/* Model & Capacity */}
                       <td className="py-3 px-4">
-                        <div className="font-bold text-[#171717]">{m.model}</div>
+                        <div className="font-bold text-foreground">{m.model}</div>
                         {m.capacity && (
-                          <div className="text-[11px] text-[#6B7280] mt-0.5">
+                          <div className="text-[11px] text-foreground-muted mt-0.5">
                             {m.capacity}
                           </div>
                         )}
                       </td>
 
-                      {/* Client */}
-                      <td className="py-3 px-4 font-bold text-[#171717]">
-                        {m.company_name || 'Unassigned'}
-                      </td>
+                      {/* Client (OEM only) */}
+                      {isOem && (
+                        <td className="py-3 px-4 font-bold text-foreground">
+                          {m.company_name || 'Unassigned'}
+                        </td>
+                      )}
+
+                      {/* Total Batches (Operator only) */}
+                      {isOperator && (
+                        <td className="py-3 px-4 font-semibold text-foreground">
+                          {m.total_batches ?? '—'}
+                        </td>
+                      )}
 
                       {/* Location */}
-                      <td className="py-3 px-4 text-[#171717]">
+                      <td className="py-3 px-4 text-foreground">
                         {formatLocation(m)}
                       </td>
 
                       {/* Lease start date */}
-                      <td className="py-3 px-4 text-[#171717]">
+                      <td className="py-3 px-4 text-foreground">
                         {formatDate(m.lease_start_date)}
                       </td>
 
@@ -571,13 +903,13 @@ export const MachinesPage: React.FC = () => {
                         <span
                           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
                             isOnline
-                              ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
-                              : 'bg-[#F3F4F6] text-[#4B5563] border-[#E5E7EB]'
+                              ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
+                              : 'bg-surface-hover text-foreground-body border-border-default'
                           }`}
                         >
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
-                              isOnline ? 'bg-[#00C951]' : 'bg-[#9CA3AF]'
+                              isOnline ? 'bg-status-running-dot' : 'bg-foreground-subtle'
                             }`}
                           />
                           <span>{isOnline ? 'Online' : 'Offline'}</span>
@@ -589,23 +921,23 @@ export const MachinesPage: React.FC = () => {
                         <span
                           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
                             opStatus === 'Running'
-                              ? 'bg-[#EAFBF1] text-[#0A7135] border-[#B7F4CE]'
+                              ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
                               : opStatus === 'Idle'
-                              ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
+                              ? 'bg-status-idle-bg text-status-idle-text border-status-idle-dot/30'
                               : opStatus === 'Maintenance'
-                              ? 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
-                              : 'bg-[#F3F4F6] text-[#4B5563] border-[#E5E7EB]'
+                              ? 'bg-status-maint-bg text-status-maint-text border-status-maint-dot/30'
+                              : 'bg-surface-hover text-foreground-body border-border-default'
                           }`}
                         >
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
                               opStatus === 'Running'
-                                ? 'bg-[#00C951]'
+                                ? 'bg-status-running-dot'
                                 : opStatus === 'Idle'
                                 ? 'bg-amber-500'
                                 : opStatus === 'Maintenance'
                                 ? 'bg-blue-500'
-                                : 'bg-[#9CA3AF]'
+                                : 'bg-foreground-subtle'
                             }`}
                           />
                           <span>{opStatus}</span>
@@ -614,64 +946,55 @@ export const MachinesPage: React.FC = () => {
 
                       {/* Actions */}
                       <td className="py-3 px-4 text-right">
-                        <div className="relative inline-block text-left" ref={activeMenuId === m.id ? menuContainerRef : undefined}>
+                        <RowActionMenu
+                          isOpen={activeMenuId === m.id}
+                          onToggle={() => setActiveMenuId(activeMenuId === m.id ? null : m.id)}
+                          onClose={() => setActiveMenuId(null)}
+                          buttonAriaLabel={`Actions for ${m.machine_code || m.serial_number}`}
+                          width="w-44"
+                        >
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuId(activeMenuId === m.id ? null : m.id);
+                            onClick={() => {
+                              handleSelectMachine(m);
+                              setActiveMenuId(null);
                             }}
-                            className="p-1 rounded-md text-[#9CA3AF] hover:text-[#171717] hover:bg-[#F3F4F6] transition-colors cursor-pointer"
+                            className="w-full px-3.5 py-2 text-left text-xs font-semibold text-foreground hover:bg-surface-muted flex items-center gap-2.5 cursor-pointer"
                           >
-                            <MoreHorizontal className="w-4 h-4" />
+                            <Eye className="w-3.5 h-3.5 text-foreground-muted" />
+                            <span>View details</span>
                           </button>
 
-                          {activeMenuId === m.id && (
-                            <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-[#E5E7EB] py-1 z-20 animate-in fade-in zoom-in-95 duration-150">
+                          {isOem && (
+                            <>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedMachine(m);
+                                  setEditingMachine(m);
                                   setActiveMenuId(null);
                                 }}
-                                className="w-full px-3 py-2 text-left text-xs font-medium text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer"
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-foreground hover:bg-surface-muted flex items-center gap-2.5 cursor-pointer"
                               >
-                                <Eye className="w-3.5 h-3.5 text-[#6B7280]" />
-                                <span>View details</span>
+                                <Edit2 className="w-3.5 h-3.5 text-foreground-muted" />
+                                <span>Edit machine</span>
                               </button>
 
-                              {isOem && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingMachine(m);
-                                      setActiveMenuId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-medium text-[#171717] hover:bg-[#F9FAFB] flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5 text-[#6B7280]" />
-                                    <span>Edit machine</span>
-                                  </button>
+                              <div className="border-t border-surface-hover my-1" />
 
-                                  <div className="border-t border-[#F3F4F6] my-1" />
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setDeletingMachine(m);
-                                      setActiveMenuId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-medium text-[#E32032] hover:bg-red-50 flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-[#E32032]" />
-                                    <span>Delete machine</span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeletingMachine(m);
+                                  setActiveMenuId(null);
+                                }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-primary hover:bg-red-50 flex items-center gap-2.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-primary" />
+                                <span>Delete machine</span>
+                              </button>
+                            </>
                           )}
-                        </div>
+                        </RowActionMenu>
                       </td>
                     </tr>
                   );
@@ -682,100 +1005,21 @@ export const MachinesPage: React.FC = () => {
         </div>
 
         {/* 5. Pagination & Footer */}
-        <div className="px-5 py-3.5 border-t border-[#E5E7EB] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#6B7280] bg-white select-none">
-          {/* Left Controls: Page input, Rows per page, Showing counter */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span>Page</span>
-              <span className="font-semibold text-[#171717] px-2 py-0.5 rounded border border-[#E5E7EB] bg-[#F9FAFB]">
-                {currentPage}
-              </span>
-              <span>of {totalPages}</span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span>Rows per page</span>
-              <select
-                value={rowsPerPage}
-                onChange={(e) => {
-                  setRowsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="px-2 py-0.5 rounded border border-[#E5E7EB] bg-white text-[#171717] font-semibold text-xs cursor-pointer focus:outline-none"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-              </select>
-            </div>
-
-            <div className="text-[11px] text-[#888888]">
-              Showing {totalItems > 0 ? startIndex + 1 : 0}–{endIndex} of {totalItems} machines
-            </div>
-          </div>
-
-          {/* Right Controls: Numeric Page Buttons with Prev / Next */}
-          <div className="flex items-center gap-1">
-            {/* First Page */}
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(1)}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronsLeft className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Prev Page */}
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Numeric Page Buttons */}
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
-              const isActive = pageNum === currentPage;
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-[#FFF0F0] border border-[#FCA5A5] text-[#E32032] font-bold'
-                      : 'bg-white border border-[#E5E7EB] text-[#171717] hover:bg-[#F9FAFB]'
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-
-            {/* Next Page */}
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Last Page */}
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage(totalPages)}
-              className="p-1.5 rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#171717] hover:bg-[#F9FAFB] disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronsRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        <PaginationBar
+          variant="machines"
+          currentPage={currentPage}
+          totalPages={totalPages}
+          rowsPerPage={rowsPerPage}
+          totalItems={totalItems}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          itemLabel="machines"
+          onPageChange={setCurrentPage}
+          onRowsPerPageChange={(val) => {
+            setRowsPerPage(val);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* Toast Notification Popup */}
@@ -787,59 +1031,11 @@ export const MachinesPage: React.FC = () => {
         />
       )}
 
-      {/* Drawers & Modals */}
-      <AddMachineDrawer
-        isOpen={isAddMachineOpen}
-        onClose={() => setIsAddMachineOpen(false)}
-        onSuccess={(newMachine) => {
-          setMachines((prev) => [newMachine, ...prev]);
-          setToast({
-            message: `Machine ${newMachine.serial_number || newMachine.machine_code} added successfully!`,
-            type: 'success',
-          });
-        }}
-      />
-
-      <MachineDetailDrawer
-        isOpen={!!selectedMachine}
-        machine={selectedMachine}
-        onClose={() => setSelectedMachine(null)}
-        onEdit={(m) => {
-          setSelectedMachine(null);
-          setEditingMachine(m);
-        }}
-        onDelete={(m) => {
-          setSelectedMachine(null);
-          setDeletingMachine(m);
-        }}
-      />
-
-      <EditMachineDrawer
-        isOpen={!!editingMachine}
-        machine={editingMachine}
-        onClose={() => setEditingMachine(null)}
-        onSuccess={(updated) => {
-          setMachines((prev) =>
-            prev.map((m) => (m.id === updated.id ? updated : m))
-          );
-          setToast({
-            message: `Machine ${updated.serial_number || updated.machine_code} updated successfully!`,
-            type: 'success',
-          });
-        }}
-      />
-
       <DeleteMachineModal
         isOpen={!!deletingMachine}
         machine={deletingMachine}
         onClose={() => setDeletingMachine(null)}
-        onConfirm={async () => {
-          await handleConfirmDelete();
-          setToast({
-            message: 'Machine removed from fleet inventory successfully.',
-            type: 'info',
-          });
-        }}
+        onConfirm={handleConfirmDelete}
         isDeleting={isDeleting}
       />
     </div>

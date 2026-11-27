@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Info, RefreshCw, X } from 'lucide-react';
 
 export interface ToastProps {
   message: string;
@@ -22,9 +22,9 @@ export const Toast: React.FC<ToastProps> = ({
   }, [onClose, duration]);
 
   const bgStyles = {
-    success: 'bg-[#0A7135] text-white',
-    error: 'bg-[#E32032] text-white',
-    info: 'bg-[#171717] text-white',
+    success: 'bg-status-running-text text-white',
+    error: 'bg-primary text-white',
+    info: 'bg-foreground text-white',
   };
 
   const icons = {
@@ -52,4 +52,28 @@ export const Toast: React.FC<ToastProps> = ({
     </div>
   );
 };
+
+export interface LoadErrorBannerProps {
+  message: string;
+  onRetry?: () => void;
+}
+
+export const LoadErrorBanner: React.FC<LoadErrorBannerProps> = ({ message, onRetry }) => (
+  <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-3 text-xs text-red-800">
+    <div className="flex items-center gap-2.5 min-w-0">
+      <AlertCircle className="w-4 h-4 text-primary shrink-0" />
+      <span className="font-medium truncate">{message}</span>
+    </div>
+    {onRetry && (
+      <button
+        type="button"
+        onClick={onRetry}
+        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-red-200 text-red-800 font-semibold hover:bg-red-100 transition-colors cursor-pointer shrink-0"
+      >
+        <RefreshCw className="w-3 h-3" />
+        <span>Retry</span>
+      </button>
+    )}
+  </div>
+);
 

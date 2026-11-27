@@ -1,14 +1,17 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './hooks';
 import { MasterLayout } from './components/layout/MasterLayout';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardOverviewPage } from './pages/DashboardOverviewPage';
-import { UserRegistrationPage } from './pages/UserRegistrationPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { MachinesPage } from './pages/MachinesPage';
 import { ClientsPage } from './pages/ClientsPage';
+import { TeamPage } from './pages/TeamPage';
 import { PlaceholderView } from './components/common/PlaceholderView';
 import { SessionTimeoutTracker } from './components/auth/SessionTimeoutTracker';
+import { SignedOutView } from './components/auth/SignedOutView';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean }> = ({
   children,
@@ -27,6 +30,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
         />
       );
     }
+    const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+    if (isSignedOut) {
+      return <Navigate to="/login?view=signed_out" replace />;
+    }
     return <Navigate to="/login" replace />;
   }
 
@@ -38,10 +45,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
 };
 
 export const AppContent: React.FC = () => {
+  const { user } = useAuth();
+  const isOem = user?.role === 'OEM_MANAGER';
+
   return (
     <Routes>
-      {/* Public Authentication Route */}
+      {/* Public Authentication Routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signed-out" element={<SignedOutView fullscreen />} />
 
       {/* Authenticated Application with Master Layout */}
       <Route
@@ -55,17 +66,29 @@ export const AppContent: React.FC = () => {
         <Route index element={<DashboardOverviewPage />} />
         <Route path="sites" element={<Navigate to="/" replace />} />
         <Route
+          path="profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="users"
           element={
-            <ProtectedRoute adminOnly>
-              <UserRegistrationPage />
+            <ProtectedRoute>
+              {isOem || user?.role === 'SITE_ADMIN' ? (
+                <Navigate to="/team" replace />
+              ) : (
+                <Navigate to="/profile" replace />
+              )}
             </ProtectedRoute>
           }
         />
         <Route
           path="machines"
           element={
-            <ProtectedRoute adminOnly>
+            <ProtectedRoute>
               <MachinesPage />
             </ProtectedRoute>
           }
@@ -79,9 +102,21 @@ export const AppContent: React.FC = () => {
           }
         />
         <Route
-          path="sustainability"
+          path="team"
           element={
             <ProtectedRoute>
+              {user?.role === 'SITE_ADMIN' || isOem ? (
+                <TeamPage />
+              ) : (
+                <Navigate to="/" replace />
+              )}
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="sustainability"
+          element={
+            <ProtectedRoute adminOnly>
               <PlaceholderView
                 title="Sustainability & Environmental Impact"
                 subtitle="Track CO2 diversion, organic landfill mitigation, and green carbon credits across all client composter installations."
@@ -118,11 +153,16 @@ export const AppContent: React.FC = () => {
           path="settings"
           element={
             <ProtectedRoute>
-              <PlaceholderView
-                title="OEM Workspace & System Configuration"
-                subtitle="Manage API keys, Modbus network gateways, email relay providers, and enterprise security policies."
-                tag="System Admin"
-              />
+              {isOem ? (
+                <PlaceholderView
+                  title="OEM Workspace & System Configuration"
+                  subtitle="Manage API keys, Modbus network gateways, email relay providers, and enterprise security policies."
+                  tag="System Admin"
+                  footerText="Scheduled in the PowerTech Energy product development roadmap."
+                />
+              ) : (
+                <Navigate to="/profile" replace />
+              )}
             </ProtectedRoute>
           }
         />

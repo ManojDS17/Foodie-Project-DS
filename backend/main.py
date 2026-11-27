@@ -1,7 +1,8 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from .auth import get_current_user
 from .database import init_db
 from .routers import auth, users, organizations, search, machines, dashboard
 
@@ -10,7 +11,12 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-is_production = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod") or os.getenv("DB_NAME", "").lower() in ("foodie_prod", "prod")
+_env_name = os.getenv("ENVIRONMENT", "").strip().lower()
+_db_name = os.getenv("DB_NAME", "").strip().lower()
+is_production = (
+    _env_name not in ("development", "dev", "local")
+    or _db_name in ("foodie_prod", "prod", "production")
+)
 
 app = FastAPI(
     title="PowerTech Energy — Foodie Composter API",
@@ -38,10 +44,11 @@ if allowed_origins_env:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?" if not is_production else None,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.devtunnels\.ms|.*\.ngrok-free\.app|.*\.loca\.lt)(:\d+)?" if not is_production else None,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+    expose_headers=["X-Total-Count"],
 )
 
 app.include_router(auth.router)
@@ -52,7 +59,7 @@ app.include_router(machines.router)
 app.include_router(dashboard.router)
 
 @app.get("/api/machine-models", tags=["Machines"])
-def get_machine_models_alias():
+def get_machine_models_alias(current_user: dict = Depends(get_current_user)):
     return machines.get_machine_models()
 
 @app.get("/", tags=["Health"])

@@ -1,0 +1,489 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Cpu,
+  AlertCircle,
+  Save,
+  ArrowLeft,
+  Home,
+  X,
+} from 'lucide-react';
+import {
+  machinesApi,
+  validateLocationInput,
+  validateLocationDescription,
+} from '../../services/api';
+import { Button } from '../common/ui';
+import { MachineLocationAndSpecsSections } from './AddMachineView';
+import type { Machine, MachineModel, Organization } from '../../types';
+
+export interface EditMachineViewProps {
+  machine: Machine;
+  organizations?: Organization[];
+  onBack: () => void;
+  onSuccess: (updatedMachine: Machine) => void;
+}
+
+const getModelCode = (rawModel?: string | null, models: MachineModel[] = []): string => {
+  if (!rawModel) return '';
+  const trimmed = rawModel.trim();
+  const found = models.find(
+    (m) =>
+      m.model_code.toLowerCase() === trimmed.toLowerCase() ||
+      m.display_name.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (found) return found.model_code;
+  const match = trimmed.match(/\b(F\d+)\b/i);
+  if (match) return match[1].toUpperCase();
+  return trimmed;
+};
+
+export const EditMachineView: React.FC<EditMachineViewProps> = ({
+  machine,
+  onBack,
+  onSuccess,
+}) => {
+  const navigate = useNavigate();
+  const [machineModels, setMachineModels] = useState<MachineModel[]>([]);
+  const [locationTouched, setLocationTouched] = useState(false);
+  const [formData, setFormData] = useState({
+    serial_number: machine.serial_number || machine.machine_code || '',
+    model: getModelCode(machine.model),
+    version: machine.hardware_version || '',
+    capacity: machine.capacity || '',
+    location: machine.location_label || '',
+    location_description: machine.location_description || '',
+    plc_software_version: machine.plc_software_version || '',
+    energy_meter_model: machine.energy_meter_model || '',
+    deodor_model: machine.deodor_model || '',
+    extractor_model: machine.extractor_model || '',
+    has_stairs: Boolean(machine.has_stairs),
+    notes: machine.notes || '',
+    connectivity_status: machine.connectivity_status || 'Offline',
+    operational_status: machine.operational_status || 'Idle',
+  });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    machinesApi
+      .getModels()
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        const order = ['F25', 'F100', 'F500', 'F1000'];
+        const sorted = [...data].sort((a, b) => {
+          const idxA = order.indexOf(a.model_code);
+          const idxB = order.indexOf(b.model_code);
+          if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+          return a.model_code.localeCompare(b.model_code);
+        });
+        setMachineModels(sorted);
+
+        setFormData((prev) => {
+          const resolvedCode = getModelCode(prev.model || machine.model, sorted);
+          const matched = sorted.find((m) => m.model_code === resolvedCode);
+          return {
+            ...prev,
+            model: resolvedCode || prev.model,
+            capacity: prev.capacity || matched?.capacity || '',
+          };
+        });
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error('Failed to load machine models:', err);
+      });
+    return () => controller.abort();
+  }, [machine.model]);
+
+  const [prevMachine, setPrevMachine] = useState(machine);
+  if (machine !== prevMachine) {
+    setPrevMachine(machine);
+    const resolvedCode = getModelCode(machine.model, machineModels);
+    const matched = machineModels.find((m) => m.model_code === resolvedCode);
+    setFormData({
+      serial_number: machine.serial_number || machine.machine_code || '',
+      model: resolvedCode,
+      version: machine.hardware_version || '',
+      capacity: machine.capacity || matched?.capacity || '',
+      location: machine.location_label || '',
+      location_description: machine.location_description || '',
+      plc_software_version: machine.plc_software_version || '',
+      energy_meter_model: machine.energy_meter_model || '',
+      deodor_model: machine.deodor_model || '',
+      extractor_model: machine.extractor_model || '',
+      has_stairs: Boolean(machine.has_stairs),
+      notes: machine.notes || '',
+      connectivity_status: machine.connectivity_status || 'Offline',
+      operational_status: machine.operational_status || 'Idle',
+    });
+  }
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value, type } = e.target;
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setFormData((prev) => ({ ...prev, [name]: checked }));
+    } else if (name === 'model') {
+      const selectedModel = machineModels.find(
+        (m) => m.model_code === value || m.display_name === value
+      );
+      setFormData((prev) => ({
+        ...prev,
+        model: value,
+        capacity: selectedModel?.capacity || prev.capacity,
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
+    if (error) setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.model.trim()) {
+      setError('Model is required.');
+      return;
+    }
+    const locErr = validateLocationInput(formData.location);
+    if (locErr) {
+      setLocationTouched(true);
+      setError(locErr);
+      return;
+    }
+    const descErr = validateLocationDescription(formData.location_description);
+    if (descErr) {
+      setError(descErr);
+      return;
+    }
+    if (!formData.plc_software_version.trim()) {
+      setError('PLC software version is required.');
+      return;
+    }
+    if (!formData.energy_meter_model.trim()) {
+      setError('Energy meter model is required.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const updated = await machinesApi.update(machine.id, {
+        model: formData.model.trim(),
+        capacity: formData.capacity.trim() || undefined,
+        hardware_version: formData.version.trim() || undefined,
+        location_label: formData.location.trim(),
+        location_description: formData.location_description.trim() || undefined,
+        plc_software_version: formData.plc_software_version.trim(),
+        energy_meter_model: formData.energy_meter_model.trim(),
+        deodor_model: formData.deodor_model.trim() || undefined,
+        extractor_model: formData.extractor_model.trim() || undefined,
+        has_stairs: formData.has_stairs,
+        notes: formData.notes.trim() || undefined,
+        connectivity_status: formData.connectivity_status,
+        operational_status: formData.operational_status,
+      });
+
+      onSuccess(updated);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update machine.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const locationError = locationTouched ? validateLocationInput(formData.location) : null;
+  const descError = validateLocationDescription(formData.location_description);
+
+  return (
+    <div className="flex flex-col gap-6 max-w-[1400px] mx-auto select-none pb-12">
+      {/* 1. Breadcrumbs */}
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-foreground-muted pt-1">
+        <button
+          type="button"
+          onClick={onBack}
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium p-1 -ml-1 rounded-md hover:bg-surface-subtle"
+          title="Go back"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('foodie:reset-home-view'));
+            navigate('/');
+          }}
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+          title="Go to Home"
+        >
+          <Home className="w-3.5 h-3.5" />
+          <span>Home</span>
+        </button>
+        <span className="text-foreground-subtle">/</span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="hover:text-foreground cursor-pointer transition-colors flex items-center gap-1 font-medium"
+        >
+          <span>Machines</span>
+        </button>
+        <span className="text-foreground-subtle">/</span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="hover:text-foreground cursor-pointer transition-colors"
+        >
+          {machine.serial_number || machine.machine_code}
+        </button>
+        <span className="text-foreground-subtle">/</span>
+        <span className="font-bold text-foreground">Edit machine</span>
+      </nav>
+
+      {/* 2. Header Profile Card */}
+      <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-xl bg-primary-light text-primary font-bold text-xl flex items-center justify-center border border-primary-border shrink-0">
+            <Cpu className="w-7 h-7 text-primary" />
+          </div>
+
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
+                Edit {machine.serial_number || machine.machine_code}
+              </h1>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-surface-hover text-foreground-muted border border-border-default">
+                {formData.model}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-xs text-foreground-muted mt-1.5">
+              <span className="font-mono font-semibold text-foreground">
+                {machine.serial_number || machine.machine_code}
+              </span>
+              <span>Capacity: {formData.capacity || 'Auto-assigned'}</span>
+              <span>Status: {formData.operational_status}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons in Header */}
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-2.5 shrink-0 w-full sm:w-auto">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onBack}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="edit-machine-full-form"
+            variant="primary"
+            isLoading={isSubmitting}
+            leftIcon={<Save className="w-4 h-4" />}
+          >
+            Save changes
+          </Button>
+        </div>
+      </div>
+
+      {/* Error Alert Banner */}
+      {error && (
+        <div className="bg-primary-light border border-primary-border rounded-xl p-4 flex items-start gap-3 text-xs text-primary animate-in fade-in duration-200">
+          <AlertCircle className="w-4 h-4 shrink-0 text-status-fault-text mt-0.5" />
+          <div className="flex-1 font-medium">{error}</div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-primary hover:text-primary-hover p-0.5 rounded cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 3. Form Sections */}
+      <form id="edit-machine-full-form" onSubmit={handleSubmit} className="flex flex-col gap-6">
+        {/* Section 1: Machine Specifications */}
+        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+          <div className="border-b border-surface-hover pb-4 mb-6">
+            <h2 className="text-base font-bold text-foreground tracking-tight">
+              Machine Specifications
+            </h2>
+            <p className="text-xs text-foreground-muted mt-0.5">
+              Serial identification, dynamic model selection, and automatic capacity management.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {/* Serial number */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Serial number
+              </label>
+              <input
+                type="text"
+                value={formData.serial_number}
+                readOnly
+                disabled
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-surface-muted text-foreground-muted text-xs font-mono cursor-not-allowed uppercase"
+              />
+            </div>
+
+            {/* Model */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Model <span className="text-status-fault-text">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  name="model"
+                  value={formData.model}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium appearance-none pr-9"
+                  required
+                >
+                  <option value="">Select a model...</option>
+                  {machineModels.length > 0 ? (
+                    machineModels.map((m) => (
+                      <option key={m.id} value={m.model_code}>
+                        {m.model_code}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="F25">F25</option>
+                      <option value="F100">F100</option>
+                      <option value="F500">F500</option>
+                      <option value="F1000">F1000</option>
+                    </>
+                  )}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground-muted">
+                  <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                    <path
+                      fillRule="evenodd"
+                      d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Capacity */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Capacity
+              </label>
+              <input
+                type="text"
+                name="capacity"
+                value={formData.capacity}
+                readOnly
+                placeholder="Auto-populated from model"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-surface-muted text-foreground-body text-xs font-medium cursor-not-allowed focus:outline-none"
+              />
+            </div>
+
+            {/* Hardware version */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Hardware version (optional)
+              </label>
+              <input
+                type="text"
+                name="version"
+                value={formData.version}
+                onChange={handleChange}
+                placeholder="e.g. v2.1"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
+              />
+            </div>
+          </div>
+        </div>
+
+        <MachineLocationAndSpecsSections
+          values={formData}
+          locationTitle="Location"
+          locationPlaceholder="e.g. 2 Discovery Way, Mawson Lakes 5095"
+          locationError={locationError}
+          descError={descError}
+          plcPlaceholder="e.g. v23410712"
+          energyPlaceholder="e.g. Victron Energy Meter ET340"
+          deodorPlaceholder="e.g. Bio-Filter 200"
+          extractorPlaceholder="e.g. AirFlow-X10"
+          notesPlaceholder="Add any specific installation, maintenance, or commissioning notes..."
+          onChange={handleChange}
+          onLocationBlur={() => setLocationTouched(true)}
+          onHasStairsChange={(val) => setFormData((prev) => ({ ...prev, has_stairs: val }))}
+        />
+
+        {/* Section 4: Operational Status */}
+        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+          <div className="border-b border-surface-hover pb-4 mb-6">
+            <h2 className="text-base font-bold text-foreground tracking-tight">
+              Operational status
+            </h2>
+            <p className="text-xs text-foreground-muted mt-0.5">
+              Live machine operational condition.
+            </p>
+          </div>
+
+          <div className="max-w-xs">
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              Machine status
+            </label>
+            <select
+              name="operational_status"
+              value={formData.operational_status}
+              onChange={handleChange}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
+            >
+              <option value="Idle">Idle</option>
+              <option value="Running">Running</option>
+              <option value="Maintenance">Maintenance</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Docked Bottom Bar */}
+        <div className="bg-white rounded-2xl border border-border-default p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs font-medium text-foreground-muted hover:text-foreground transition-colors cursor-pointer flex items-center justify-center sm:justify-start gap-1.5 px-2 py-1"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Discard and return</span>
+          </button>
+
+          <div className="flex items-center justify-end gap-2.5 sm:gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onBack}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={isSubmitting}
+              leftIcon={<Save className="w-4 h-4" />}
+            >
+              Save changes
+            </Button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+};
