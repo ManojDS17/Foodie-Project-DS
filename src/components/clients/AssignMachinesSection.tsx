@@ -29,30 +29,6 @@ export interface AssignMachinesSectionProps {
   onRemoveRow: (index: number) => void;
 }
 
-export const calculateOneYearLeaseEndDate = (startDateStr: string): string => {
-  if (!startDateStr || !startDateStr.includes('-')) return '';
-  try {
-    const parts = startDateStr.split('-');
-    if (parts.length !== 3) return '';
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    const d = parseInt(parts[2], 10);
-    if (!y || !m || !d) return '';
-
-    let targetYear = y + 1;
-    let targetMonth = m;
-    let targetDay = d;
-
-    if (m === 2 && d === 29) {
-      targetDay = 28;
-    }
-
-    return `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
-  } catch {
-    return '';
-  }
-};
-
 export const AssignMachinesSection: React.FC<AssignMachinesSectionProps> = ({
   title = 'Machines to assign',
   subtitle = 'Only machines that are not mapped to another client are listed.',

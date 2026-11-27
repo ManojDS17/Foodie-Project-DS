@@ -11,13 +11,30 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
-import { FleetEnergyChart } from './FleetEnergyChart';
+import { FleetEnergyChart, DashboardSidePanels } from './FleetEnergyChart';
+import { StatusBadge } from '../common/StatusBadge';
+import { LoadErrorBanner } from '../common/Toast';
 import { MachineDetailView } from '../machines/MachineDetailView';
 import { RowActionMenu } from '../common/RowActionMenu';
-import { useAuth } from '../../context/AuthContext';
-import { useSilentRefresh } from '../../hooks';
-import { dashboardApi, machinesApi } from '../../services/api';
+import { useAuth, useSilentRefresh } from '../../hooks';
+import { dashboardApi, machinesApi, formatMachineLocation } from '../../services/api';
 import type { Machine, DashboardStats } from '../../types';
+
+const sortDashboardMachines = (machineList: Machine[]): Machine[] =>
+  [...machineList].sort((a, b) => {
+    const dateA = new Date(a.created_at || '').getTime() || 0;
+    const dateB = new Date(b.created_at || '').getTime() || 0;
+    if (dateB !== dateA) return dateB - dateA;
+    return (b.machine_code || '').localeCompare(a.machine_code || '', undefined, { numeric: true });
+  });
+
+const fetchClientDashboardBundle = async (signal?: AbortSignal) => {
+  const [stats, machineList] = await Promise.all([
+    dashboardApi.getStats(signal),
+    machinesApi.getAll(undefined, signal),
+  ]);
+  return { stats, machineList: sortDashboardMachines(machineList) };
+};
 
 export const ClientDashboardView: React.FC = () => {
   const navigate = useNavigate();
@@ -28,56 +45,60 @@ export const ClientDashboardView: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
-  const fetchData = async (isSilent = false) => {
+  const loadDashboard = async (signal?: AbortSignal) => {
     try {
-      if (!isSilent) setIsLoading(true);
-      const [stats, machineList] = await Promise.all([
-        dashboardApi.getStats().catch((err) => {
-          console.error('Failed to load client stats:', err);
-          return null;
-        }),
-        machinesApi.getAll().catch((err) => {
-          console.error('Failed to load client machines:', err);
-          return [];
-        }),
-      ]);
-
-      if (stats) setDashboardStats(stats);
-      setMachines(
-        [...machineList].sort((a, b) => {
-          const dateA = new Date(a.created_at || '').getTime() || 0;
-          const dateB = new Date(b.created_at || '').getTime() || 0;
-          if (dateB !== dateA) return dateB - dateA;
-          return (b.machine_code || '').localeCompare(a.machine_code || '', undefined, { numeric: true });
-        })
-      );
-    } catch (err) {
+      const { stats, machineList } = await fetchClientDashboardBundle(signal);
+      if (signal?.aborted) return;
+      setDashboardStats(stats);
+      setMachines(machineList);
+      setLoadError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Error fetching client dashboard data:', err);
+      setLoadError(err?.message || 'Unable to load dashboard equipment data. Please try again.');
     } finally {
-      if (!isSilent) setIsLoading(false);
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchData(false);
+    const controller = new AbortController();
+    fetchClientDashboardBundle(controller.signal)
+      .then(({ stats, machineList }) => {
+        if (controller.signal.aborted) return;
+        setDashboardStats(stats);
+        setMachines(machineList);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Error fetching client dashboard data:', err);
+        setLoadError(err?.message || 'Unable to load dashboard equipment data. Please try again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
   }, []);
 
-  useSilentRefresh(() => fetchData(true), {
+  useSilentRefresh((signal) => loadDashboard(signal), {
     intervalMs: 12000,
     enabled: !selectedMachine,
   });
 
-  const totalMachines = machines.length;
-
-  const formatMachineLocation = (machine: Machine): string => {
-    if (machine.lease_location_label && machine.lease_location_label.trim()) {
-      return machine.lease_location_label.trim();
-    }
-    return '—';
+  const handleRetryLoad = () => {
+    setIsLoading(true);
+    setLoadError(null);
+    loadDashboard();
   };
+
+  const totalMachines = machines.length;
 
   const runningMachines = machines.filter(
     (m) => (m.operational_status || '').toLowerCase() === 'running'
@@ -120,6 +141,8 @@ export const ClientDashboardView: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {loadError && <LoadErrorBanner message={loadError} onRetry={handleRetryLoad} />}
 
       {/* 4 Top Metric Cards Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
@@ -229,26 +252,18 @@ export const ClientDashboardView: React.FC = () => {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            <StatusBadge
+                              status={
                                 opStatus === 'Running'
-                                  ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
+                                  ? 'running'
                                   : opStatus === 'Idle'
-                                  ? 'bg-status-idle-bg text-status-idle-text border-status-idle-dot/30'
-                                  : 'bg-red-50 text-primary border-red-200'
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  opStatus === 'Running'
-                                    ? 'bg-status-running-dot'
-                                    : opStatus === 'Idle'
-                                    ? 'bg-amber-500'
-                                    : 'bg-primary'
-                                }`}
-                              />
-                              <span>{opStatus}</span>
-                            </span>
+                                  ? 'idle'
+                                  : 'danger'
+                              }
+                              label={opStatus}
+                              size="sm"
+                              bordered
+                            />
                             <RowActionMenu
                               isOpen={activeMenuId === `mob-${m.id}`}
                               onToggle={() =>
@@ -331,26 +346,18 @@ export const ClientDashboardView: React.FC = () => {
                               {formatMachineLocation(m)}
                             </td>
                             <td className="py-2.5 px-3">
-                              <span
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              <StatusBadge
+                                status={
                                   opStatus === 'Running'
-                                    ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
+                                    ? 'running'
                                     : opStatus === 'Idle'
-                                    ? 'bg-status-idle-bg text-status-idle-text border-status-idle-dot/30'
-                                    : 'bg-red-50 text-primary border-red-200'
-                                }`}
-                              >
-                                <span
-                                  className={`w-1.5 h-1.5 rounded-full ${
-                                    opStatus === 'Running'
-                                      ? 'bg-status-running-dot'
-                                      : opStatus === 'Idle'
-                                      ? 'bg-amber-500'
-                                      : 'bg-primary'
-                                  }`}
-                                />
-                                <span>{opStatus}</span>
-                              </span>
+                                    ? 'idle'
+                                    : 'danger'
+                                }
+                                label={opStatus}
+                                size="sm"
+                                bordered
+                              />
                             </td>
                             <td className="py-2.5 px-3 text-center">
                               <div className="flex items-center justify-center">
@@ -389,94 +396,17 @@ export const ClientDashboardView: React.FC = () => {
         </div>
 
         {/* Right Column (4 cols): Attention Items & Maintenance Card */}
-        <div className="lg:col-span-4 flex flex-col gap-5">
-          {/* 1. Machines Needing Attention */}
-          <div className="bg-white rounded-xl border border-border-subtle p-3.5 sm:p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-surface-hover">
-              <h2 className="text-sm font-bold text-foreground">
-                Machines needing attention
-              </h2>
-              <button
-                type="button"
-                onClick={() => navigate('/alerts')}
-                className="group text-xs font-bold text-primary flex items-center gap-1 cursor-pointer"
-              >
-                <span className="group-hover:underline">Alerts</span>
-                <ArrowRight className="w-3.5 h-3.5 inline-block shrink-0 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            </div>
-
-            {totalMachines === 0 ? (
-              <div className="py-6 text-center text-xs text-foreground-muted bg-surface-muted rounded-xl border border-border-default my-2">
-                No machines are currently assigned.
-              </div>
-            ) : attentionMachines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-status-running-text bg-emerald-50/50 rounded-xl border border-emerald-100 my-2">
-                ✓ All assigned machines operating normally. No active alerts.
-              </div>
-            ) : (
-              <div className="divide-y divide-surface-hover mt-1">
-                {attentionMachines.map((m) => (
-                  <div key={m.id} className="py-3 flex items-center justify-between text-xs">
-                    <div className="min-w-0 pr-2">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/machines?select=${m.id}`)}
-                        className="font-bold text-primary underline hover:text-primary-hover block text-left cursor-pointer"
-                      >
-                        {m.machine_code}
-                      </button>
-                      <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
-                        {m.issue}
-                      </div>
-                    </div>
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-primary border border-red-200 shrink-0">
-                      {m.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 2. Upcoming Maintenance */}
-          <div className="bg-white rounded-xl border border-border-subtle p-3.5 sm:p-5 shadow-xs">
-              <div className="pb-3 border-b border-surface-hover">
-                <h2 className="text-sm font-bold text-foreground">
-                  Upcoming maintenance
-                </h2>
-              </div>
-
-              {upcomingMaintenance.length === 0 ? (
-                <div className="py-6 text-center text-xs text-foreground-dim bg-gray-50/50 rounded-xl border border-gray-100 my-2">
-                  No maintenance scheduled for the next 30 days.
-                </div>
-              ) : (
-                <div className="divide-y divide-surface-hover mt-1">
-                  {upcomingMaintenance.map((item) => (
-                    <div key={item.id} className="py-3 flex items-center justify-between text-xs">
-                      <div className="min-w-0 pr-2">
-                        <button
-                          type="button"
-                          onClick={() => navigate('/machines')}
-                          className="font-bold text-primary underline hover:text-primary-hover block text-left cursor-pointer"
-                        >
-                          {item.machine_code}
-                        </button>
-                        <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
-                          {item.task}
-                        </div>
-                      </div>
-
-                      <span className="text-[11px] font-bold text-foreground shrink-0">
-                        {item.date}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-        </div>
+        <DashboardSidePanels
+          totalMachines={totalMachines}
+          attentionMachines={attentionMachines}
+          upcomingMaintenance={upcomingMaintenance}
+          showClientInSubtitle={false}
+          attentionActionLabel="Alerts"
+          onAttentionAction={() => navigate('/alerts')}
+          onNavigateMachine={(id) => navigate(id ? `/machines?select=${id}` : '/machines')}
+          emptyMachinesMessage="No machines are currently assigned."
+          healthyMachinesMessage="✓ All assigned machines operating normally. No active alerts."
+        />
       </div>
     </div>
   );

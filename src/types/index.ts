@@ -92,10 +92,22 @@ export interface Site {
   updated_at: string;
 }
 
+export interface SiteFormData {
+  organization_id: string;
+  site_code: string;
+  site_name: string;
+  address: string;
+  latitude?: string;
+  longitude?: string;
+  timezone: string;
+  is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
+}
+
 export interface User {
   id: string;
   organization_id: string | null;
-  assigned_site_id: string | null;
   email: string;
   first_name: string;
   last_name: string;
@@ -123,33 +135,7 @@ export interface UserCreateData {
   password?: string;
   phone_number?: string;
   organization_id?: string;
-  assigned_site_id?: string;
   role: UserRole;
-}
-
-export interface SiteFormData {
-  organization_id: string;
-  site_code: string;
-  site_name: string;
-  address: string;
-  latitude?: string;
-  longitude?: string;
-  timezone: string;
-  is_active: boolean;
-  is_deleted?: boolean;
-  deleted_at?: string;
-}
-
-export interface UserFormData {
-  organization_id: string;
-  assigned_site_id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  role: UserRole;
-  phone_number: string;
-  password: string;
-  confirm_password: string;
 }
 
 export interface Machine {

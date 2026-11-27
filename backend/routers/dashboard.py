@@ -78,16 +78,35 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             if current_user.get("role") == "OPERATOR":
                 cur.execute("""
                     SELECT COUNT(*) FROM machines m
-                    JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
-                    WHERE m.is_deleted IS NOT TRUE;
-                """, (current_user.get("id"),))
+                    JOIN machine_assign_to_operators mato
+                      ON m.id = mato.machine_id
+                     AND mato.organization_id = m.organization_id
+                     AND mato.operator_id = %s
+                     AND mato.status = 'Active'
+                    JOIN machine_leases ml
+                      ON m.id = ml.machine_id
+                     AND ml.organization_id = m.organization_id
+                     AND ml.lease_status = 'Active'
+                    WHERE m.is_deleted IS NOT TRUE
+                      AND m.organization_id = %s;
+                """, (current_user.get("id"), client_org_id))
                 total_machines = cur.fetchone()[0]
 
                 cur.execute("""
                     SELECT COUNT(*) FROM machines m
-                    JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
-                    WHERE m.is_deleted IS NOT TRUE AND LOWER(COALESCE(m.connectivity_status, 'offline')) = 'online';
-                """, (current_user.get("id"),))
+                    JOIN machine_assign_to_operators mato
+                      ON m.id = mato.machine_id
+                     AND mato.organization_id = m.organization_id
+                     AND mato.operator_id = %s
+                     AND mato.status = 'Active'
+                    JOIN machine_leases ml
+                      ON m.id = ml.machine_id
+                     AND ml.organization_id = m.organization_id
+                     AND ml.lease_status = 'Active'
+                    WHERE m.is_deleted IS NOT TRUE
+                      AND m.organization_id = %s
+                      AND LOWER(COALESCE(m.connectivity_status, 'offline')) = 'online';
+                """, (current_user.get("id"), client_org_id))
                 online_machines = cur.fetchone()[0]
             else:
                 cur.execute("SELECT COUNT(*) FROM machines WHERE is_deleted IS NOT TRUE AND organization_id = %s;", (client_org_id,))
@@ -123,10 +142,18 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                     FROM machine_telemetry_daily t
                     JOIN machines m ON t.machine_id = m.id
                     JOIN machine_assign_to_operators mato
-                      ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                      ON m.id = mato.machine_id
+                     AND mato.organization_id = m.organization_id
+                     AND mato.operator_id = %s
+                     AND mato.status = 'Active'
+                    JOIN machine_leases ml
+                      ON m.id = ml.machine_id
+                     AND ml.organization_id = m.organization_id
+                     AND ml.lease_status = 'Active'
                     WHERE t.date = CURRENT_DATE
-                      AND (m.is_deleted IS NOT TRUE);
-                """, (current_user.get("id"),))
+                      AND (m.is_deleted IS NOT TRUE)
+                      AND m.organization_id = %s;
+                """, (current_user.get("id"), client_org_id))
                 row = cur.fetchone()
             elif is_client:
                 cur.execute("""
@@ -175,12 +202,20 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                         FROM machine_telemetry_daily t
                         JOIN machines m ON t.machine_id = m.id
                         JOIN machine_assign_to_operators mato
-                          ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                          ON m.id = mato.machine_id
+                         AND mato.organization_id = m.organization_id
+                         AND mato.operator_id = %s
+                         AND mato.status = 'Active'
+                        JOIN machine_leases ml
+                          ON m.id = ml.machine_id
+                         AND ml.organization_id = m.organization_id
+                         AND ml.lease_status = 'Active'
                         WHERE (m.is_deleted IS NOT TRUE)
+                          AND m.organization_id = %s
                     ) t ON d.date = t.date
                     GROUP BY d.date
                     ORDER BY d.date ASC;
-                """, (current_user.get("id"),))
+                """, (current_user.get("id"), client_org_id))
             elif is_client:
                 cur.execute("""
                     SELECT 
@@ -300,13 +335,22 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                         'Offline' AS status,
                         'offline' AS variant
                     FROM machines m
-                    JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                    JOIN machine_assign_to_operators mato
+                      ON m.id = mato.machine_id
+                     AND mato.organization_id = m.organization_id
+                     AND mato.operator_id = %s
+                     AND mato.status = 'Active'
+                    JOIN machine_leases ml
+                      ON m.id = ml.machine_id
+                     AND ml.organization_id = m.organization_id
+                     AND ml.lease_status = 'Active'
                     LEFT JOIN organizations o ON m.organization_id = o.id
                     WHERE LOWER(COALESCE(m.connectivity_status, 'offline')) = 'offline'
                       AND m.is_deleted IS NOT TRUE
+                      AND m.organization_id = %s
                     ORDER BY m.machine_code ASC
                     LIMIT 5;
-                """, (current_user.get("id"),))
+                """, (current_user.get("id"), client_org_id))
             else:
                 cur.execute("""
                     SELECT 
@@ -368,14 +412,23 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                             TO_CHAR(ms.scheduled_date, 'FMDD Mon YYYY') AS date
                         FROM maintenance_schedules ms
                         JOIN machines m ON ms.machine_id = m.id
-                        JOIN machine_assign_to_operators mato ON m.id = mato.machine_id AND mato.operator_id = %s AND mato.status = 'Active'
+                        JOIN machine_assign_to_operators mato
+                          ON m.id = mato.machine_id
+                         AND mato.organization_id = m.organization_id
+                         AND mato.operator_id = %s
+                         AND mato.status = 'Active'
+                        JOIN machine_leases ml
+                          ON m.id = ml.machine_id
+                         AND ml.organization_id = m.organization_id
+                         AND ml.lease_status = 'Active'
                         LEFT JOIN organizations o ON ms.organization_id = o.id
                         WHERE ms.status = 'Scheduled' 
                           AND ms.is_deleted IS NOT TRUE 
                           AND m.is_deleted IS NOT TRUE
+                          AND m.organization_id = %s
                         ORDER BY ms.scheduled_date ASC
                         LIMIT 5;
-                    """, (current_user.get("id"),))
+                    """, (current_user.get("id"), client_org_id))
                 else:
                     cur.execute("""
                         SELECT 

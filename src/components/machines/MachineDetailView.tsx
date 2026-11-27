@@ -14,8 +14,9 @@ import {
   Cpu,
   Building2,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks';
 import { Button } from '../common/ui';
+import { formatDate } from '../../services/api';
 import type { Machine } from '../../types';
 
 export interface MachineDetailViewProps {
@@ -69,16 +70,7 @@ export const MachineDetailView: React.FC<MachineDetailViewProps> = ({
   const isBlowerOn = telemetry?.blower_on ?? (opStatus === 'Running');
   const isHeaterOn = telemetry?.heater_on ?? (opStatus === 'Running');
 
-  const formatDate = (dateStr?: string | null): string => {
-    if (!dateStr) return 'Active Lease';
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
+  const formatLeaseDate = (dateStr?: string | null): string => formatDate(dateStr, 'Active Lease');
 
   return (
     <div className="flex flex-col gap-5 max-w-[1400px] w-full min-w-0 mx-auto select-none pb-12">
@@ -119,7 +111,7 @@ export const MachineDetailView: React.FC<MachineDetailViewProps> = ({
                   {machine.lease_start_date && (
                     <span className="flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-foreground-subtle" />
-                      <span>Lease start date: {formatDate(machine.lease_start_date)}</span>
+                      <span>Lease start date: {formatLeaseDate(machine.lease_start_date)}</span>
                     </span>
                   )}
                   {isOem && machine.company_name && (

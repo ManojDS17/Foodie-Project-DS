@@ -7,79 +7,190 @@ import {
   X,
   Eye,
   EyeOff,
-  Check,
 } from 'lucide-react';
-import { orgsApi, machinesApi, usersApi } from '../../services/api';
+import {
+  orgsApi,
+  machinesApi,
+  usersApi,
+  sanitizePhoneNumber,
+  isValidEmail,
+  validatePhoneNumberInput,
+  formatABN,
+  isValidABN,
+  validatePasswordPolicy,
+  calculateOneYearLeaseEndDate,
+  getTodayIsoDate,
+} from '../../services/api';
 import { Button } from '../common/ui';
+import { PasswordRequirements } from '../common/InputField';
 import type { Organization, Machine, User } from '../../types';
-import { AssignMachinesSection, type AssignMachineRow, calculateOneYearLeaseEndDate } from './AssignMachinesSection';
+import { AssignMachinesSection, type AssignMachineRow } from './AssignMachinesSection';
 
-export const sanitizePhoneNumber = (val: string): string => {
-  if (!val) return '';
-  const trimmedLeading = val.replace(/^\s+/, '');
-  const hasLeadingPlus = trimmedLeading.startsWith('+');
-  const digitsAndSpaces = trimmedLeading.replace(/[^0-9\s]/g, '').replace(/\s{2,}/g, ' ');
-  const result = hasLeadingPlus ? `+${digitsAndSpaces}` : digitsAndSpaces;
-  return result.slice(0, 15);
-};
+export interface ClientDetailsFieldsValues {
+  company_name: string;
+  business_type: string;
+  tax_id: string;
+  onboarding_date: string;
+  comms_preference: string;
+  payment_terms: string;
+}
 
-export const isValidEmail = (email: string): boolean => {
-  if (!email || typeof email !== 'string') return false;
-  const clean = email.trim().toLowerCase();
-  if (clean.startsWith('.') || clean.endsWith('.')) return false;
-  if (clean.includes('..') || clean.includes('.@') || clean.includes('@.')) return false;
-  const EMAIL_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,63}$/;
-  return EMAIL_REGEX.test(clean);
-};
+export interface ClientDetailsSectionProps {
+  values: ClientDetailsFieldsValues;
+  subtitle?: string;
+  duplicateClient?: Organization | null;
+  isAbnChecksumInvalid: boolean;
+  onFieldChange: (field: keyof ClientDetailsFieldsValues, value: string) => void;
+}
 
-export const validatePhoneNumberInput = (phone: string): string | null => {
-  const trimmed = phone.trim();
-  if (!trimmed) return null;
+export const ClientDetailsSection: React.FC<ClientDetailsSectionProps> = ({
+  values,
+  subtitle = 'Core identification, business entity registration, and invoice payment terms.',
+  duplicateClient,
+  isAbnChecksumInvalid,
+  onFieldChange,
+}) => {
+  return (
+    <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+      <div className="border-b border-surface-hover pb-4 mb-6">
+        <h2 className="text-base font-bold text-foreground tracking-tight">
+          Client details
+        </h2>
+        <p className="text-xs text-foreground-muted mt-0.5">{subtitle}</p>
+      </div>
 
-  if (/[^0-9+\s]/.test(trimmed)) {
-    return 'Phone number can only contain numbers, spaces, and an optional leading plus sign (+). Symbols like -, (, ) are not allowed.';
-  }
-  if (trimmed.includes('+') && (!trimmed.startsWith('+') || (trimmed.match(/\+/g) || []).length > 1)) {
-    return 'The plus sign (+) is only permitted at the beginning of the phone number.';
-  }
-  if (trimmed.length > 15) {
-    return 'Phone number cannot exceed 15 characters.';
-  }
-  const digitsOnly = trimmed.replace(/\D/g, '');
-  if (digitsOnly.length < 7) {
-    return 'Please enter a valid phone number with at least 7 digits (e.g. +61 400 000 000).';
-  }
-  if (digitsOnly.length > 15) {
-    return 'Phone number cannot exceed 15 digits.';
-  }
-  return null;
-};
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {/* Full Name / Company Name */}
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1.5">
+            Full name / Company name <span className="text-status-fault-text">*</span>
+          </label>
+          <input
+            type="text"
+            name="company_name"
+            value={values.company_name}
+            onChange={(e) => onFieldChange('company_name', e.target.value)}
+            placeholder="e.g. Green Valley Foods Pty Ltd"
+            className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
+            required
+          />
+        </div>
 
-export const limitToMaxWords = (val: string, maxWords: number): string => {
-  const trimmed = val.trim();
-  if (!trimmed) return val;
-  const words = trimmed.split(/\s+/);
-  if (words.length <= maxWords) return val;
-  return words.slice(0, maxWords).join(' ');
-};
+        {/* Business Type */}
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1.5">
+            Business type
+          </label>
+          <select
+            name="business_type"
+            value={values.business_type}
+            onChange={(e) => onFieldChange('business_type', e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
+          >
+            <option value="">Select</option>
+            <option value="Corporate">Corporate</option>
+            <option value="Individual">Individual</option>
+          </select>
+        </div>
 
-export const formatABN = (val: string): string => {
-  const digits = val.replace(/\D/g, '').slice(0, 11);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
-  if (digits.length <= 8) return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
-  return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
-};
+        {/* Tax ID (ABN) */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-semibold text-foreground">
+              Tax ID (ABN)
+            </label>
+            {duplicateClient ? (
+              <span className="text-[11px] font-semibold text-status-fault-text">
+                Already registered
+              </span>
+            ) : isAbnChecksumInvalid ? (
+              <span className="text-[11px] font-semibold text-status-fault-text">
+                Invalid checksum
+              </span>
+            ) : null}
+          </div>
+          <input
+            type="text"
+            name="tax_id"
+            value={values.tax_id}
+            onChange={(e) => onFieldChange('tax_id', formatABN(e.target.value))}
+            maxLength={14}
+            placeholder="e.g. 51 824 753 556"
+            className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
+              duplicateClient || isAbnChecksumInvalid
+                ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
+            }`}
+          />
+          {duplicateClient && (
+            <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
+              <span>
+                This ABN is already in use by <strong>{duplicateClient.company_name}</strong> ({duplicateClient.client_code}). Please enter a unique ABN.
+              </span>
+            </p>
+          )}
+          {isAbnChecksumInvalid && !duplicateClient && (
+            <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
+              <span>
+                Invalid ABN. This 11-digit number does not satisfy the official Australian Business Register Modulus 89 checksum.
+              </span>
+            </p>
+          )}
+        </div>
 
-export const isValidABN = (val: string): boolean => {
-  const digits = val.replace(/\D/g, '');
-  if (digits.length !== 11) return false;
-  const weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
-  const sum = digits.split('').reduce((acc, char, index) => {
-    const digit = index === 0 ? parseInt(char, 10) - 1 : parseInt(char, 10);
-    return acc + digit * weights[index];
-  }, 0);
-  return sum % 89 === 0;
+        {/* Onboarding Date */}
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1.5">
+            Onboarding date
+          </label>
+          <input
+            type="date"
+            name="onboarding_date"
+            value={values.onboarding_date}
+            onChange={(e) => onFieldChange('onboarding_date', e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer"
+          />
+        </div>
+
+        {/* Comms Preference */}
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1.5">
+            Comms preference
+          </label>
+          <select
+            name="comms_preference"
+            value={values.comms_preference}
+            onChange={(e) => onFieldChange('comms_preference', e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
+          >
+            <option value="">Select</option>
+            <option value="Email">Email</option>
+            <option value="Phone">Phone</option>
+          </select>
+        </div>
+
+        {/* Payment Terms */}
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1.5">
+            Payment terms
+          </label>
+          <select
+            name="payment_terms"
+            value={values.payment_terms}
+            onChange={(e) => onFieldChange('payment_terms', e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
+          >
+            <option value="">Select</option>
+            <option value="15 days">15 days</option>
+            <option value="30 days">30 days</option>
+            <option value="60 days">60 days</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export interface AddClientViewProps {
@@ -95,24 +206,40 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   onBack,
   onSuccess,
 }) => {
+  const [prevExistingClients, setPrevExistingClients] = useState(existingClients);
   const [clientList, setClientList] = useState<Organization[]>(existingClients || []);
   const [userList, setUserList] = useState<User[]>([]);
 
-  useEffect(() => {
+  if (existingClients !== prevExistingClients) {
+    setPrevExistingClients(existingClients);
     if (existingClients && existingClients.length > 0) {
       setClientList(existingClients);
-    } else {
-      orgsApi.getAll().then((data) => setClientList(data)).catch(() => {});
     }
-    usersApi.getAll().then((data) => setUserList(data)).catch(() => {});
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    if (!existingClients || existingClients.length === 0) {
+      orgsApi
+        .getAll(undefined, controller.signal)
+        .then((data) => {
+          if (!controller.signal.aborted) setClientList(data);
+        })
+        .catch(() => {});
+    }
+    usersApi
+      .getAll(undefined, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setUserList(data);
+      })
+      .catch(() => {});
+    return () => controller.abort();
   }, [existingClients]);
 
   // Section 1: Client details
   const [clientCode, setClientCode] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [onboardingDate, setOnboardingDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [onboardingDate, setOnboardingDate] = useState(() => getTodayIsoDate());
   const [businessType, setBusinessType] = useState<string>('');
   const [taxId, setTaxId] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
@@ -132,18 +259,20 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   const [shippingAddress, setShippingAddress] = useState('');
 
   // Section 3: Machine assignments
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [machineRows, setMachineRows] = useState<MachineRow[]>([
-    {
-      machine_id: '',
-      location: '',
-      lease_start_date: todayStr,
-      lease_end_date: calculateOneYearLeaseEndDate(todayStr),
-    },
-  ]);
+  const [machineRows, setMachineRows] = useState<MachineRow[]>(() => {
+    const todayStr = getTodayIsoDate();
+    return [
+      {
+        machine_id: '',
+        location: '',
+        lease_start_date: todayStr,
+        lease_end_date: calculateOneYearLeaseEndDate(todayStr),
+      },
+    ];
+  });
 
   const [availableMachines, setAvailableMachines] = useState<Machine[]>([]);
-  const [isLoadingMachines, setIsLoadingMachines] = useState(false);
+  const [isLoadingMachines, setIsLoadingMachines] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,32 +301,36 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
   const isEmailDuplicate = emailTouched && Boolean(duplicateClientByEmail || duplicateUserByEmail);
   const isEmailFormatInvalid = emailTouched && cleanEmail.length > 0 && !isValidEmail(cleanEmail);
 
-  // Password rules validation states
-  const hasMinLength = password.length >= 12;
-  const hasNumber = /\d/.test(password);
-  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-  const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
-
   // Load next client code and available unmapped machines
   useEffect(() => {
+    const controller = new AbortController();
+
     orgsApi
       .getNextCode()
       .then((res) => {
-        if (res?.next_code) {
+        if (!controller.signal.aborted && res?.next_code) {
           setClientCode(res.next_code);
         }
       })
-      .catch((err) => console.error('Failed to get next client code:', err));
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error('Failed to get next client code:', err);
+      });
 
-    setIsLoadingMachines(true);
     machinesApi
-      .getAll()
+      .getAll(undefined, controller.signal)
       .then((list) => {
+        if (controller.signal.aborted) return;
         const unassigned = list.filter((m) => !m.organization_id);
         setAvailableMachines(unassigned);
       })
-      .catch((err) => console.error('Failed to load fleet machines:', err))
-      .finally(() => setIsLoadingMachines(false));
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error('Failed to load fleet machines:', err);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingMachines(false);
+      });
+
+    return () => controller.abort();
   }, []);
 
   const handleAddMachineRow = () => {
@@ -330,20 +463,9 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
       setError('Account password is required for client site admin credentials.');
       return;
     }
-    if (password.length < 12) {
-      setError('Password must be at least 12 characters long.');
-      return;
-    }
-    if (password.length > 50) {
-      setError('Password cannot exceed 50 characters.');
-      return;
-    }
-    if (!/[0-9]/.test(password)) {
-      setError('Password must contain at least one number (0-9).');
-      return;
-    }
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      setError('Password must contain at least one special character / symbol (e.g. !@#$%^&*).');
+    const passwordErr = validatePasswordPolicy(password, 'Password');
+    if (passwordErr) {
+      setError(passwordErr);
       return;
     }
     if (password !== confirmPassword) {
@@ -487,148 +609,28 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
 
       {/* 3. Form Sections */}
       <form id="add-client-full-form" onSubmit={handleSubmit} className="flex flex-col gap-6">
-        {/* Section 1: Client Details */}
-        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-surface-hover pb-4 mb-6">
-            <h2 className="text-base font-bold text-foreground tracking-tight">
-              Client details
-            </h2>
-            <p className="text-xs text-foreground-muted mt-0.5">
-              Core identification, business entity registration, and invoice payment terms.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {/* Full Name / Company Name */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Full name / Company name <span className="text-status-fault-text">*</span>
-              </label>
-              <input
-                type="text"
-                value={companyName}
-                onChange={(e) => {
-                  setCompanyName(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="e.g. Green Valley Foods Pty Ltd"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
-                required
-              />
-            </div>
-
-            {/* Business Type */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Business type
-              </label>
-              <select
-                value={businessType}
-                onChange={(e) => setBusinessType(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
-              >
-                <option value="">Select</option>
-                <option value="Corporate">Corporate</option>
-                <option value="Individual">Individual</option>
-              </select>
-            </div>
-
-            {/* Tax ID (ABN) */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-foreground">
-                  Tax ID (ABN)
-                </label>
-                {duplicateClient ? (
-                  <span className="text-[11px] font-semibold text-status-fault-text">
-                    Already registered
-                  </span>
-                ) : isAbnChecksumInvalid ? (
-                  <span className="text-[11px] font-semibold text-status-fault-text">
-                    Invalid checksum
-                  </span>
-                ) : null}
-              </div>
-              <input
-                type="text"
-                value={taxId}
-                onChange={(e) => {
-                  setTaxId(formatABN(e.target.value));
-                  if (error) setError(null);
-                }}
-                maxLength={14}
-                placeholder="e.g. 51 824 753 556"
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-colors ${
-                  duplicateClient || isAbnChecksumInvalid
-                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
-                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
-                }`}
-              />
-              {duplicateClient && (
-                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
-                  <span>
-                    This ABN is already in use by <strong>{duplicateClient.company_name}</strong> ({duplicateClient.client_code}). Please enter a unique ABN.
-                  </span>
-                </p>
-              )}
-              {isAbnChecksumInvalid && !duplicateClient && (
-                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
-                  <span>
-                    Invalid ABN. This 11-digit number does not satisfy the official Australian Business Register Modulus 89 checksum.
-                  </span>
-                </p>
-              )}
-            </div>
-
-            {/* Onboarding Date */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Onboarding date
-              </label>
-              <input
-                type="date"
-                value={onboardingDate}
-                onChange={(e) => setOnboardingDate(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer"
-              />
-            </div>
-
-            {/* Comms Preference */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Comms preference
-              </label>
-              <select
-                value={commsPreference}
-                onChange={(e) => setCommsPreference(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
-              >
-                <option value="">Select</option>
-                <option value="Email">Email</option>
-                <option value="Phone">Phone</option>
-              </select>
-            </div>
-
-            {/* Payment Terms */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Payment terms
-              </label>
-              <select
-                value={paymentTerms}
-                onChange={(e) => setPaymentTerms(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs cursor-pointer font-medium"
-              >
-                <option value="">Select</option>
-                <option value="15 days">15 days</option>
-                <option value="30 days">30 days</option>
-                <option value="60 days">60 days</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        <ClientDetailsSection
+          values={{
+            company_name: companyName,
+            business_type: businessType,
+            tax_id: taxId,
+            onboarding_date: onboardingDate,
+            comms_preference: commsPreference,
+            payment_terms: paymentTerms,
+          }}
+          subtitle="Core identification, business entity registration, and invoice payment terms."
+          duplicateClient={duplicateClient}
+          isAbnChecksumInvalid={isAbnChecksumInvalid}
+          onFieldChange={(field: keyof ClientDetailsFieldsValues, value: string) => {
+            if (field === 'company_name') setCompanyName(value);
+            else if (field === 'business_type') setBusinessType(value);
+            else if (field === 'tax_id') setTaxId(value);
+            else if (field === 'onboarding_date') setOnboardingDate(value);
+            else if (field === 'comms_preference') setCommsPreference(value);
+            else if (field === 'payment_terms') setPaymentTerms(value);
+            if (error) setError(null);
+          }}
+        />
 
         {/* Section 2: Contact Details */}
         <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
@@ -810,24 +812,10 @@ export const AddClientView: React.FC<AddClientViewProps> = ({
               </div>
 
               {/* Interactive Password Requirements Checklist */}
-              <div className="p-3 bg-slate-50 border border-border-default rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                  <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                  <span>At least 12 characters</span>
-                </div>
-                <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                  <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                  <span>One number</span>
-                </div>
-                <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                  <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                  <span>One symbol</span>
-                </div>
-                <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                  <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                  <span>Passwords match</span>
-                </div>
-              </div>
+              <PasswordRequirements
+                password={password}
+                confirmPassword={confirmPassword}
+              />
             </div>
 
             {/* Website */}

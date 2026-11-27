@@ -1,13 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Search,
   Plus,
   SlidersHorizontal,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Eye,
   Edit2,
   Trash2,
@@ -15,35 +11,51 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { machinesApi, orgsApi } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import {
+  machinesApi,
+  orgsApi,
+  formatDate,
+  formatMachineLocation as formatLocation,
+} from '../services/api';
+import { useAuth } from '../hooks';
 import { AddMachineView } from '../components/machines/AddMachineView';
 import { MachineDetailView } from '../components/machines/MachineDetailView';
 import { EditMachineView } from '../components/machines/EditMachineView';
 import { DeleteMachineModal } from '../components/machines/DeleteMachineModal';
-import { RowActionMenu } from '../components/common/RowActionMenu';
+import { RowActionMenu, PaginationBar } from '../components/common/RowActionMenu';
 import { Button } from '../components/common/ui';
-import { Toast } from '../components/common/Toast';
+import { Toast, LoadErrorBanner } from '../components/common/Toast';
 import type { Machine, Organization } from '../types';
+
+const fetchMachinesPageBundle = async (isOem: boolean, signal?: AbortSignal) => {
+  const [machineList, orgList] = await Promise.all([
+    machinesApi.getAll(undefined, signal),
+    isOem ? orgsApi.getAll(undefined, signal) : Promise.resolve([]),
+  ]);
+  return { machineList, orgList };
+};
 
 export const MachinesPage: React.FC = () => {
   const { user } = useAuth();
   const isOem = user?.role === 'OEM_MANAGER';
   const isOperator = user?.role === 'OPERATOR';
   const [searchParams, setSearchParams] = useSearchParams();
+  const urlSearchQuery = searchParams.get('search') || searchParams.get('q') || '';
 
   // Live PostgreSQL Data States
   const [machines, setMachines] = useState<Machine[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
 
   // Search & Filter States
-  const [searchQuery, setSearchQuery] = useState('');
+  const [prevUrlSearch, setPrevUrlSearch] = useState(urlSearchQuery);
+  const [searchQuery, setSearchQuery] = useState(() => urlSearchQuery);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [clientFilter, setClientFilter] = useState<string>('All clients');
   const [locationFilter, setLocationFilter] = useState<string>('All locations');
-  const [showMoreFilters] = useState<boolean>(false);
+  const [showMoreFilters, setShowMoreFilters] = useState<boolean>(false);
   const [modelFilter, setModelFilter] = useState<string>('All');
 
   // Pagination State
@@ -70,26 +82,43 @@ export const MachinesPage: React.FC = () => {
   const [deletingMachine, setDeletingMachine] = useState<Machine | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Load live data from PostgreSQL API
-  const fetchData = async () => {
-    setIsLoading(true);
+  // Load live data from PostgreSQL API (only fetch organizations for OEM_MANAGER to prevent Operator 403s)
+  const fetchData = useCallback(async (showSpinner = false, signal?: AbortSignal) => {
+    if (showSpinner) setIsLoading(true);
     try {
-      const [machineList, orgList] = await Promise.all([
-        machinesApi.getAll().catch(() => []),
-        orgsApi.getAll().catch(() => []),
-      ]);
+      const { machineList, orgList } = await fetchMachinesPageBundle(isOem, signal);
+      if (signal?.aborted) return;
       setMachines(machineList);
       setOrganizations(orgList);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to load fleet machines data:', err);
+      setLoadError(err?.message || 'Unable to load fleet machines. Please try again.');
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
-  };
+  }, [isOem]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    const controller = new AbortController();
+    fetchMachinesPageBundle(isOem, controller.signal)
+      .then(({ machineList, orgList }) => {
+        if (controller.signal.aborted) return;
+        setMachines(machineList);
+        setOrganizations(orgList);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Failed to load fleet machines data:', err);
+        setLoadError(err?.message || 'Unable to load fleet machines. Please try again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, [isOem]);
 
   // Reset drawer views to show the machines list when clicking Machines in left menu
   useEffect(() => {
@@ -105,38 +134,39 @@ export const MachinesPage: React.FC = () => {
     return () => window.removeEventListener('foodie:reset-machines-view', handleResetView);
   }, [setSearchParams]);
 
-  useEffect(() => {
-    const q = searchParams.get('search') || searchParams.get('q');
-    if (q) {
-      setSearchQuery(q);
+  if (urlSearchQuery !== prevUrlSearch) {
+    setPrevUrlSearch(urlSearchQuery);
+    if (urlSearchQuery) {
+      setSearchQuery(urlSearchQuery);
     }
-  }, [searchParams]);
+  }
 
   const targetMachineParam = searchParams.get('select') || searchParams.get('serial');
+  const [prevTargetMachineParam, setPrevTargetMachineParam] = useState<string | null>(targetMachineParam);
 
-  useEffect(() => {
-    let isActive = true;
-
+  if (targetMachineParam !== prevTargetMachineParam) {
+    setPrevTargetMachineParam(targetMachineParam);
     if (!targetMachineParam) {
       setSelectedMachine(null);
-      return;
-    }
-
-    setIsAddMachineOpen(false);
-    setEditingMachine(null);
-    setDeletingMachine(null);
-
-    if (machines.length > 0) {
+    } else {
+      setIsAddMachineOpen(false);
+      setEditingMachine(null);
+      setDeletingMachine(null);
       const cached = machines.find(
         (m) =>
           m.id === targetMachineParam ||
           (m.serial_number && m.serial_number.toLowerCase() === targetMachineParam.toLowerCase()) ||
           (m.machine_code && m.machine_code.toLowerCase() === targetMachineParam.toLowerCase())
       );
-      if (cached && isActive) {
+      if (cached) {
         setSelectedMachine(cached);
       }
     }
+  }
+
+  useEffect(() => {
+    if (!targetMachineParam) return;
+    let isActive = true;
 
     machinesApi
       .getById(targetMachineParam)
@@ -165,7 +195,7 @@ export const MachinesPage: React.FC = () => {
     return () => {
       isActive = false;
     };
-  }, [targetMachineParam]);
+  }, [targetMachineParam, setSearchParams]);
 
   const handleSelectMachine = (machine: Machine) => {
     setSelectedMachine(machine);
@@ -198,32 +228,6 @@ export const MachinesPage: React.FC = () => {
   const maintenanceCount = machines.filter(
     (m) => (m.operational_status || '').toLowerCase() === 'maintenance'
   ).length;
-
-  // Date Formatter: "19 May 2026"
-  const formatDate = (dateStr?: string | null): string => {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
-  // Location Formatter
-  const formatLocation = (machine: Machine): string => {
-    if (machine.organization_id) {
-      if (machine.lease_location_label && machine.lease_location_label.trim()) {
-        return machine.lease_location_label.trim();
-      }
-      return '—';
-    }
-    if (machine.location_label && machine.location_label.trim()) {
-      return machine.location_label.trim();
-    }
-    return '—';
-  };
 
   // Unique locations / sites from fleet
   const uniqueLocations = useMemo(() => {
@@ -278,7 +282,7 @@ export const MachinesPage: React.FC = () => {
         machine.organization_id === clientFilter;
 
       // 4. Site / Location Filter (Site wise)
-      const effectiveLoc = Boolean(machine.organization_id)
+      const effectiveLoc = machine.organization_id
         ? (machine.lease_location_label || '').toLowerCase()
         : isOem
         ? (machine.location_label || '').toLowerCase()
@@ -312,6 +316,7 @@ export const MachinesPage: React.FC = () => {
     clientFilter,
     locationFilter,
     modelFilter,
+    isOem,
   ]);
 
   // Pagination Slice
@@ -471,6 +476,10 @@ export const MachinesPage: React.FC = () => {
         )}
       </div>
 
+      {loadError && (
+        <LoadErrorBanner message={loadError} onRetry={() => fetchData(true)} />
+      )}
+
       {/* 2. Top Metric Status Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
         {/* Card 1: Total Machines */}
@@ -607,12 +616,19 @@ export const MachinesPage: React.FC = () => {
             </div>
 
             {/* More filters Button */}
-            <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border-default bg-white text-foreground text-xs font-semibold shadow-2xs cursor-default select-none"
+            <button
+              type="button"
+              onClick={() => setShowMoreFilters((prev) => !prev)}
+              aria-expanded={showMoreFilters}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs cursor-pointer select-none transition-colors ${
+                showMoreFilters || modelFilter !== 'All'
+                  ? 'border-primary bg-primary-light text-primary'
+                  : 'border-border-default bg-white hover:bg-surface-subtle text-foreground'
+              }`}
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-foreground" />
+              <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>More filters</span>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -645,7 +661,7 @@ export const MachinesPage: React.FC = () => {
             {(searchQuery ||
               statusFilter !== 'All' ||
               clientFilter !== 'All clients' ||
-              locationFilter !== 'All states' ||
+              locationFilter !== 'All locations' ||
               modelFilter !== 'All') && (
               <button
                 type="button"
@@ -653,7 +669,7 @@ export const MachinesPage: React.FC = () => {
                   setSearchQuery('');
                   setStatusFilter('All');
                   setClientFilter('All clients');
-                  setLocationFilter('All states');
+                  setLocationFilter('All locations');
                   setModelFilter('All');
                   setCurrentPage(1);
                 }}
@@ -989,106 +1005,21 @@ export const MachinesPage: React.FC = () => {
         </div>
 
         {/* 5. Pagination & Footer */}
-        <div className="px-5 py-3.5 border-t border-border-default flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-foreground-muted bg-white select-none">
-          {/* Left Controls: Page input, Rows per page, Showing counter */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span>Page</span>
-              <span className="font-semibold text-foreground px-2 py-0.5 rounded border border-border-default bg-surface-muted">
-                {currentPage}
-              </span>
-              <span>of {totalPages}</span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span>Rows per page</span>
-              <select
-                value={rowsPerPage}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setRowsPerPage(val);
-                  setCurrentPage(1);
-                  try {
-                    localStorage.setItem('foodie_rows_per_page', String(val));
-                  } catch {}
-                }}
-                className="px-2 py-0.5 rounded border border-border-default bg-white text-foreground font-semibold text-xs cursor-pointer focus:outline-none"
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
-
-            <div className="text-[11px] text-foreground-dim">
-              Showing {totalItems > 0 ? startIndex + 1 : 0}–{endIndex} of {totalItems} machines
-            </div>
-          </div>
-
-          {/* Right Controls: Numeric Page Buttons with Prev / Next */}
-          <div className="flex items-center gap-1">
-            {/* First Page */}
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(1)}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronsLeft className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Prev Page */}
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Numeric Page Buttons */}
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
-              const isActive = pageNum === currentPage;
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-primary-light border border-primary-border text-primary font-bold'
-                      : 'bg-white border border-border-default text-foreground hover:bg-surface-muted'
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-
-            {/* Next Page */}
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Last Page */}
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage(totalPages)}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronsRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        <PaginationBar
+          variant="machines"
+          currentPage={currentPage}
+          totalPages={totalPages}
+          rowsPerPage={rowsPerPage}
+          totalItems={totalItems}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          itemLabel="machines"
+          onPageChange={setCurrentPage}
+          onRowsPerPageChange={(val) => {
+            setRowsPerPage(val);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* Toast Notification Popup */}

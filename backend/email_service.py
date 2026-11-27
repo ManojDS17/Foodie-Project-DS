@@ -1,15 +1,18 @@
 import os
+import logging
 import smtplib
 import html
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
-from typing import Optional
+from typing import Any, Callable, Optional
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("foodie.email")
 
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp-relay.brevo.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -22,9 +25,33 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 def is_smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM_EMAIL)
 
+
+def dispatch_email_in_background(
+    sender_fn: Callable[..., dict],
+    context_label: str,
+    **kwargs: Any,
+) -> None:
+    """Invoke an email sender inside FastAPI BackgroundTasks and log failures clearly."""
+    try:
+        result = sender_fn(**kwargs)
+        if not result.get("sent"):
+            logger.error(
+                "[%s] SMTP delivery failed for recipient=%s: %s",
+                context_label,
+                kwargs.get("to_email", "unknown"),
+                result.get("error", "unknown SMTP error"),
+            )
+    except Exception as exc:
+        logger.exception(
+            "[%s] Unexpected exception delivering email to %s: %s",
+            context_label,
+            kwargs.get("to_email", "unknown"),
+            exc,
+        )
+
 def _dispatch_mime_email(to_email: str, subject: str, plain_content: str, html_content: str) -> dict:
     if not is_smtp_configured():
-        print(f"[SMTP Simulation] To: {to_email} | Subject: {subject}")
+        logger.info("[SMTP Simulation] To: %s | Subject: %s", to_email, subject)
         return {"sent": True, "method": "simulated"}
 
     try:
@@ -48,10 +75,10 @@ def _dispatch_mime_email(to_email: str, subject: str, plain_content: str, html_c
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
 
-        print(f"[Brevo SMTP] [OK] Successfully delivered email to {to_email}")
+        logger.info("[Brevo SMTP] Successfully delivered email to %s", to_email)
         return {"sent": True, "method": "smtp"}
     except Exception as e:
-        print(f"[Brevo SMTP ERROR] [FAIL] {e}")
+        logger.error("[Brevo SMTP ERROR] Failed sending to %s: %s", to_email, e)
         return {"sent": False, "method": "smtp", "error": str(e)}
 
 def send_password_reset_email(to_email: str, token: str, recipient_name: str = "") -> dict:

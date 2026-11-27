@@ -1,18 +1,28 @@
 import React, { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import type { EnergyHistoryPoint } from '../../types';
+import { ArrowRight, ChevronDown } from 'lucide-react';
+import { StatusBadge, type BadgeStatus } from '../common/StatusBadge';
+import type {
+  AttentionMachine,
+  EnergyHistoryPoint,
+  UpcomingMaintenanceItem,
+} from '../../types';
 
 export type DailyEnergyPoint = EnergyHistoryPoint;
 
 export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
   data = [],
 }) => {
-  // Safe hovered index
-  const defaultIdx = data.length > 0 ? Math.min(data.length - 1, 10) : 0;
-  const [hoveredIndex, setHoveredIndex] = useState<number>(defaultIdx);
-  const timeRange = 'Last 14 days';
+  const [timeRange, setTimeRange] = useState<'Last 14 days' | 'Last 7 days'>('Last 14 days');
+  const [isRangeMenuOpen, setIsRangeMenuOpen] = useState(false);
 
-  if (!data || data.length === 0) {
+  const visibleData =
+    timeRange === 'Last 7 days' && data.length > 7 ? data.slice(-7) : data;
+
+  // Safe hovered index
+  const defaultIdx = visibleData.length > 0 ? Math.min(visibleData.length - 1, 10) : 0;
+  const [hoveredIndex, setHoveredIndex] = useState<number>(defaultIdx);
+
+  if (!visibleData || visibleData.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs flex flex-col justify-center items-center h-[260px]">
         <p className="text-xs text-foreground-dim">live telemetry energy data...</p>
@@ -21,7 +31,7 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
   }
 
   // Dynamic Chart Geometry & Limits based on actual data
-  const values = data.map((d) => d.kwh);
+  const values = visibleData.map((d) => d.kwh);
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
   const minY = Math.max(0, Math.floor((rawMin - 50) / 50) * 50);
@@ -48,12 +58,12 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
 
   // Coordinate mapping
   const getX = (index: number) =>
-    paddingLeft + (data.length > 1 ? (index / (data.length - 1)) * plotWidth : plotWidth / 2);
+    paddingLeft + (visibleData.length > 1 ? (index / (visibleData.length - 1)) * plotWidth : plotWidth / 2);
   const getY = (val: number) =>
     paddingTop + plotHeight * (1 - (val - minY) / Math.max(maxY - minY, 1));
 
   // Build smooth bezier path
-  const points = data.map((d, i) => ({ x: getX(i), y: getY(d.kwh) }));
+  const points = visibleData.map((d, i) => ({ x: getX(i), y: getY(d.kwh) }));
 
   // Catmull-Rom or Bezier curve generator
   let linePath = `M ${points[0].x} ${points[0].y}`;
@@ -76,9 +86,9 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
     paddingTop + plotHeight
   } L ${points[0].x} ${paddingTop + plotHeight} Z`;
 
-  const safeHoverIdx = hoveredIndex >= 0 && hoveredIndex < points.length ? hoveredIndex : 0;
+  const safeHoverIdx = hoveredIndex >= 0 && hoveredIndex < points.length ? hoveredIndex : points.length - 1;
   const activePoint = points[safeHoverIdx] || points[0];
-  const activeData = data[safeHoverIdx] || data[0];
+  const activeData = visibleData[safeHoverIdx] || visibleData[0];
 
 
   return (
@@ -97,11 +107,35 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
         <div className="relative shrink-0">
           <button
             type="button"
+            onClick={() => setIsRangeMenuOpen((prev) => !prev)}
             className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border-subtle text-xs font-semibold text-foreground bg-white hover:bg-surface-subtle transition-colors cursor-pointer"
           >
             <span>{timeRange}</span>
             <ChevronDown className="w-3.5 h-3.5 text-foreground-muted" />
           </button>
+
+          {isRangeMenuOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-36 rounded-xl bg-white border border-border-default shadow-lg py-1 z-20">
+              {(['Last 14 days', 'Last 7 days'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setTimeRange(option);
+                    setHoveredIndex(0);
+                    setIsRangeMenuOpen(false);
+                  }}
+                  className={`w-full px-3 py-1.5 text-left text-xs font-medium cursor-pointer transition-colors ${
+                    timeRange === option
+                      ? 'bg-primary-light text-primary font-semibold'
+                      : 'text-foreground-body hover:bg-surface-muted'
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -210,9 +244,9 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
           </g>
 
           {/* X-Axis Date Labels */}
-          {data.map((d, i) => {
+          {visibleData.map((d, i) => {
             const x = getX(i);
-            const isSelected = i === hoveredIndex;
+            const isSelected = i === safeHoverIdx;
             return (
               <text
                 key={d.date}
@@ -229,10 +263,10 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
             );
           })}
 
-          {/* Invisible interactive hover rects for smooth hovering across all 14 days */}
-          {data.map((_, i) => {
+          {/* Invisible interactive hover rects */}
+          {visibleData.map((_, i) => {
             const x = getX(i);
-            const w = plotWidth / (data.length - 1);
+            const w = plotWidth / Math.max(visibleData.length - 1, 1);
             return (
               <rect
                 key={i}
@@ -247,6 +281,131 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
             );
           })}
         </svg>
+      </div>
+    </div>
+  );
+};
+
+export interface DashboardSidePanelsProps {
+  totalMachines: number;
+  attentionMachines: AttentionMachine[];
+  upcomingMaintenance: UpcomingMaintenanceItem[];
+  showClientInSubtitle?: boolean;
+  attentionActionLabel?: string;
+  onAttentionAction: () => void;
+  onNavigateMachine: (machineId?: string) => void;
+  emptyMachinesMessage: string;
+  healthyMachinesMessage: string;
+}
+
+const mapVariantToBadge = (variant?: string): BadgeStatus => {
+  if (variant === 'offline') return 'offline';
+  if (variant === 'high' || variant === 'danger') return 'danger';
+  return 'warning';
+};
+
+export const DashboardSidePanels: React.FC<DashboardSidePanelsProps> = ({
+  totalMachines,
+  attentionMachines,
+  upcomingMaintenance,
+  showClientInSubtitle = true,
+  attentionActionLabel = 'Alerts',
+  onAttentionAction,
+  onNavigateMachine,
+  emptyMachinesMessage,
+  healthyMachinesMessage,
+}) => {
+  return (
+    <div className="lg:col-span-4 flex flex-col gap-5">
+      {/* 1. Machines Needing Attention */}
+      <div className="bg-white rounded-xl border border-border-subtle p-3.5 sm:p-5 shadow-xs">
+        <div className="flex items-center justify-between pb-3 border-b border-surface-hover">
+          <h2 className="text-sm font-bold text-foreground">
+            Machines needing attention
+          </h2>
+          <button
+            type="button"
+            onClick={onAttentionAction}
+            className="group text-xs font-bold text-primary flex items-center gap-1 cursor-pointer"
+          >
+            <span className="group-hover:underline">{attentionActionLabel}</span>
+            <ArrowRight className="w-3.5 h-3.5 inline-block shrink-0 transition-transform group-hover:translate-x-0.5" />
+          </button>
+        </div>
+
+        {totalMachines === 0 ? (
+          <div className="py-6 text-center text-xs text-foreground-muted bg-surface-muted rounded-xl border border-border-default my-2">
+            {emptyMachinesMessage}
+          </div>
+        ) : attentionMachines.length === 0 ? (
+          <div className="py-6 text-center text-xs text-status-running-text bg-emerald-50/50 rounded-xl border border-emerald-100 my-2">
+            {healthyMachinesMessage}
+          </div>
+        ) : (
+          <div className="divide-y divide-surface-hover mt-1">
+            {attentionMachines.map((m) => (
+              <div key={m.id} className="py-3 flex items-center justify-between text-xs">
+                <div className="min-w-0 pr-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateMachine(m.id)}
+                    className="font-bold text-primary underline hover:text-primary-hover block text-left cursor-pointer"
+                  >
+                    {m.machine_code}
+                  </button>
+                  <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
+                    {showClientInSubtitle && m.client ? `${m.client} · ${m.issue}` : m.issue}
+                  </div>
+                </div>
+
+                <StatusBadge
+                  status={mapVariantToBadge(m.variant)}
+                  label={m.status}
+                  size="sm"
+                  bordered
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 2. Upcoming Maintenance */}
+      <div className="bg-white rounded-xl border border-border-subtle p-3.5 sm:p-5 shadow-xs">
+        <div className="pb-3 border-b border-surface-hover">
+          <h2 className="text-sm font-bold text-foreground">
+            Upcoming maintenance
+          </h2>
+        </div>
+
+        {upcomingMaintenance.length === 0 ? (
+          <div className="py-6 text-center text-xs text-foreground-dim bg-gray-50/50 rounded-xl border border-gray-100 my-2">
+            No maintenance scheduled for the next 30 days.
+          </div>
+        ) : (
+          <div className="divide-y divide-surface-hover mt-1">
+            {upcomingMaintenance.map((item) => (
+              <div key={item.id} className="py-3 flex items-center justify-between text-xs">
+                <div className="min-w-0 pr-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateMachine()}
+                    className="font-bold text-primary underline hover:text-primary-hover block text-left cursor-pointer"
+                  >
+                    {item.machine_code}
+                  </button>
+                  <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
+                    {showClientInSubtitle && item.client ? `${item.client} · ${item.task}` : item.task}
+                  </div>
+                </div>
+
+                <span className="text-[11px] font-bold text-foreground shrink-0">
+                  {item.date}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

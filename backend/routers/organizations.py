@@ -1,38 +1,54 @@
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import secrets
 import re
-from typing import List
-from fastapi import APIRouter, HTTPException, status, Depends
-from ..database import get_db_cursor
+from typing import List, Optional
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+import psycopg2
+from ..database import (
+    get_db_cursor,
+    parse_iso_date_or_400,
+    resolve_lease_dates,
+    sync_active_operators_for_machine,
+)
 from ..schemas import OrganizationCreate, OrganizationUpdate, OrganizationResponse, BulkDeleteRequest
 from ..auth import get_current_user, get_password_hash, hash_reset_token
-from ..email_service import send_client_welcome_email
+from ..email_service import dispatch_email_in_background, send_client_welcome_email
 
 router = APIRouter(prefix="/api/organizations", tags=["Organizations"], dependencies=[Depends(get_current_user)])
+
+
+def _compute_next_client_code(cur) -> str:
+    """Compute the next sequential client code in CL-0001+ series across all rows."""
+    cur.execute("SELECT client_code FROM organizations;")
+    rows = cur.fetchall()
+    nums = set()
+    for (code,) in rows:
+        if not code:
+            continue
+        m = re.match(r'^CL-(\d+)', code.strip(), re.IGNORECASE)
+        if m:
+            try:
+                nums.add(int(m.group(1)))
+            except ValueError:
+                continue
+    next_num = max(nums) + 1 if nums else 1
+    return f"CL-{next_num:04d}"
+
 
 @router.get("/next-code")
 def get_next_client_code():
     """Calculates the next sequential client code in CL-0001 series, preserving series order and never reusing any deleted or existing client ID."""
     with get_db_cursor() as cur:
-        cur.execute("SELECT client_code FROM organizations;")
-        rows = cur.fetchall()
-        nums = set()
-        for (code,) in rows:
-            if not code:
-                continue
-            m = re.match(r'^CL-(\d+)', code.strip(), re.IGNORECASE)
-            if m:
-                try:
-                    num = int(m.group(1))
-                    if num < 9000:
-                        nums.add(num)
-                except ValueError:
-                    continue
-        next_num = max(nums) + 1 if nums else 1
-        return {"next_code": f"CL-{next_num:04d}"}
+        return {"next_code": _compute_next_client_code(cur)}
 
 @router.get("", response_model=List[OrganizationResponse])
-def get_organizations(current_user: dict = Depends(get_current_user)):
+def get_organizations(
+    response: Response,
+    skip: int = Query(0, ge=0),
+    limit: Optional[int] = Query(None, ge=1, le=500),
+    search: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     user_role = current_user.get("role")
     if user_role == "OPERATOR":
         raise HTTPException(
@@ -40,26 +56,49 @@ def get_organizations(current_user: dict = Depends(get_current_user)):
             detail="Access denied: Organizations are hidden for operators."
         )
 
+    where_clauses = ["o.is_deleted IS NOT TRUE"]
+    params: list = []
+
+    if user_role != "OEM_MANAGER":
+        user_org_id = current_user.get("organization_id")
+        if not user_org_id:
+            response.headers["X-Total-Count"] = "0"
+            return []
+        where_clauses.append("o.id = %s")
+        params.append(user_org_id)
+
+    search_term = search.strip() if search and search.strip() else None
+    if search_term:
+        pattern = f"%{search_term}%"
+        where_clauses.append(
+            "(o.company_name ILIKE %s OR o.client_code ILIKE %s OR COALESCE(o.contact_poc, '') ILIKE %s OR COALESCE(o.email, '') ILIKE %s)"
+        )
+        params.extend([pattern, pattern, pattern, pattern])
+
+    where_sql = " AND ".join(where_clauses)
+
     with get_db_cursor() as cur:
-        if user_role == "OEM_MANAGER":
-            cur.execute("""
-                SELECT o.*,
-                       COALESCE((SELECT count(*) FROM machines m WHERE m.organization_id = o.id AND (m.is_deleted IS NOT TRUE)), 0) AS total_machines
-                FROM organizations o
-                WHERE o.is_deleted IS NOT TRUE
-                ORDER BY o.created_at DESC, o.client_code DESC;
-            """)
-        else:
-            user_org_id = current_user.get("organization_id")
-            if not user_org_id:
-                return []
-            cur.execute("""
-                SELECT o.*,
-                       COALESCE((SELECT count(*) FROM machines m WHERE m.organization_id = o.id AND (m.is_deleted IS NOT TRUE)), 0) AS total_machines
-                FROM organizations o
-                WHERE o.id = %s AND o.is_deleted IS NOT TRUE
-                ORDER BY o.created_at DESC, o.client_code DESC;
-            """, (user_org_id,))
+        cur.execute(f"SELECT COUNT(*) FROM organizations o WHERE {where_sql};", tuple(params))
+        total_count = cur.fetchone()[0]
+        response.headers["X-Total-Count"] = str(total_count)
+
+        query = f"""
+            SELECT o.*,
+                   COALESCE((SELECT count(*) FROM machines m WHERE m.organization_id = o.id AND (m.is_deleted IS NOT TRUE)), 0) AS total_machines
+            FROM organizations o
+            WHERE {where_sql}
+            ORDER BY o.created_at DESC, o.client_code DESC
+        """
+        query_params = list(params)
+        if limit is not None:
+            query += " LIMIT %s OFFSET %s"
+            query_params.extend([limit, skip])
+        elif skip > 0:
+            query += " OFFSET %s"
+            query_params.append(skip)
+        query += ";"
+
+        cur.execute(query, tuple(query_params))
 
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
@@ -115,22 +154,24 @@ def get_organization(org_id: str, current_user: dict = Depends(get_current_user)
         return OrganizationResponse(**d)
 
 @router.post("", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
-def create_organization(payload: OrganizationCreate, current_user: dict = Depends(get_current_user)):
+def create_organization(payload: OrganizationCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "OEM_MANAGER":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Only OEM Managers can register new client organizations."
         )
-    code = (payload.client_code or "").strip().upper()
-    if not code:
-        code = get_next_client_code()["next_code"]
+    requested_code = (payload.client_code or "").strip().upper()
     company = payload.company_name.strip()
-    
-    # Safe date sanitization
-    onboarding_d = payload.onboarding_date.strip() if payload.onboarding_date and payload.onboarding_date.strip() else None
+
+    # Safe date sanitization (rejects invalid dates cleanly with 400)
+    parsed_onboarding = parse_iso_date_or_400(payload.onboarding_date, "Onboarding date")
+    onboarding_d = parsed_onboarding.strftime("%Y-%m-%d") if parsed_onboarding else None
     pending_welcome_email = None
 
     with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext('organizations_next_code'));")
+        code = requested_code or _compute_next_client_code(cur)
+
         # Check uniqueness of client_code across all records (including archived/deleted)
         cur.execute("SELECT id, is_deleted FROM organizations WHERE UPPER(client_code) = %s;", (code,))
         row = cur.fetchone()
@@ -203,33 +244,39 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
         if raw_shipping and raw_shipping.lower() not in ('same as billing', 'same as billing address'):
             shipping_addr = raw_shipping
 
-        cur.execute("""
-            INSERT INTO organizations (
-                client_code, company_name, business_type, status, onboarding_date, tax_id, contact_poc, email, phone_number,
-                website, billing_address, shipping_address, payment_terms, comms_preference, is_active,
-                created_by
-            ) VALUES (
-                %s, %s, %s, %s, COALESCE(%s::DATE, CURRENT_DATE), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s
-            ) RETURNING *;
-        """, (
-            code,
-            company,
-            payload.business_type or 'Corporate',
-            payload.status or 'Active',
-            onboarding_d,
-            payload.tax_id.strip() if payload.tax_id else None,
-            payload.contact_poc.strip() if payload.contact_poc else None,
-            payload.email.strip() if payload.email else None,
-            payload.phone_number.strip() if payload.phone_number else None,
-            payload.website.strip() if payload.website else None,
-            billing_addr,
-            shipping_addr,
-            payload.payment_terms or '30 days',
-            payload.comms_preference or 'Email',
-            payload.is_active if payload.is_active is not None else True,
-            current_user.get("id")
-        ))
+        try:
+            cur.execute("""
+                INSERT INTO organizations (
+                    client_code, company_name, business_type, status, onboarding_date, tax_id, contact_poc, email, phone_number,
+                    website, billing_address, shipping_address, payment_terms, comms_preference, is_active,
+                    created_by
+                ) VALUES (
+                    %s, %s, %s, %s, COALESCE(%s::DATE, CURRENT_DATE), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s
+                ) RETURNING *;
+            """, (
+                code,
+                company,
+                payload.business_type or 'Corporate',
+                payload.status or 'Active',
+                onboarding_d,
+                payload.tax_id.strip() if payload.tax_id else None,
+                payload.contact_poc.strip() if payload.contact_poc else None,
+                payload.email.strip() if payload.email else None,
+                payload.phone_number.strip() if payload.phone_number else None,
+                payload.website.strip() if payload.website else None,
+                billing_addr,
+                shipping_addr,
+                payload.payment_terms or '30 days',
+                payload.comms_preference or 'Email',
+                payload.is_active if payload.is_active is not None else True,
+                current_user.get("id")
+            ))
+        except psycopg2.IntegrityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Client code or organization identifier conflicts with an existing organization record.",
+            ) from exc
 
         row = cur.fetchone()
         cols = [desc[0] for desc in cur.description]
@@ -291,107 +338,143 @@ def create_organization(payload: OrganizationCreate, current_user: dict = Depend
                 "reset_token": welcome_token,
             }
 
-        # Assign machines and create leases if specified in payload
+        # Validate availability and assign machines atomically without overwriting prior leases
         if payload.assigned_machines:
+            seen_machine_ids = set()
             for m in payload.assigned_machines:
-                if m.machine_id and m.machine_id.strip():
-                    m_ident = m.machine_id.strip()
-                    loc = m.location.strip() if m.location and m.location.strip() else None
-                    l_start = m.lease_start_date.strip() if m.lease_start_date and m.lease_start_date.strip() else None
-                    l_end = m.lease_end_date.strip() if m.lease_end_date and m.lease_end_date.strip() else None
+                m_ident = (m.machine_id or "").strip()
+                if not m_ident:
+                    continue
+                loc = m.location.strip() if m.location and m.location.strip() else None
+                l_start_str, l_end_str = resolve_lease_dates(
+                    m.lease_start_date,
+                    m.lease_end_date,
+                    default_start_today=True,
+                    default_end_one_year=True,
+                )
 
-                    # Parse or default start date
-                    try:
-                        start_dt = datetime.strptime(l_start, "%Y-%m-%d").date() if l_start else date.today()
-                    except ValueError:
-                        start_dt = date.today()
-                    l_start_str = start_dt.strftime("%Y-%m-%d")
+                cur.execute(
+                    """
+                    SELECT id, machine_code, serial_number, organization_id, is_deleted, is_active
+                    FROM machines
+                    WHERE id::text = %s OR UPPER(machine_code) = UPPER(%s) OR UPPER(serial_number) = UPPER(%s)
+                    FOR UPDATE;
+                    """,
+                    (m_ident, m_ident, m_ident),
+                )
+                m_row = cur.fetchone()
+                if not m_row:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Machine '{m_ident}' was not found.",
+                    )
 
-                    # Calculate 1 year later if end date is missing or empty
-                    if not l_end:
-                        try:
-                            end_dt = start_dt.replace(year=start_dt.year + 1)
-                        except ValueError:
-                            end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 1)
-                        l_end_str = end_dt.strftime("%Y-%m-%d")
-                    else:
-                        try:
-                            parsed_end = datetime.strptime(l_end, "%Y-%m-%d").date()
-                            if parsed_end < start_dt:
-                                raise HTTPException(
-                                    status_code=status.HTTP_400_BAD_REQUEST,
-                                    detail=f"Lease end date ({l_end}) cannot be earlier than lease start date ({l_start_str})."
-                                )
-                            l_end_str = parsed_end.strftime("%Y-%m-%d")
-                        except ValueError:
-                            try:
-                                end_dt = start_dt.replace(year=start_dt.year + 1)
-                            except ValueError:
-                                end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 1)
-                            l_end_str = end_dt.strftime("%Y-%m-%d")
+                mach_uuid = str(m_row[0])
+                m_code = m_row[1] or m_row[2] or m_ident
+                current_owner_id = m_row[3]
+                is_mach_deleted = bool(m_row[4])
+                is_mach_active = True if m_row[5] is None else bool(m_row[5])
 
-                    # Find machine id
-                    cur.execute("SELECT id FROM machines WHERE id::text = %s OR machine_code = %s OR serial_number = %s;", (m_ident, m_ident, m_ident))
-                    m_row = cur.fetchone()
-                    if m_row:
-                        mach_uuid = m_row[0]
-                        cur.execute("""
-                            UPDATE machines
-                            SET organization_id = %s
-                            WHERE id = %s;
-                        """, (new_org_id, mach_uuid))
+                if mach_uuid in seen_machine_ids:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Machine '{m_code}' was selected more than once.",
+                    )
+                seen_machine_ids.add(mach_uuid)
 
-                        # Create machine lease record
-                        lease_ref = f"LSE-{code}-{m_ident[:4]}"
-                        cur.execute("""
-                            INSERT INTO machine_leases (
-                                machine_id, organization_id, location_label,
-                                lease_start_date, lease_end_date, lease_status, lease_reference
-                            ) VALUES (
-                                %s, %s, %s,
-                                %s::DATE, %s::DATE, 'Active', %s
-                            ) ON CONFLICT (lease_reference) DO UPDATE
-                            SET organization_id = EXCLUDED.organization_id,
-                                location_label = EXCLUDED.location_label,
-                                lease_start_date = EXCLUDED.lease_start_date,
-                                lease_end_date = EXCLUDED.lease_end_date,
-                                lease_status = 'Active';
-                        """, (mach_uuid, new_org_id, loc, l_start_str, l_end_str, lease_ref))
+                if is_mach_deleted:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Machine '{m_code}' is deleted/archived and cannot be leased.",
+                    )
+                if not is_mach_active:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Machine '{m_code}' is inactive and cannot be leased.",
+                    )
+                if current_owner_id is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Machine '{m_code}' is already assigned to another client. Terminate its current lease before reassigning.",
+                    )
 
-                        cur.execute("""
-                            SELECT id FROM users
-                            WHERE organization_id = %s
-                              AND role = 'OPERATOR'
-                              AND is_active = TRUE
-                              AND (is_deleted IS NOT TRUE);
-                        """, (new_org_id,))
-                        ops = cur.fetchall()
-                        for op in ops:
-                            cur.execute("""
-                                INSERT INTO machine_assign_to_operators (
-                                    organization_id, operator_id, machine_id,
-                                    start_date, end_date, location, created_by, assigned_by, status
-                                ) VALUES (
-                                    %s, %s, %s,
-                                    %s::DATE, %s::DATE, %s, %s, %s, 'Active'
-                                ) ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
-                                SET status = 'Active',
-                                    start_date = EXCLUDED.start_date,
-                                    end_date = EXCLUDED.end_date,
-                                    location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
-                                    revoked_at = NULL,
-                                    revoked_by = NULL,
-                                    updated_by = EXCLUDED.assigned_by,
-                                    updated_at = CURRENT_TIMESTAMP;
-                            """, (new_org_id, op[0], mach_uuid, l_start_str, l_end_str, loc, current_user.get("id"), current_user.get("id")))
+                cur.execute(
+                    """
+                    SELECT id FROM machine_leases
+                    WHERE machine_id = %s AND lease_status = 'Active'
+                    FOR UPDATE;
+                    """,
+                    (mach_uuid,),
+                )
+                if cur.fetchone():
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Machine '{m_code}' already has an active lease record. Terminate the existing lease before reassigning.",
+                    )
 
-        if pending_welcome_email:
-            try:
-                send_client_welcome_email(**pending_welcome_email)
-            except Exception as e:
-                print(f"[Welcome Email Notice] Failed to dispatch welcome email: {e}")
+                cur.execute(
+                    """
+                    UPDATE machines
+                    SET organization_id = %s,
+                        updated_by = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                      AND organization_id IS NULL
+                      AND (is_deleted IS NOT TRUE)
+                      AND COALESCE(is_active, TRUE) IS TRUE;
+                    """,
+                    (new_org_id, current_user.get("id"), mach_uuid),
+                )
+                if cur.rowcount != 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Machine '{m_code}' is no longer available for onboarding.",
+                    )
 
-        return OrganizationResponse(**d)
+                lease_ref = f"LSE-{code}-{mach_uuid[:8]}"
+                cur.execute(
+                    """
+                    INSERT INTO machine_leases (
+                        machine_id, organization_id, location_label,
+                        lease_start_date, lease_end_date, lease_status, lease_reference,
+                        created_by, assigned_by, assigned_at
+                    ) VALUES (
+                        %s, %s, %s,
+                        %s::DATE, %s::DATE, 'Active', %s,
+                        %s, %s, CURRENT_TIMESTAMP
+                    );
+                    """,
+                    (
+                        mach_uuid,
+                        new_org_id,
+                        loc,
+                        l_start_str,
+                        l_end_str,
+                        lease_ref,
+                        current_user.get("id"),
+                        current_user.get("id"),
+                    ),
+                )
+
+                sync_active_operators_for_machine(
+                    cur,
+                    organization_id=new_org_id,
+                    machine_id=mach_uuid,
+                    start_date=l_start_str,
+                    end_date=l_end_str,
+                    location=loc,
+                    actor_user_id=current_user.get("id"),
+                )
+
+    if pending_welcome_email:
+        background_tasks.add_task(
+            dispatch_email_in_background,
+            send_client_welcome_email,
+            "Client Welcome Email",
+            **pending_welcome_email,
+        )
+
+    return OrganizationResponse(**d)
 
 @router.put("/{org_id}", response_model=OrganizationResponse)
 def update_organization(org_id: str, payload: OrganizationUpdate, current_user: dict = Depends(get_current_user)):
@@ -427,11 +510,12 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
         params = []
         for k, v in update_data.items():
             if k == 'onboarding_date':
-                if not v or not str(v).strip():
+                parsed_d = parse_iso_date_or_400(v, "Onboarding date")
+                if not parsed_d:
                     set_clauses.append("onboarding_date = NULL")
                 else:
                     set_clauses.append("onboarding_date = %s::DATE")
-                    params.append(str(v).strip())
+                    params.append(parsed_d.strftime("%Y-%m-%d"))
             else:
                 set_clauses.append(f"{k} = %s")
                 params.append(v)
@@ -503,31 +587,10 @@ def update_organization(org_id: str, payload: OrganizationUpdate, current_user: 
                     detail=f"Cannot deactivate client: This client still has {mach_count} active machine(s) assigned. Please terminate all machine leases before deactivating the client."
                 )
 
+            # Separate org suspension from individual user disablement: revoke active JWTs without mutating per-user is_active
             cur.execute("""
                 UPDATE users
-                SET is_active = FALSE,
-                    token_version = token_version + 1,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE organization_id = %s;
-            """, (real_org_id,))
-
-        cur.execute("SELECT is_active, status FROM organizations WHERE id = %s;", (real_org_id,))
-        prior_org = cur.fetchone()
-        was_previously_inactive = (
-            prior_org is not None and (
-                prior_org[0] is False or
-                str(prior_org[1] or '').lower() in ('inactive', 'archived')
-            )
-        )
-
-        is_becoming_active = (
-            ('is_active' in update_data and update_data['is_active'] is True) or
-            ('status' in update_data and str(update_data['status']).lower() == 'active')
-        )
-        if is_becoming_active and was_previously_inactive:
-            cur.execute("""
-                UPDATE users
-                SET is_active = TRUE,
+                SET token_version = token_version + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE organization_id = %s AND (is_deleted IS NOT TRUE);
             """, (real_org_id,))

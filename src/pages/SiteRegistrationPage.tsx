@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Building2, Plus, Trash2, CheckCircle2, MapPin, Eye, Edit2, X, Lock, Save, Loader2, Clock, Globe } from 'lucide-react';
 import { InputField } from '../components/common/InputField';
 import { SelectField } from '../components/common/SelectField';
@@ -51,9 +51,8 @@ export const SiteRegistrationPage: React.FC = () => {
   const [editErrors, setEditErrors] = useState<{ site_name?: string; address?: string }>({});
 
   // Fetch sites and organizations from PostgreSQL on component load
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
       const [sitesData, orgsData] = await Promise.all([
         sitesApi.getAll(),
         orgsApi.getAll(),
@@ -68,10 +67,28 @@ export const SiteRegistrationPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    Promise.all([sitesApi.getAll(), orgsApi.getAll()])
+      .then(([sitesData, orgsData]) => {
+        if (!active) return;
+        setSites(sitesData);
+        setOrgs(orgsData);
+        if (orgsData.length > 0) {
+          setFormData((prev) => ({ ...prev, organization_id: prev.organization_id || orgsData[0].id }));
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load sites/orgs from PostgreSQL:', err);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const validate = (): boolean => {

@@ -1,22 +1,133 @@
 import {
   AlertTriangle,
   ArrowLeft,
-  Check,
   CheckCircle2,
   Clock,
   Eye,
   EyeOff,
   Loader2,
   Mail,
+  Shield,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthHero } from '../components/auth/AuthHero';
 import { SignedOutView } from '../components/auth/SignedOutView';
-import { isValidEmail } from '../components/clients/AddClientView';
+import { PasswordRequirements } from '../components/common/InputField';
 import { BRAND_ASSETS, BRAND_COPY } from '../config/brandConfig';
-import { useAuth } from '../context/AuthContext';
-import { authApi } from '../services/api';
+import { useAuth } from '../hooks';
+import { authApi, isValidEmail, validatePasswordPolicy } from '../services/api';
+
+interface SignInFormProps {
+  email: string;
+  password: string;
+  showPassword: boolean;
+  keepSignedIn?: boolean;
+  showKeepSignedIn?: boolean;
+  isLoading: boolean;
+  submitLabel?: string;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onToggleShowPassword: () => void;
+  onKeepSignedInChange?: (checked: boolean) => void;
+  onForgotPassword: () => void;
+  onSubmit: (e: React.FormEvent) => void;
+}
+
+const SignInForm: React.FC<SignInFormProps> = ({
+  email,
+  password,
+  showPassword,
+  keepSignedIn = true,
+  showKeepSignedIn = true,
+  isLoading,
+  submitLabel = 'Sign in',
+  onEmailChange,
+  onPasswordChange,
+  onToggleShowPassword,
+  onKeepSignedInChange,
+  onForgotPassword,
+  onSubmit,
+}) => (
+  <>
+    <form onSubmit={onSubmit} className="space-y-3.5">
+      <div>
+        <label className="block text-xs font-medium text-foreground-muted mb-1">
+          Email
+        </label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => onEmailChange(e.target.value)}
+          placeholder="name@powertechenergy.com.au"
+          className="w-full px-3 py-2 text-sm bg-white border border-border-default rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all text-foreground"
+          autoComplete="email"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-foreground-muted mb-1">
+          Password
+        </label>
+        <div className="relative">
+          <input
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => onPasswordChange(e.target.value)}
+            placeholder="Enter password"
+            className="w-full px-3 py-2 pr-10 text-sm bg-white border border-border-default rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all text-foreground"
+            autoComplete="current-password"
+          />
+          <button
+            type="button"
+            onClick={onToggleShowPassword}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-foreground-subtle hover:text-foreground-body cursor-pointer transition-colors"
+            tabIndex={-1}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {showKeepSignedIn && (
+        <div className="flex items-center justify-between pt-0.5">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={keepSignedIn}
+              onChange={(e) => onKeepSignedInChange?.(e.target.checked)}
+              className="w-3.5 h-3.5 text-primary border-border-strong rounded focus:ring-primary accent-primary cursor-pointer"
+            />
+            <span className="text-xs text-foreground-body">Keep me signed in</span>
+          </label>
+
+          <button
+            type="button"
+            onClick={onForgotPassword}
+            className="text-xs font-medium text-primary hover:text-primary-hover hover:underline cursor-pointer transition-colors"
+          >
+            Forgot password?
+          </button>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isLoading}
+        className="w-full py-2 px-4 bg-primary hover:bg-primary-hover active:bg-primary-active disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+      >
+        {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+        <span>{submitLabel}</span>
+      </button>
+    </form>
+
+    <div className="mt-4 pt-3.5 border-t border-surface-hover flex items-start gap-2.5 text-xs text-foreground-muted">
+      <Shield className="w-4 h-4 text-foreground-subtle shrink-0 mt-0.5" />
+      <p className="leading-snug">{BRAND_COPY.authNotice}</p>
+    </div>
+  </>
+);
 
 type AuthView =
   | 'SIGN_IN'
@@ -31,86 +142,93 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
+  const searchKey = searchParams.toString();
+  const [prevSearchKey, setPrevSearchKey] = useState(searchKey);
 
-  const [view, setView] = useState<AuthView>(() => {
-    const params = new URLSearchParams(window.location.search);
+  const deriveInitialView = (params: URLSearchParams): AuthView => {
     const urlView = params.get('view');
     const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
     const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
-
     if (params.get('token')) return 'SET_NEW_PASSWORD';
     if (urlView === 'expired' || isSessionExpired) return 'SESSION_EXPIRED';
     if (urlView === 'signed_out' || isSignedOut) return 'SIGNED_OUT';
     if (urlView === 'forgot') return 'FORGOT_PASSWORD';
     return 'SIGN_IN';
+  };
+
+  const [view, setView] = useState<AuthView>(() => deriveInitialView(searchParams));
+  const [email, setEmail] = useState(() => {
+    return searchParams.get('email') || sessionStorage.getItem('foodie_expired_email') || '';
   });
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [resetToken, setResetToken] = useState<string>('');
-  const [isVerifyingToken, setIsVerifyingToken] = useState(false);
+  const [resetToken, setResetToken] = useState<string>(() => searchParams.get('token') || '');
+  const [isVerifyingToken, setIsVerifyingToken] = useState(() => Boolean(searchParams.get('token')));
   const [isTokenValid, setIsTokenValid] = useState<boolean | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  useEffect(() => {
-    const urlView = searchParams.get('view');
-    const token = searchParams.get('token');
-    const queryEmail = searchParams.get('email');
-    const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
-    const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
-    const storedExpiredEmail = sessionStorage.getItem('foodie_expired_email');
-        // const queryPassword = searchParams.get('password') || searchParams.get('p');
-
-    if (queryEmail) {
-      setEmail(queryEmail);
-    } else if (storedExpiredEmail) {
-      setEmail(storedExpiredEmail);
-    }
-
-    //     if (queryPassword) {
-    //   setPassword(queryPassword);
-    // }
-
-
-    if (token) {
-      setResetToken(token);
+  if (searchKey !== prevSearchKey) {
+    setPrevSearchKey(searchKey);
+    const nextToken = searchParams.get('token');
+    const nextEmail = searchParams.get('email') || sessionStorage.getItem('foodie_expired_email');
+    if (nextEmail) setEmail(nextEmail);
+    if (nextToken) {
+      setResetToken(nextToken);
       setView('SET_NEW_PASSWORD');
       setIsVerifyingToken(true);
       setIsTokenValid(null);
       setErrorMessage(null);
-      authApi.verifyResetToken(token)
+    } else {
+      const nextUrlView = searchParams.get('view');
+      if (nextUrlView === 'expired') setView('SESSION_EXPIRED');
+      else if (nextUrlView === 'signed_out') setView('SIGNED_OUT');
+      else if (nextUrlView === 'forgot') setView('FORGOT_PASSWORD');
+    }
+  }
+
+  useEffect(() => {
+    const urlView = searchParams.get('view');
+    const token = searchParams.get('token');
+    const isSessionExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
+    const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+
+    if (token) {
+      let active = true;
+      authApi
+        .verifyResetToken(token)
         .then((res) => {
+          if (!active) return;
           setIsTokenValid(true);
           if (res.email) {
             setEmail(res.email);
           }
         })
         .catch((err) => {
+          if (!active) return;
           setIsTokenValid(false);
           setErrorMessage(err.message || 'This reset link is invalid or has expired.');
         })
         .finally(() => {
-          setIsVerifyingToken(false);
+          if (active) setIsVerifyingToken(false);
         });
+      return () => {
+        active = false;
+      };
     } else if (urlView === 'expired' || isSessionExpired) {
       sessionStorage.removeItem('foodie_session_expired');
       sessionStorage.removeItem('foodie_expired_email');
       sessionStorage.removeItem('foodie_signed_out');
-      setView('SESSION_EXPIRED');
     } else if (urlView === 'signed_out' || isSignedOut) {
       sessionStorage.removeItem('foodie_signed_out');
       sessionStorage.removeItem('foodie_session_expired');
       sessionStorage.removeItem('foodie_expired_email');
-      setView('SIGNED_OUT');
-    } else if (urlView === 'forgot') {
-      setView('FORGOT_PASSWORD');
     }
   }, [searchParams]);
 
@@ -134,7 +252,7 @@ export const LoginPage: React.FC = () => {
 
     setIsLoading(true);
     try {
-      await login(email.trim(), password);
+      await login(email.trim(), password, keepSignedIn);
       const redirectPath = sessionStorage.getItem('foodie_redirect_after_login') || '/';
       sessionStorage.removeItem('foodie_redirect_after_login');
       navigate(redirectPath);
@@ -172,13 +290,13 @@ export const LoginPage: React.FC = () => {
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const hasMinLen = newPassword.length >= 12;
-    const hasNumber = /\d/.test(newPassword);
-    const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
-    const passwordsMatch = newPassword === confirmPassword && newPassword.length > 0;
-
-    if (!hasMinLen || !hasNumber || !hasSymbol || !passwordsMatch) {
-      setErrorMessage('Please satisfy all password security requirements.');
+    const policyErr = validatePasswordPolicy(newPassword, 'Password');
+    if (policyErr) {
+      setErrorMessage(policyErr);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('Passwords do not match.');
       return;
     }
 
@@ -199,12 +317,6 @@ export const LoginPage: React.FC = () => {
       setIsLoading(false);
     }
   };
-
-  const hasMinLength = newPassword.length >= 12;
-  const hasNumber = /\d/.test(newPassword);
-  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
-  const passwordsMatch =
-    newPassword.length > 0 && confirmPassword.length > 0 && newPassword === confirmPassword;
 
   return (
     <div className="h-screen max-h-screen w-full flex bg-white font-sans antialiased overflow-hidden">
@@ -252,106 +364,30 @@ export const LoginPage: React.FC = () => {
               )}
 
               {/* Login Form */}
-              <form onSubmit={handleLogin} className="space-y-3.5">
-                {/* Email Field */}
-                <div>
-                  <label className="block text-xs font-medium text-foreground-muted mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (errorMessage) setErrorMessage(null);
-                    }}
-                    placeholder="name@company.com"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
-                  />
-                </div>
-
-                {/* Password Field with Eye Toggle */}
-                <div>
-                  <label className="block text-xs font-medium text-foreground-muted mb-1">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (errorMessage) setErrorMessage(null);
-                      }}
-                      placeholder="••••••••••••••"
-                      className={`w-full px-3.5 py-2.5 pr-10 rounded-lg border text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary transition-all bg-white ${
-                        errorMessage
-                          ? 'border-red-400 focus:border-red-500'
-                          : 'border-border-strong focus:border-primary'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors p-1"
-                      aria-label="Toggle password visibility"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Keep Signed In & Forgot Password */}
-                <div className="flex items-center justify-between text-xs pt-0.5">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={keepSignedIn}
-                      onChange={(e) => setKeepSignedIn(e.target.checked)}
-                      className="w-4 h-4 rounded text-primary border-border-strong focus:ring-primary accent-primary cursor-pointer"
-                    />
-                    <span className="text-foreground-muted font-medium">Keep me signed in</span>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMessage(null);
-                      setView('FORGOT_PASSWORD');
-                    }}
-                    className="text-primary hover:text-primary-hover font-semibold underline underline-offset-2 transition-colors cursor-pointer"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-
-                {/* Sign In Primary Action Button */}
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs hover:shadow active:scale-[0.99] disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2 mt-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Signing in...</span>
-                    </>
-                  ) : (
-                    <span>Sign in</span>
-                  )}
-                </button>
-
-                {/* Accounts setup notice directly below Sign In button */}
-                <p className="text-xs text-foreground-muted text-center mt-3.5 leading-relaxed font-normal">
-                  Accounts are set up by your Site Admin or PowerTech Energy.
-                </p>
-              </form>
+              <SignInForm
+                email={email}
+                password={password}
+                showPassword={showPassword}
+                keepSignedIn={keepSignedIn}
+                showKeepSignedIn={true}
+                isLoading={isLoading}
+                submitLabel={isLoading ? 'Signing in...' : 'Sign in'}
+                onEmailChange={(val) => {
+                  setEmail(val);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                onPasswordChange={(val) => {
+                  setPassword(val);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                onToggleShowPassword={() => setShowPassword((p) => !p)}
+                onKeepSignedInChange={setKeepSignedIn}
+                onForgotPassword={() => {
+                  setErrorMessage(null);
+                  setView('FORGOT_PASSWORD');
+                }}
+                onSubmit={handleLogin}
+              />
             </div>
           )}
 
@@ -580,24 +616,10 @@ export const LoginPage: React.FC = () => {
                     </div>
 
                     {/* Interactive Requirements Checkmarks */}
-                    <div className="space-y-1 py-0.5 text-[11px] sm:text-xs">
-                      <div className={`flex items-center gap-2 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                        <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                        <span>At least 12 characters</span>
-                      </div>
-                      <div className={`flex items-center gap-2 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                        <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                        <span>One number</span>
-                      </div>
-                      <div className={`flex items-center gap-2 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                        <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                        <span>One symbol</span>
-                      </div>
-                      <div className={`flex items-center gap-2 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                        <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                        <span>Passwords match</span>
-                      </div>
-                    </div>
+                    <PasswordRequirements
+                      password={newPassword}
+                      confirmPassword={confirmPassword}
+                    />
 
                     <button
                       type="submit"
@@ -691,78 +713,42 @@ export const LoginPage: React.FC = () => {
                 </div>
               )}
 
-              <form onSubmit={handleLogin} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-medium text-foreground-muted mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (errorMessage) setErrorMessage(null);
-                    }}
-                    placeholder="name@company.com"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-foreground-muted mb-1">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (errorMessage) setErrorMessage(null);
-                      }}
-                      placeholder="••••••••••••••"
-                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-border-subtle text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors p-1"
-                      aria-label="Toggle password visibility"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full bg-primary hover:bg-primary-hover text-white py-2.5 rounded-lg text-xs sm:text-sm font-semibold tracking-normal transition-all shadow-xs cursor-pointer mt-1 disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Signing in...</span>
-                    </>
-                  ) : (
-                    <span>Sign in</span>
-                  )}
-                </button>
+              <SignInForm
+                email={email}
+                password={password}
+                showPassword={showPassword}
+                showKeepSignedIn={false}
+                isLoading={isLoading}
+                submitLabel={isLoading ? 'Signing in...' : 'Sign in'}
+                onEmailChange={(val) => {
+                  setEmail(val);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                onPasswordChange={(val) => {
+                  setPassword(val);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                onToggleShowPassword={() => setShowPassword((p) => !p)}
+                onForgotPassword={() => {
+                  setErrorMessage(null);
+                  setView('FORGOT_PASSWORD');
+                }}
+                onSubmit={handleLogin}
+              />
 
-                <div className="text-center pt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMessage(null);
-                      setPassword('');
-                      setView('SIGN_IN');
-                    }}
-                    className="text-xs font-medium text-foreground-muted hover:text-foreground transition-colors"
-                  >
-                    Sign in with a different account
-                  </button>
-                </div>
-              </form>
+              <div className="text-center pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage(null);
+                    setPassword('');
+                    setView('SIGN_IN');
+                  }}
+                  className="text-xs font-medium text-foreground-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  Sign in with a different account
+                </button>
+              </div>
             </div>
           )}
         </div>

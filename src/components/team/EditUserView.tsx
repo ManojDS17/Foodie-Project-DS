@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   ArrowLeft,
   Save,
@@ -10,9 +10,13 @@ import {
   ShieldCheck,
   AlertCircle,
 } from 'lucide-react';
-import { usersApi } from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
-import { sanitizePhoneNumber, validatePhoneNumberInput, isValidEmail } from '../clients/AddClientView';
+import {
+  usersApi,
+  sanitizePhoneNumber,
+  validatePhoneNumberInput,
+  isValidEmail,
+} from '../../services/api';
+import { useAuth } from '../../hooks';
 import type { User } from '../../types';
 
 export interface EditUserViewProps {
@@ -33,11 +37,21 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
   onError,
 }) => {
   const { user: currentUser } = useAuth();
+  const [prevUser, setPrevUser] = useState(user);
   const [firstName, setFirstName] = useState(user.first_name || '');
   const [lastName, setLastName] = useState(user.last_name || '');
   const [email, setEmail] = useState(user.email || '');
   const [phone, setPhone] = useState(user.phone_number || '');
   const [isActive, setIsActive] = useState(user.is_active ?? true);
+
+  if (user !== prevUser) {
+    setPrevUser(user);
+    setFirstName(user.first_name || '');
+    setLastName(user.last_name || '');
+    setEmail(user.email || '');
+    setPhone(user.phone_number || '');
+    setIsActive(user.is_active ?? true);
+  }
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -45,14 +59,6 @@ export const EditUserView: React.FC<EditUserViewProps> = ({
   const isEditingSelf = currentUser?.id === user.id;
   const isOem = currentUser?.role === 'OEM_MANAGER';
   const isEmailLocked = isEditingSelf && !isOem;
-
-  useEffect(() => {
-    setFirstName(user.first_name || '');
-    setLastName(user.last_name || '');
-    setEmail(user.email || '');
-    setPhone(user.phone_number || '');
-    setIsActive(user.is_active ?? true);
-  }, [user]);
 
   const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
   const isSiteAdmin = user.role === 'SITE_ADMIN';

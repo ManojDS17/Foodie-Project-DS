@@ -11,7 +11,12 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-is_production = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod") or os.getenv("DB_NAME", "").lower() in ("foodie_prod", "prod")
+_env_name = os.getenv("ENVIRONMENT", "").strip().lower()
+_db_name = os.getenv("DB_NAME", "").strip().lower()
+is_production = (
+    _env_name not in ("development", "dev", "local")
+    or _db_name in ("foodie_prod", "prod", "production")
+)
 
 app = FastAPI(
     title="PowerTech Energy — Foodie Composter API",
@@ -41,8 +46,9 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.devtunnels\.ms|.*\.ngrok-free\.app|.*\.loca\.lt)(:\d+)?" if not is_production else None,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+    expose_headers=["X-Total-Count"],
 )
 
 app.include_router(auth.router)

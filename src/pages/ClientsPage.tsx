@@ -1,14 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSearchParams, Navigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import {
   Search,
   Plus,
   SlidersHorizontal,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Eye,
   Edit2,
   Download,
@@ -19,17 +14,33 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { orgsApi, machinesApi, usersApi } from '../services/api';
-import { useSilentRefresh } from '../hooks';
+import {
+  orgsApi,
+  machinesApi,
+  usersApi,
+  downloadCsv,
+  formatDate,
+  formatLocation,
+} from '../services/api';
+import { useAuth, useSilentRefresh } from '../hooks';
 import { AddClientView } from '../components/clients/AddClientView';
 import { EditClientView } from '../components/clients/EditClientView';
 import { DeleteClientModal } from '../components/clients/DeleteClientModal';
 import { AssignMachineView } from '../components/clients/AssignMachineView';
 import { ClientDetailView } from '../components/clients/ClientDetailView';
-import { RowActionMenu } from '../components/common/RowActionMenu';
+import { RowActionMenu, PaginationBar } from '../components/common/RowActionMenu';
 import { Button } from '../components/common/ui';
-import { Toast } from '../components/common/Toast';
+import { Toast, LoadErrorBanner } from '../components/common/Toast';
 import type { Organization, Machine, User } from '../types';
+
+const fetchClientsPageBundle = async (signal?: AbortSignal) => {
+  const [orgList, machineList, userList] = await Promise.all([
+    orgsApi.getAll(undefined, signal),
+    machinesApi.getAll(undefined, signal),
+    usersApi.getAll(undefined, signal),
+  ]);
+  return { orgList, machineList, userList };
+};
 
 export const ClientsPage: React.FC = () => {
   const { user } = useAuth();
@@ -40,7 +51,8 @@ export const ClientsPage: React.FC = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
 
   // Search & Filter States
@@ -48,6 +60,8 @@ export const ClientsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [businessTypeFilter, setBusinessTypeFilter] = useState<string>('All');
   const [locationFilter, setLocationFilter] = useState<string>('All locations');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [machineFilter, setMachineFilter] = useState<'All' | 'WithMachines' | 'NoMachines'>('All');
 
   // Row Selection State for Bulk Actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -78,54 +92,72 @@ export const ClientsPage: React.FC = () => {
   const [isAssignMachineOpen, setIsAssignMachineOpen] = useState(false);
 
   // Load live data from PostgreSQL API
-  const fetchData = async (silent = false) => {
-    if (!silent) setIsLoading(true);
+  const fetchData = useCallback(async (showSpinner = false, signal?: AbortSignal) => {
+    if (showSpinner) setIsLoading(true);
     try {
-      const [orgList, machineList, userList] = await Promise.all([
-        orgsApi.getAll().catch(() => []),
-        machinesApi.getAll().catch(() => []),
-        usersApi.getAll().catch(() => []),
-      ]);
+      const { orgList, machineList, userList } = await fetchClientsPageBundle(signal);
+      if (signal?.aborted) return;
       setOrganizations(orgList);
       setMachines(machineList);
       setUsers(userList);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to load clients data:', err);
+      setLoadError(err?.message || 'Unable to load client organizations. Please try again.');
     } finally {
-      if (!silent) setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
   }, []);
 
-  useSilentRefresh(() => fetchData(true), {
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchClientsPageBundle(controller.signal)
+      .then(({ orgList, machineList, userList }) => {
+        if (controller.signal.aborted) return;
+        setOrganizations(orgList);
+        setMachines(machineList);
+        setUsers(userList);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Failed to load clients data:', err);
+        setLoadError(err?.message || 'Unable to load client organizations. Please try again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  useSilentRefresh((signal) => fetchData(false, signal), {
     intervalMs: 10000,
     enabled: !isAddClientOpen && !editingClient && !deletingClient && !isAssignMachineOpen,
   });
 
-  useEffect(() => {
-    let isActive = true;
-
+  const [prevSelectedClientId, setPrevSelectedClientId] = useState<string | null>(selectedClientIdFromUrl);
+  if (selectedClientIdFromUrl !== prevSelectedClientId) {
+    setPrevSelectedClientId(selectedClientIdFromUrl);
     if (!selectedClientIdFromUrl) {
       setSelectedClient(null);
-      return;
-    }
-
-    setIsAddClientOpen(false);
-    setEditingClient(null);
-    setDeletingClient(null);
-    setIsAssignMachineOpen(false);
-
-    if (organizations.length > 0) {
+    } else {
+      setIsAddClientOpen(false);
+      setEditingClient(null);
+      setDeletingClient(null);
+      setIsAssignMachineOpen(false);
       const cached = organizations.find(
         (o) => o.id === selectedClientIdFromUrl || o.client_code === selectedClientIdFromUrl
       );
-      if (cached && isActive) {
+      if (cached) {
         setSelectedClient(cached);
       }
     }
+  }
+
+  useEffect(() => {
+    if (!selectedClientIdFromUrl) return;
+    let isActive = true;
 
     orgsApi
       .getById(selectedClientIdFromUrl)
@@ -149,7 +181,7 @@ export const ClientsPage: React.FC = () => {
     return () => {
       isActive = false;
     };
-  }, [selectedClientIdFromUrl]);
+  }, [selectedClientIdFromUrl, setSearchParams]);
 
   const handleSelectClient = (client: Organization) => {
     setSelectedClient(client);
@@ -182,34 +214,6 @@ export const ClientsPage: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  // Location Formatter: parses suburb & state (e.g. "Mount Isa QLD")
-  const formatLocation = (address?: string): string => {
-    if (!address) return '—';
-    const parts = address.split(',').map((p) => p.trim());
-    if (parts.length > 1) {
-      const lastPart = parts[parts.length - 1];
-      const matchState = lastPart.match(/(QLD|SA|WA|VIC|TAS|NT|NSW|ACT)/i);
-      const suburb = parts[parts.length - 2] || parts[0];
-      if (matchState) {
-        return `${suburb.replace(/(\d+)/g, '').trim()} ${matchState[0].toUpperCase()}`;
-      }
-      return `${suburb}, ${lastPart}`;
-    }
-    return address;
-  };
-
-  // Date Formatter: "14 Oct 2026"
-  const formatDate = (dateStr?: string): string => {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
 
   // Dynamic unique locations from client organizations
   const uniqueLocations = useMemo(() => {
@@ -257,14 +261,20 @@ export const ClientsPage: React.FC = () => {
         (org.shipping_address &&
           org.shipping_address.toLowerCase().includes(locationFilter.toLowerCase()));
 
-      return matchesSearch && matchesStatus && matchesType && matchesLocation;
+      // 5. Machine Assignment Filter (More filters)
+      const orgMachineCount = machines.filter((m) => m.organization_id === org.id).length;
+      const matchesMachineFilter =
+        machineFilter === 'All' ||
+        (machineFilter === 'WithMachines' ? orgMachineCount > 0 : orgMachineCount === 0);
+
+      return matchesSearch && matchesStatus && matchesType && matchesLocation && matchesMachineFilter;
     }).sort((a, b) => {
       const dateA = new Date(a.created_at || '').getTime() || 0;
       const dateB = new Date(b.created_at || '').getTime() || 0;
       if (dateB !== dateA) return dateB - dateA;
       return (b.client_code || '').localeCompare(a.client_code || '', undefined, { numeric: true });
     });
-  }, [organizations, searchQuery, statusFilter, businessTypeFilter, locationFilter]);
+  }, [organizations, machines, searchQuery, statusFilter, businessTypeFilter, locationFilter, machineFilter]);
 
   // Pagination Slice
   const totalItems = filteredOrganizations.length;
@@ -311,26 +321,17 @@ export const ClientsPage: React.FC = () => {
     ];
     const rows = exportItems.map((c) => [
       c.client_code,
-      `"${c.company_name.replace(/"/g, '""')}"`,
+      c.company_name,
       c.business_type || 'Corporate',
       c.contact_poc || '',
       c.email || '',
       c.phone_number || '',
-      `"${(c.billing_address || '').replace(/"/g, '""')}"`,
+      c.billing_address || '',
       c.status || (c.is_active ? 'Active' : 'Inactive'),
       formatDate(c.created_at),
     ]);
 
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `powertech_clients_export_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCsv(`powertech_clients_export_${Date.now()}.csv`, [headers, ...rows]);
   };
 
   const handleBulkArchive = async () => {
@@ -624,7 +625,7 @@ export const ClientsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                fetchData();
+                fetchData(true);
               }}
               disabled={isLoading}
               title="Refresh clients list from PostgreSQL"
@@ -648,6 +649,10 @@ export const ClientsPage: React.FC = () => {
           Add client
         </Button>
       </div>
+
+      {loadError && (
+        <LoadErrorBanner message={loadError} onRetry={() => fetchData(true)} />
+      )}
 
       {/* 2. Main White Card Container */}
       <div className="bg-white rounded-2xl border border-border-subtle p-5 shadow-xs overflow-hidden">
@@ -734,19 +739,73 @@ export const ClientsPage: React.FC = () => {
             </div>
 
             {/* More Filters Button */}
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-              }}
-              title="More filters"
-              className="flex items-center gap-1.5 px-3 py-2 border border-border-subtle rounded-xl bg-white hover:bg-surface-subtle text-xs font-semibold text-foreground transition-colors cursor-pointer select-none"
+            <button
+              type="button"
+              onClick={() => setShowMoreFilters((prev) => !prev)}
+              aria-expanded={showMoreFilters}
+              className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-xs font-semibold transition-colors cursor-pointer select-none ${
+                showMoreFilters || machineFilter !== 'All'
+                  ? 'border-primary bg-primary-light text-primary'
+                  : 'border-border-subtle bg-white hover:bg-surface-subtle text-foreground'
+              }`}
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-foreground-muted" />
+              <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>More filters</span>
-            </a>
+            </button>
           </div>
         </div>
+
+        {showMoreFilters && (
+          <div className="pt-3 mt-3 border-t border-surface-hover flex flex-wrap items-center gap-4 text-xs animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-2">
+              <span className="text-foreground-muted font-medium">Fleet assignment:</span>
+              <div className="flex items-center gap-1.5">
+                {[
+                  { value: 'All', label: 'All clients' },
+                  { value: 'WithMachines', label: 'With machines' },
+                  { value: 'NoMachines', label: 'No machines' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setMachineFilter(opt.value as 'All' | 'WithMachines' | 'NoMachines');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      machineFilter === opt.value
+                        ? 'bg-primary text-white'
+                        : 'bg-surface-hover text-foreground-body hover:bg-border-default'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {(searchQuery ||
+              statusFilter !== 'All' ||
+              businessTypeFilter !== 'All' ||
+              locationFilter !== 'All locations' ||
+              machineFilter !== 'All') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setStatusFilter('All');
+                  setBusinessTypeFilter('All');
+                  setLocationFilter('All locations');
+                  setMachineFilter('All');
+                  setCurrentPage(1);
+                }}
+                className="text-xs text-primary font-semibold hover:underline cursor-pointer ml-auto"
+              >
+                Reset all filters
+              </button>
+            )}
+          </div>
+        )}
 
         {/* 3. Selection Banner */}
         {selectedIds.length > 0 && (
@@ -1024,99 +1083,21 @@ export const ClientsPage: React.FC = () => {
         </div>
 
         {/* 5. Pagination Footer */}
-        <div className="pt-3.5 mt-3 border-t border-border-default flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-foreground-muted select-none">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span>Page</span>
-              <span className="font-semibold text-foreground px-2 py-0.5 rounded border border-border-default bg-surface-muted">
-                {currentPage}
-              </span>
-              <span>of {totalPages}</span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span>Rows per page</span>
-              <select
-                value={rowsPerPage}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setRowsPerPage(val);
-                  setCurrentPage(1);
-                  try {
-                    localStorage.setItem('foodie_rows_per_page', String(val));
-                  } catch {}
-                }}
-                className="px-2 py-0.5 rounded border border-border-default bg-white text-foreground font-semibold text-xs cursor-pointer focus:outline-none"
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
-
-            <div className="text-[11px] text-foreground-dim">
-              Showing {totalItems > 0 ? startIndex + 1 : 0}–{endIndex} of {totalItems} clients
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(1)}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronsLeft className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
-              const isActive = pageNum === currentPage;
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-red-50 text-primary border border-red-200'
-                      : 'border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted'
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage(totalPages)}
-              className="p-1.5 rounded-lg border border-border-default bg-white text-foreground-muted hover:text-foreground hover:bg-surface-muted disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronsRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        <PaginationBar
+          variant="clients"
+          currentPage={currentPage}
+          totalPages={totalPages}
+          rowsPerPage={rowsPerPage}
+          totalItems={totalItems}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          itemLabel="clients"
+          onPageChange={setCurrentPage}
+          onRowsPerPageChange={(val) => {
+            setRowsPerPage(val);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* Toast Notification Popup */}

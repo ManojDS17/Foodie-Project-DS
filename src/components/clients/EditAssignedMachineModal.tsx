@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Cpu, MapPin, AlertCircle } from 'lucide-react';
 import { Button } from '../common/ui';
-import { machinesApi } from '../../services/api';
-import { calculateOneYearLeaseEndDate } from './AssignMachinesSection';
-import { validateLocationInput } from '../machines/AddMachineView';
+import {
+  machinesApi,
+  calculateOneYearLeaseEndDate,
+  validateLocationInput,
+} from '../../services/api';
 import type { Machine } from '../../types';
 
 export interface EditAssignedMachineModalProps {
@@ -14,33 +16,28 @@ export interface EditAssignedMachineModalProps {
   onSuccess: (updatedMachine: Machine) => void;
 }
 
-export const EditAssignedMachineModal: React.FC<EditAssignedMachineModalProps> = ({
-  isOpen,
+interface EditAssignedMachineFormProps {
+  machine: Machine;
+  clientName: string;
+  onClose: () => void;
+  onSuccess: (updatedMachine: Machine) => void;
+}
+
+const EditAssignedMachineForm: React.FC<EditAssignedMachineFormProps> = ({
   machine,
   clientName,
   onClose,
   onSuccess,
 }) => {
-  const [location, setLocation] = useState('');
-  const [leaseStartDate, setLeaseStartDate] = useState('');
-  const [leaseEndDate, setLeaseEndDate] = useState('');
+  const [location, setLocation] = useState(machine.lease_location_label || '');
+  const [leaseStartDate, setLeaseStartDate] = useState(
+    machine.lease_start_date ? machine.lease_start_date.split('T')[0] : ''
+  );
+  const [leaseEndDate, setLeaseEndDate] = useState(
+    machine.lease_end_date ? machine.lease_end_date.split('T')[0] : ''
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (machine) {
-      setLocation(machine.lease_location_label || '');
-      setLeaseStartDate(
-        machine.lease_start_date ? machine.lease_start_date.split('T')[0] : ''
-      );
-      setLeaseEndDate(
-        machine.lease_end_date ? machine.lease_end_date.split('T')[0] : ''
-      );
-      setError(null);
-    }
-  }, [machine]);
-
-  if (!isOpen || !machine) return null;
 
   const handleClose = () => {
     if (isSubmitting) return;
@@ -222,6 +219,26 @@ export const EditAssignedMachineModal: React.FC<EditAssignedMachineModalProps> =
         </form>
       </div>
     </div>
+  );
+};
+
+export const EditAssignedMachineModal: React.FC<EditAssignedMachineModalProps> = ({
+  isOpen,
+  machine,
+  clientName,
+  onClose,
+  onSuccess,
+}) => {
+  if (!isOpen || !machine) return null;
+
+  return (
+    <EditAssignedMachineForm
+      key={`${machine.id}-${machine.lease_location_label || ''}-${machine.lease_start_date || ''}-${machine.lease_end_date || ''}`}
+      machine={machine}
+      clientName={clientName}
+      onClose={onClose}
+      onSuccess={onSuccess}
+    />
   );
 };
 

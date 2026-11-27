@@ -11,15 +11,24 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { MetricCard } from '../common/MetricCard';
-import { FleetEnergyChart } from './FleetEnergyChart';
+import { FleetEnergyChart, DashboardSidePanels } from './FleetEnergyChart';
+import { StatusBadge } from '../common/StatusBadge';
 import { AddClientView } from '../clients/AddClientView';
 import { AddMachineView } from '../machines/AddMachineView';
 import { AddOperatorView } from '../operators/AddOperatorView';
-import { Toast } from '../common/Toast';
-import { useAuth } from '../../context/AuthContext';
-import { useSilentRefresh } from '../../hooks';
+import { Toast, LoadErrorBanner } from '../common/Toast';
+import { useAuth, useSilentRefresh } from '../../hooks';
 import { dashboardApi, orgsApi, machinesApi } from '../../services/api';
 import type { Organization, Machine, DashboardStats } from '../../types';
+
+const fetchOemDashboardBundle = async (signal?: AbortSignal) => {
+  const [stats, orgList, machineList] = await Promise.all([
+    dashboardApi.getStats(signal),
+    orgsApi.getAll(undefined, signal),
+    machinesApi.getAll(undefined, signal),
+  ]);
+  return { stats, orgList, machineList };
+};
 
 export const OemDashboardView: React.FC = () => {
   const navigate = useNavigate();
@@ -36,31 +45,46 @@ export const OemDashboardView: React.FC = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const fetchData = async (isSilent = false) => {
+  const loadDashboard = async (signal?: AbortSignal) => {
     try {
-      if (!isSilent) setIsLoading(true);
-      const [stats, orgList, machineList] = await Promise.all([
-        dashboardApi.getStats().catch((err) => {
-          console.error('Failed to load live dashboard stats:', err);
-          return null;
-        }),
-        orgsApi.getAll().catch(() => []),
-        machinesApi.getAll().catch(() => []),
-      ]);
-
-      if (stats) setDashboardStats(stats);
+      const { stats, orgList, machineList } = await fetchOemDashboardBundle(signal);
+      if (signal?.aborted) return;
+      setDashboardStats(stats);
       setOrganizations(orgList);
       setMachines(machineList);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Error fetching OEM dashboard data:', err);
+      setLoadError(err?.message || 'Unable to load dashboard telemetry. Please try again.');
     } finally {
-      if (!isSilent) setIsLoading(false);
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchData(false);
+    const controller = new AbortController();
+    fetchOemDashboardBundle(controller.signal)
+      .then(({ stats, orgList, machineList }) => {
+        if (controller.signal.aborted) return;
+        setDashboardStats(stats);
+        setOrganizations(orgList);
+        setMachines(machineList);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Error fetching OEM dashboard data:', err);
+        setLoadError(err?.message || 'Unable to load dashboard telemetry. Please try again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -73,10 +97,16 @@ export const OemDashboardView: React.FC = () => {
     return () => window.removeEventListener('foodie:reset-home-view', handleResetHome);
   }, []);
 
-  useSilentRefresh(() => fetchData(true), {
+  useSilentRefresh((signal) => loadDashboard(signal), {
     intervalMs: 12000,
     enabled: !isAddClientOpen && !isAddMachineOpen && !isAddOperatorOpen,
   });
+
+  const handleRetryLoad = () => {
+    setIsLoading(true);
+    setLoadError(null);
+    loadDashboard();
+  };
 
   const recentClients = dashboardStats?.recent_clients || [];
   const attentionMachines = (dashboardStats?.attention_machines || []).slice().sort((a, b) =>
@@ -91,7 +121,7 @@ export const OemDashboardView: React.FC = () => {
           existingClients={organizations}
           onBack={() => setIsAddClientOpen(false)}
           onSuccess={(newOrg) => {
-            fetchData();
+            loadDashboard();
             setIsAddClientOpen(false);
             setToast({
               message: `Client ${newOrg.company_name} (${newOrg.client_code}) added successfully!`,
@@ -116,7 +146,7 @@ export const OemDashboardView: React.FC = () => {
         <AddMachineView
           onBack={() => setIsAddMachineOpen(false)}
           onSuccess={(newMachine) => {
-            fetchData();
+            loadDashboard();
             setIsAddMachineOpen(false);
             setToast({
               message: `Machine ${newMachine.serial_number || newMachine.machine_code} added successfully!`,
@@ -142,7 +172,7 @@ export const OemDashboardView: React.FC = () => {
           existingClients={organizations}
           onBack={() => setIsAddOperatorOpen(false)}
           onSuccess={(newOperator) => {
-            fetchData();
+            loadDashboard();
             setIsAddOperatorOpen(false);
             setToast({
               message: `Operator ${newOperator.first_name} ${newOperator.last_name || ''} registered successfully!`,
@@ -204,6 +234,8 @@ export const OemDashboardView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {loadError && <LoadErrorBanner message={loadError} onRetry={handleRetryLoad} />}
 
       {/* 5 Top Metric Cards Row (Live computed PostgreSQL aggregates) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
@@ -330,10 +362,12 @@ export const OemDashboardView: React.FC = () => {
                           {client.machines_count}
                         </td>
                         <td className="py-2.5 px-3">
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot" />
-                            <span>{client.status}</span>
-                          </span>
+                          <StatusBadge
+                            status={client.status?.toLowerCase() === 'inactive' ? 'inactive' : 'active'}
+                            label={client.status}
+                            size="sm"
+                            bordered
+                          />
                         </td>
                       </tr>
                     ))}
@@ -345,112 +379,17 @@ export const OemDashboardView: React.FC = () => {
         </div>
 
         {/* Right Column (33% Width): Machines needing attention + Upcoming maintenance */}
-        <div className="lg:col-span-4 flex flex-col gap-5">
-          {/* 1. Machines Needing Attention (Live alerts & connectivity) */}
-          <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-surface-hover">
-              <h2 className="text-sm font-bold text-foreground">
-                Machines needing attention
-              </h2>
-              <button
-                type="button"
-                onClick={() => navigate('/machines')}
-                className="group text-xs font-bold text-primary flex items-center gap-1 cursor-pointer"
-              >
-                <span className="group-hover:underline">All machines</span>
-                <ArrowRight className="w-3.5 h-3.5 inline-block shrink-0 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            </div>
-
-            {machines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-foreground-muted bg-surface-muted rounded-lg border border-border-default my-2">
-                No machines currently in fleet.
-              </div>
-            ) : attentionMachines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-status-running-text bg-emerald-50/50 rounded-lg border border-emerald-100 my-2">
-                ✓ All machines operating normally. No active alerts.
-              </div>
-            ) : (
-              <div className="divide-y divide-surface-hover mt-1">
-                {attentionMachines.map((m) => (
-                  <div key={m.id} className="py-3 flex items-center justify-between text-xs">
-                    <div className="min-w-0 pr-2">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/machines?select=${m.id}`)}
-                        className="font-bold text-primary underline hover:text-primary-hover block text-left cursor-pointer"
-                      >
-                        {m.machine_code}
-                      </button>
-                      <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
-                        {m.client} · {m.issue}
-                      </div>
-                    </div>
-
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border flex-shrink-0 ${
-                        m.variant === 'offline'
-                          ? 'bg-slate-100 text-foreground-body border-slate-200'
-                          : m.variant === 'high' || m.variant === 'danger'
-                          ? 'bg-red-50 text-primary border-red-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          m.variant === 'offline'
-                            ? 'bg-foreground-subtle'
-                            : m.variant === 'high' || m.variant === 'danger'
-                            ? 'bg-primary'
-                            : 'bg-amber-500'
-                        }`}
-                      />
-                      <span>{m.status}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 2. Upcoming Maintenance (Live from maintenance_schedules table) */}
-          <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs">
-            <div className="pb-3 border-b border-surface-hover">
-              <h2 className="text-sm font-bold text-foreground">
-                Upcoming maintenance
-              </h2>
-            </div>
-
-            {upcomingMaintenance.length === 0 ? (
-              <div className="py-6 text-center text-xs text-foreground-dim bg-gray-50/50 rounded-lg border border-gray-100 my-2">
-                No maintenance scheduled for the next 30 days.
-              </div>
-            ) : (
-              <div className="divide-y divide-surface-hover mt-1">
-                {upcomingMaintenance.map((item) => (
-                  <div key={item.id} className="py-3 flex items-center justify-between text-xs">
-                    <div className="min-w-0 pr-2">
-                      <button
-                        type="button"
-                        onClick={() => navigate('/machines')}
-                        className="font-bold text-primary underline hover:text-primary-hover block text-left"
-                      >
-                        {item.machine_code}
-                      </button>
-                      <div className="text-[11px] text-foreground-muted mt-0.5 truncate">
-                        {item.client} · {item.task}
-                      </div>
-                    </div>
-
-                    <span className="text-[11px] font-bold text-foreground flex-shrink-0">
-                      {item.date}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <DashboardSidePanels
+          totalMachines={machines.length}
+          attentionMachines={attentionMachines}
+          upcomingMaintenance={upcomingMaintenance}
+          showClientInSubtitle={true}
+          attentionActionLabel="All machines"
+          onAttentionAction={() => navigate('/machines')}
+          onNavigateMachine={(id) => navigate(id ? `/machines?select=${id}` : '/machines')}
+          emptyMachinesMessage="No machines currently in fleet."
+          healthyMachinesMessage="✓ All machines operating normally. No active alerts."
+        />
       </div>
 
       {toast && (

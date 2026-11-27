@@ -1,13 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Cpu, Plus, Trash2, CheckCircle2, Shield, Eye, Edit2, X, Lock, Save, Loader2, 
   HardDrive, Network, FileText
 } from 'lucide-react';
 import { InputField } from '../components/common/InputField';
 import { SelectField } from '../components/common/SelectField';
-import { machinesApi, sitesApi, orgsApi } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { calculateOneYearLeaseEndDate } from '../components/clients/AssignMachinesSection';
+import {
+  machinesApi,
+  sitesApi,
+  orgsApi,
+  calculateOneYearLeaseEndDate,
+  getTodayIsoDate,
+} from '../services/api';
+import { useAuth } from '../hooks';
 import { Toast } from '../components/common/Toast';
 import type { Machine, MachineFormData, Site, Organization } from '../types';
 
@@ -50,7 +55,7 @@ export const MachineOnboardingPage: React.FC = () => {
     organization_id: '',
     site_id: '',
     location_label: '',
-    lease_start_date: new Date().toISOString().split('T')[0],
+    lease_start_date: '',
     lease_end_date: '',
     lease_status: 'Active',
     lease_reference: '',
@@ -59,7 +64,10 @@ export const MachineOnboardingPage: React.FC = () => {
     connectivity_status: 'Offline',
   };
 
-  const [formData, setFormData] = useState<MachineFormData>(initialForm);
+  const [formData, setFormData] = useState<MachineFormData>(() => ({
+    ...initialForm,
+    lease_start_date: getTodayIsoDate(),
+  }));
   const [errors, setErrors] = useState<Partial<Record<keyof MachineFormData, string>>>({});
 
   // Modal State for Viewing & Editing an Existing Machine
@@ -101,9 +109,8 @@ export const MachineOnboardingPage: React.FC = () => {
   const [editErrors, setEditErrors] = useState<Partial<Record<keyof MachineFormData, string>>>({});
 
   // Load live machines, sites, and organizations from PostgreSQL
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
       const [liveMachines, liveSites, liveOrgs] = await Promise.all([
         machinesApi.getAll(),
         sitesApi.getAll(),
@@ -113,21 +120,55 @@ export const MachineOnboardingPage: React.FC = () => {
       setSites(liveSites);
       setOrgs(liveOrgs);
 
-      if (liveOrgs.length > 0 && !formData.organization_id) {
-        setFormData((prev) => ({ ...prev, organization_id: liveOrgs[0].id }));
+      if (liveOrgs.length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          organization_id: prev.organization_id || liveOrgs[0].id,
+        }));
       }
-      if (liveSites.length > 0 && !formData.site_id) {
-        setFormData((prev) => ({ ...prev, site_id: liveSites[0].id }));
+      if (liveSites.length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          site_id: prev.site_id || liveSites[0].id,
+        }));
       }
     } catch (err) {
       console.error('Failed to load data from database:', err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    Promise.all([machinesApi.getAll(), sitesApi.getAll(), orgsApi.getAll()])
+      .then(([liveMachines, liveSites, liveOrgs]) => {
+        if (!active) return;
+        setMachines(liveMachines);
+        setSites(liveSites);
+        setOrgs(liveOrgs);
+        if (liveOrgs.length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            organization_id: prev.organization_id || liveOrgs[0].id,
+          }));
+        }
+        if (liveSites.length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            site_id: prev.site_id || liveSites[0].id,
+          }));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load data from database:', err);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const isOem = currentUser?.role === 'OEM_MANAGER';

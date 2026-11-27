@@ -1,66 +1,50 @@
-# Foodie Composter Operations API — FastAPI (Python 3.11)
+# PowerTech Energy — Foodie FastAPI Backend
 
-Production-grade REST API backend built with **FastAPI**, **Pydantic v2**, and **PostgreSQL (`foodie_db`)**.
+REST API backend for the Foodie Composter platform, built with FastAPI and PostgreSQL.
 
----
+## Requirements & Environment
 
-## 1. Quick Start
+Install dependencies inside `.venv`:
 
-### Option A: 1-Click Startup (Windows)
-Double-click:
-```
-backend\run_fastapi.bat
-```
-
-### Option B: Command Line
 ```powershell
-# From the project root:
-py -3.11 -m uvicorn backend.main:app --host 0.0.0.0 --port 5000 --reload
+pip install -r backend\requirements.txt
 ```
 
-- **API Base URL**: `http://localhost:5000`
-- **Interactive Swagger Documentation**: `http://localhost:5000/docs`
-- **Alternative ReDoc Documentation**: `http://localhost:5000/redoc`
+Create `backend/.env` from `backend/.env.example` (never commit `.env` to git):
 
----
+- **Database:** `DB_HOST`, `DB_PORT`, `DB_NAME` (default `foodie_db`), `DB_USER` (`postgres`), `DB_PASSWORD`
+- **Security:** `JWT_SECRET` (required, >= 32 bytes; no insecure fallback is allowed)
+- **Environment Mode:** Set `ENVIRONMENT=development` locally to expose `/docs`, `/redoc`, and dev tunnel origin matching. Whenever `ENVIRONMENT` is unset or set to `production` (or `DB_NAME` is `foodie_prod` / `prod` / `production`), Swagger docs and dev regex origins are disabled automatically.
+- **CORS:** `ALLOWED_ORIGINS` (comma-separated explicit frontend origins; allowed methods are restricted to `GET, POST, PUT, DELETE, OPTIONS` and allowed headers to `Content-Type, Authorization, Accept, X-Requested-With`).
+- **SMTP (optional locally):** Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, and `FRONTEND_URL`. When SMTP credentials are omitted locally, outbound emails log a simulation notice instead of connecting to Brevo.
 
-## 2. Default Seeded Credentials (Local Non-Production Only)
+## Running Locally
 
-When running locally (`ENVIRONMENT != production` and `DB_NAME != foodie_prod`), `init_db()` seeds sample dev users (`oem@gmail.com`, `siteadmin@gmail.com`, `operator@gmail.com`) via `seed_demo_data()` in `backend/database.py`. Update or remove seeded accounts before exposing any shared environment.
+From the project root:
 
----
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 5000 --reload
+```
 
-## 3. Environment & Database Connection (`database.py`, `auth.py`)
-Copy `backend/.env.example` to `backend/.env` and configure all secrets locally (never commit `.env` or real passwords):
-- **Database Engine**: PostgreSQL
-- **Database Name**: `DB_NAME` (default `foodie_db`)
-- **Host / Port**: `DB_HOST` (`localhost`) / `DB_PORT` (`5432`)
-- **User / Password**: Configured via `DB_USER` and `DB_PASSWORD` in `backend/.env`
-- **JWT Secret**: Required `JWT_SECRET` (>= 32 random bytes, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`)
-- **Connection Pool**: `psycopg2.pool.SimpleConnectionPool`
+Or launch `backend\run_fastapi.bat`.
 
----
+- Base URL: `http://localhost:5000`
+- Interactive Swagger UI (only when `ENVIRONMENT=development`): `http://localhost:5000/docs`
 
-## 4. API Endpoints
+## Database Architecture
 
-### Authentication (`routers/auth.py`)
-- `POST /api/auth/login` — Authenticates user via bcrypt, returns 24h JWT token and user profile.
-- `GET /api/auth/me` — Returns current logged-in user details verified from JWT header (`Authorization: Bearer <token>`).
+- Uses a PostgreSQL `SimpleConnectionPool` (`minconn=1`, `maxconn=20`) configured in `backend/database.py` (tested on PostgreSQL 18.7).
+- Startup verifies schema state via `init_db()` cleanly without altering production seed guards.
+- Sequential client codes (`CL-0001+`) and machine codes (`C001+`) use PostgreSQL transaction-scoped advisory locks (`pg_advisory_xact_lock`) during creation to avoid race collisions without requiring extra database sequence objects.
 
-### Sites & Facilities (`routers/sites.py`)
-- `GET /api/sites` — Returns all registered installation facilities.
-- `POST /api/sites` — Registers a new site (validates unique site code per organization, GPS coordinates, required address).
-- `PUT /api/sites/{site_id}` — Updates facility name, physical address, GPS coordinates, timezone, or active status.
-- `DELETE /api/sites/{site_id}` — Deletes site facility.
+## Live API Endpoints
 
-### Users & Access Control (`routers/users.py`)
-- `GET /api/users` — Returns authorized accounts.
-- `POST /api/users` — Creates user account (enforces unique email, bcrypt password hash, role scope).
-- `PUT /api/users/{user_id}` — Updates name, phone, role, assigned site, active status.
-- `DELETE /api/users/{user_id}` — Deactivates or removes user account.
+- **Auth (`/api/auth`):** `POST /login`, `GET /me`, `POST /logout`, `POST /forgot-password`, `POST /verify-reset-token`, `POST /reset-password`
+- **Users (`/api/users`):** `GET /`, `GET /{user_id}`, `POST /`, `PUT /{user_id}`, `DELETE /{user_id}`, `POST /{user_id}/resend-invite`, `POST /{user_id}/reset-password`
+- **Organizations (`/api/organizations`):** `GET /next-code`, `GET /`, `GET /{org_id}`, `POST /`, `PUT /{org_id}`, `DELETE /{org_id}`, `POST /bulk-delete`
+- **Machines (`/api/machines`):** `GET /next-code`, `GET /models`, `GET /`, `GET /{machine_id}`, `POST /`, `PUT /{machine_id}`, `DELETE /{machine_id}`, `POST /{machine_id}/unassign`, `GET /operator-assignments`, `POST /operator-assignments`, `POST /operator-assignments/{assignment_id}/revoke`
+- **Machine Models Alias:** `GET /api/machine-models`
+- **Dashboard & Search:** `GET /api/dashboard/stats`, `GET /api/search?q=...`
+- **Health:** `GET /`
 
-### Organizations (`routers/organizations.py`)
-- `GET /api/organizations` — Returns client organization details (`Green Valley Foods Pty Ltd`, `CL-0042`).
-
-### Global Search (`routers/search.py`)
-- `GET /api/search?q={query}` — Searches PostgreSQL `sites`, `users`, and live composter machines simultaneously.
+Note: Authentication uses `HttpOnly` cookie `foodie_access_token` (`Path=/api`, `SameSite=Lax`), with fallback support for `Authorization: Bearer <token>`.

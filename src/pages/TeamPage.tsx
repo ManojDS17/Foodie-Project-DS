@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Search,
   Plus,
@@ -8,17 +8,38 @@ import {
   Trash2,
   Cpu,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { usersApi, orgsApi, machinesApi, operatorAssignmentsApi } from '../services/api';
-import { useSilentRefresh } from '../hooks';
+import {
+  usersApi,
+  orgsApi,
+  machinesApi,
+  operatorAssignmentsApi,
+  getUserInitials,
+} from '../services/api';
+import { useAuth, useSilentRefresh } from '../hooks';
 import { AddOperatorView } from '../components/operators/AddOperatorView';
 import { UserDetailView } from '../components/team/UserDetailView';
 import { EditUserView } from '../components/team/EditUserView';
 import { RemoveUserModal } from '../components/team/RemoveUserModal';
 import { AssignOperatorMachineModal } from '../components/operators/AssignOperatorMachineModal';
 import { RowActionMenu } from '../components/common/RowActionMenu';
-import { Toast } from '../components/common/Toast';
+import { StatusBadge } from '../components/common/StatusBadge';
+import { Toast, LoadErrorBanner } from '../components/common/Toast';
 import type { User, Organization, Machine, OperatorMachineAssignment } from '../types';
+
+const fetchTeamBundle = async (signal?: AbortSignal) => {
+  const [userList, orgList, machineList, assignmentList] = await Promise.all([
+    usersApi.getAll(undefined, signal),
+    orgsApi.getAll(undefined, signal),
+    machinesApi.getAll(undefined, signal),
+    operatorAssignmentsApi.getAll(undefined, signal),
+  ]);
+  return {
+    users: Array.isArray(userList) ? userList : [],
+    organizations: Array.isArray(orgList) ? orgList : [],
+    machines: Array.isArray(machineList) ? machineList : [],
+    assignments: Array.isArray(assignmentList) ? assignmentList : [],
+  };
+};
 
 export const TeamPage: React.FC = () => {
   const { user } = useAuth();
@@ -27,6 +48,7 @@ export const TeamPage: React.FC = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [operatorAssignments, setOperatorAssignments] = useState<OperatorMachineAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isAddOperatorOpen, setIsAddOperatorOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
 
@@ -58,33 +80,50 @@ export const TeamPage: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<'All' | 'SITE_ADMIN' | 'OPERATOR'>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Inactive' | 'Pending'>('All');
 
-  const fetchUsers = async (isSilent = false) => {
+  const fetchUsers = useCallback(async (showSpinner = false, signal?: AbortSignal) => {
     try {
-      if (!isSilent) setIsLoading(true);
-      const [userList, orgList, machineList, assignmentList] = await Promise.all([
-        usersApi.getAll().catch(() => []),
-        orgsApi.getAll().catch(() => []),
-        machinesApi.getAll().catch(() => []),
-        operatorAssignmentsApi.getAll().catch(() => []),
-      ]);
-      setUsers(Array.isArray(userList) ? userList : []);
-      setOrganizations(Array.isArray(orgList) ? orgList : []);
-      setMachines(Array.isArray(machineList) ? machineList : []);
-      setOperatorAssignments(Array.isArray(assignmentList) ? assignmentList : []);
+      if (showSpinner) setIsLoading(true);
+      const bundle = await fetchTeamBundle(signal);
+      if (signal?.aborted) return;
+      setUsers(bundle.users);
+      setOrganizations(bundle.organizations);
+      setMachines(bundle.machines);
+      setOperatorAssignments(bundle.assignments);
+      setLoadError(null);
 
-      if (viewingUser && Array.isArray(userList)) {
-        const refreshed = userList.find((u) => u.id === viewingUser.id);
-        if (refreshed) setViewingUser(refreshed);
-      }
-    } catch (err) {
+      setViewingUser((curr) => {
+        if (!curr) return null;
+        return bundle.users.find((u) => u.id === curr.id) || curr;
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to load team members:', err);
+      setLoadError(err?.message || 'Unable to load team members. Please try again.');
     } finally {
-      if (!isSilent) setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchUsers(false);
+    const controller = new AbortController();
+    fetchTeamBundle(controller.signal)
+      .then((bundle) => {
+        if (controller.signal.aborted) return;
+        setUsers(bundle.users);
+        setOrganizations(bundle.organizations);
+        setMachines(bundle.machines);
+        setOperatorAssignments(bundle.assignments);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Failed to load team members:', err);
+        setLoadError(err?.message || 'Unable to load team members. Please try again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -99,23 +138,10 @@ export const TeamPage: React.FC = () => {
     };
   }, []);
 
-  useSilentRefresh(() => fetchUsers(true), {
+  useSilentRefresh((signal) => fetchUsers(false, signal), {
     intervalMs: 12000,
     enabled: !isAddOperatorOpen && !editingUser && !removingUser && !managingOperator,
   });
-
-  const getInitials = (firstName?: string, lastName?: string, email?: string): string => {
-    if (firstName && lastName) {
-      return `${firstName[0]}${lastName[0]}`.toUpperCase();
-    }
-    if (firstName && firstName.length >= 2) {
-      return firstName.slice(0, 2).toUpperCase();
-    }
-    if (email && email.length >= 2) {
-      return email.slice(0, 2).toUpperCase();
-    }
-    return 'U';
-  };
 
   const getUserStatus = (u: User): 'Active' | 'Pending' | 'Inactive' => {
     if (!u.is_active) return 'Inactive';
@@ -126,27 +152,12 @@ export const TeamPage: React.FC = () => {
   const getStatusBadge = (u: User) => {
     const status = getUserStatus(u);
     if (status === 'Inactive') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-surface-hover text-foreground-muted border border-border-default">
-          <span className="w-1.5 h-1.5 rounded-full bg-foreground-subtle"></span>
-          Inactive
-        </span>
-      );
+      return <StatusBadge status="inactive" label="Inactive" bordered />;
     }
     if (status === 'Pending') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-          Pending
-        </span>
-      );
+      return <StatusBadge status="pending" label="Pending" bordered pulse />;
     }
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-status-running-bg text-status-running-text border border-status-running-dot/30">
-        <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot"></span>
-        Active
-      </span>
-    );
+    return <StatusBadge status="active" label="Active" bordered />;
   };
 
   const handleConfirmRemove = async () => {
@@ -391,6 +402,9 @@ export const TeamPage: React.FC = () => {
       </div>
 
       {/* 2. Main Content Card */}
+      {loadError && (
+        <LoadErrorBanner message={loadError} onRetry={() => fetchUsers(true)} />
+      )}
       <div className="bg-white rounded-2xl border border-border-default shadow-2xs overflow-hidden">
         {/* Filter Controls Row */}
         <div className="p-4 sm:p-5 border-b border-surface-hover flex flex-col md:flex-row items-stretch md:items-center gap-3">
@@ -481,7 +495,7 @@ export const TeamPage: React.FC = () => {
               ) : (
                 filteredUsers.map((u) => {
                   const fullName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Team Member';
-                  const initials = getInitials(u.first_name, u.last_name, u.email);
+                  const initials = getUserInitials(u.first_name, u.last_name, u.email);
                   const isSiteAdmin = u.role === 'SITE_ADMIN';
 
                   return (

@@ -13,12 +13,19 @@ import {
   Cpu,
   Mail,
   ShieldCheck,
-  Check,
 } from 'lucide-react';
-import { orgsApi, machinesApi, usersApi } from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
+import {
+  orgsApi,
+  machinesApi,
+  usersApi,
+  sanitizePhoneNumber,
+  validatePhoneNumberInput,
+  isValidEmail,
+  validatePasswordPolicy,
+} from '../../services/api';
+import { useAuth } from '../../hooks';
 import { Button } from '../common/ui';
-import { sanitizePhoneNumber, validatePhoneNumberInput, isValidEmail } from '../clients/AddClientView';
+import { PasswordRequirements } from '../common/InputField';
 import type { Organization, Machine, User } from '../../types';
 
 export interface AddOperatorViewProps {
@@ -70,28 +77,26 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
 
   const fullName = `${firstName} ${lastName}`.trim();
 
-  // Password rules validation states
-  const hasMinLength = password.length >= 12;
-  const hasNumber = /\d/.test(password);
-  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-  const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
-
-  // Load clients and machines
-  useEffect(() => {
+  // Keep selectedClientId synced if effectiveOrgId changes after initial mount
+  const [prevEffectiveOrgId, setPrevEffectiveOrgId] = useState(effectiveOrgId);
+  if (effectiveOrgId !== prevEffectiveOrgId) {
+    setPrevEffectiveOrgId(effectiveOrgId);
     if (effectiveOrgId && !selectedClientId) {
       setSelectedClientId(effectiveOrgId);
     }
-  }, [effectiveOrgId, selectedClientId]);
+  }
 
   useEffect(() => {
+    const controller = new AbortController();
     Promise.all([
       existingClients && Array.isArray(existingClients) && existingClients.length > 0
         ? Promise.resolve(existingClients)
-        : orgsApi.getAll().catch(() => []),
-      machinesApi.getAll().catch(() => []),
-      usersApi.getAll().catch(() => []),
+        : orgsApi.getAll(undefined, controller.signal).catch(() => []),
+      machinesApi.getAll(undefined, controller.signal).catch(() => []),
+      usersApi.getAll(undefined, controller.signal).catch(() => []),
     ])
       .then(([clientList, machineList, userList]) => {
+        if (controller.signal.aborted) return;
         const safeClients = Array.isArray(clientList) ? clientList : [];
         const activeClients = safeClients.filter((c) => !c.is_deleted);
         setClients(activeClients);
@@ -99,8 +104,11 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
         setExistingUsersList(Array.isArray(userList) ? userList : []);
       })
       .catch((err) => {
-        console.error('Failed to load clients or machines for operator view:', err);
+        if (!controller.signal.aborted) {
+          console.error('Failed to load clients or machines for operator view:', err);
+        }
       });
+    return () => controller.abort();
   }, [existingClients]);
 
   const cleanEmail = email.trim().toLowerCase();
@@ -185,20 +193,9 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
       setError('Password is required.');
       return;
     }
-    if (password.length < 12) {
-      setError('Password must be at least 12 characters long.');
-      return;
-    }
-    if (password.length > 50) {
-      setError('Password cannot exceed 50 characters.');
-      return;
-    }
-    if (!/[0-9]/.test(password)) {
-      setError('Password must contain at least one number (0-9).');
-      return;
-    }
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      setError('Password must contain at least one special character / symbol (e.g. !@#$%^&*).');
+    const passwordErr = validatePasswordPolicy(password, 'Password');
+    if (passwordErr) {
+      setError(passwordErr);
       return;
     }
     if (password !== confirmPassword) {
@@ -619,24 +616,11 @@ export const AddOperatorView: React.FC<AddOperatorViewProps> = ({
             </div>
 
             {/* Interactive Password Requirements Checklist */}
-            <div className="md:col-span-2 -mt-1 mb-1 p-3 bg-slate-50 border border-border-default rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-              <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                <Check className={`w-3.5 h-3.5 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                <span>At least 12 characters</span>
-              </div>
-              <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                <Check className={`w-3.5 h-3.5 ${hasNumber ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                <span>One number</span>
-              </div>
-              <div className={`flex items-center gap-1.5 ${hasSymbol ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                <Check className={`w-3.5 h-3.5 ${hasSymbol ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                <span>One symbol</span>
-              </div>
-              <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}`}>
-                <Check className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600 stroke-[3]' : 'text-foreground-subtle'}`} />
-                <span>Passwords match</span>
-              </div>
-            </div>
+            <PasswordRequirements
+              password={password}
+              confirmPassword={confirmPassword}
+              className="md:col-span-2 -mt-1 mb-1"
+            />
           </div>
 
           <div className="mt-5 p-3.5 bg-surface-muted rounded-xl border border-border-default text-xs text-foreground-body flex items-center gap-2">

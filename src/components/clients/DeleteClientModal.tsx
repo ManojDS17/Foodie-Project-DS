@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { orgsApi } from '../../services/api';
 import type { Organization, Machine } from '../../types';
@@ -12,32 +12,16 @@ export interface DeleteClientModalProps {
   onSuccess: (deletedIds: string[]) => void;
 }
 
-export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
-  isOpen,
-  client,
-  selectedClients,
+const DeleteClientModalContent: React.FC<
+  Omit<DeleteClientModalProps, 'isOpen'> & { clientsToDelete: Organization[] }
+> = ({
+  clientsToDelete,
   machines,
   onClose,
   onSuccess,
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setError(null);
-    setIsDeleting(false);
-  }, [isOpen, client, selectedClients]);
-
-  if (!isOpen) return null;
-
-  // Determine if single or multiple deletion
-  const clientsToDelete = selectedClients && selectedClients.length > 0
-    ? selectedClients
-    : client
-    ? [client]
-    : [];
-
-  if (clientsToDelete.length === 0) return null;
 
   const isMultiple = clientsToDelete.length > 1;
   const title = isMultiple
@@ -154,5 +138,37 @@ export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+export const DeleteClientModal: React.FC<DeleteClientModalProps> = ({
+  isOpen,
+  client,
+  selectedClients,
+  machines,
+  onClose,
+  onSuccess,
+}) => {
+  if (!isOpen) return null;
+
+  const clientsToDelete =
+    selectedClients && selectedClients.length > 0
+      ? selectedClients
+      : client
+      ? [client]
+      : [];
+
+  if (clientsToDelete.length === 0) return null;
+
+  const modalKey = clientsToDelete.map((c) => c.id).join(',');
+
+  return (
+    <DeleteClientModalContent
+      key={modalKey}
+      clientsToDelete={clientsToDelete}
+      machines={machines}
+      onClose={onClose}
+      onSuccess={onSuccess}
+    />
   );
 };

@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
+import { getPasswordChecks } from '../../services/api';
 
 interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string;
@@ -45,6 +46,98 @@ export const InputField: React.FC<InputFieldProps> = ({
       ) : helperText ? (
         <span className="text-[11px] text-foreground-muted mt-0.5">{helperText}</span>
       ) : null}
+    </div>
+  );
+};
+
+export interface PasswordRequirementsProps {
+  password: string;
+  confirmPassword?: string;
+  showMatchRule?: boolean;
+  className?: string;
+}
+
+export const PasswordRequirements: React.FC<PasswordRequirementsProps> = ({
+  password,
+  confirmPassword = '',
+  showMatchRule = true,
+  className = '',
+}) => {
+  const {
+    hasMinLength,
+    hasMaxLength,
+    hasNumber,
+    hasSymbol,
+    passwordsMatch,
+  } = getPasswordChecks(password, confirmPassword);
+
+  const lengthMet = hasMinLength && hasMaxLength;
+
+  return (
+    <div
+      className={`p-3 rounded-xl bg-surface-subtle border border-border-default space-y-1.5 text-[11px] ${className}`}
+    >
+      <p className="font-bold text-foreground-body text-[11px] uppercase tracking-wider mb-1">
+        Password security requirements
+      </p>
+
+      <div className="flex items-center gap-2">
+        <span
+          className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+            lengthMet ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'
+          }`}
+        >
+          <Check className="w-2.5 h-2.5" />
+        </span>
+        <span className={lengthMet ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}>
+          {!hasMaxLength
+            ? 'Maximum 50 characters allowed'
+            : 'Minimum 12 characters required (up to 50)'}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span
+          className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+            hasNumber ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'
+          }`}
+        >
+          <Check className="w-2.5 h-2.5" />
+        </span>
+        <span className={hasNumber ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}>
+          At least one number (0-9)
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span
+          className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+            hasSymbol ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'
+          }`}
+        >
+          <Check className="w-2.5 h-2.5" />
+        </span>
+        <span className={hasSymbol ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}>
+          At least one special character (e.g. @ # $ %)
+        </span>
+      </div>
+
+      {showMatchRule && (
+        <div className="flex items-center gap-2">
+          <span
+            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+              passwordsMatch ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'
+            }`}
+          >
+            <Check className="w-2.5 h-2.5" />
+          </span>
+          <span
+            className={passwordsMatch ? 'text-emerald-700 font-semibold' : 'text-foreground-muted'}
+          >
+            Passwords match
+          </span>
+        </div>
+      )}
     </div>
   );
 };

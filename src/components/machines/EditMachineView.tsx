@@ -8,9 +8,13 @@ import {
   Home,
   X,
 } from 'lucide-react';
-import { machinesApi } from '../../services/api';
+import {
+  machinesApi,
+  validateLocationInput,
+  validateLocationDescription,
+} from '../../services/api';
 import { Button } from '../common/ui';
-import { validateLocationInput, validateLocationDescription } from './AddMachineView';
+import { MachineLocationAndSpecsSections } from './AddMachineView';
 import type { Machine, MachineModel, Organization } from '../../types';
 
 export interface EditMachineViewProps {
@@ -63,9 +67,11 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     machinesApi
       .getModels()
       .then((data) => {
+        if (controller.signal.aborted) return;
         const order = ['F25', 'F100', 'F500', 'F1000'];
         const sorted = [...data].sort((a, b) => {
           const idxA = order.indexOf(a.model_code);
@@ -85,14 +91,18 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
           };
         });
       })
-      .catch((err) => console.error('Failed to load machine models:', err));
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error('Failed to load machine models:', err);
+      });
+    return () => controller.abort();
   }, [machine.model]);
 
-  useEffect(() => {
+  const [prevMachine, setPrevMachine] = useState(machine);
+  if (machine !== prevMachine) {
+    setPrevMachine(machine);
     const resolvedCode = getModelCode(machine.model, machineModels);
     const matched = machineModels.find((m) => m.model_code === resolvedCode);
-    setFormData((prev) => ({
-      ...prev,
+    setFormData({
       serial_number: machine.serial_number || machine.machine_code || '',
       model: resolvedCode,
       version: machine.hardware_version || '',
@@ -107,8 +117,8 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
       notes: machine.notes || '',
       connectivity_status: machine.connectivity_status || 'Offline',
       operational_status: machine.operational_status || 'Idle',
-    }));
-  }, [machine.id]);
+    });
+  }
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -399,206 +409,21 @@ export const EditMachineView: React.FC<EditMachineViewProps> = ({
           </div>
         </div>
 
-        {/* Section 2: Installation Location */}
-        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-surface-hover pb-4 mb-6">
-            <h2 className="text-base font-bold text-foreground tracking-tight">
-              Location
-            </h2>
-          </div>
-
-          <div className="space-y-4">
-            {/* Location Label */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-foreground">
-                  Location <span className="text-status-fault-text">*</span>
-                </label>
-                <span className={`text-[11px] ${formData.location.length >= 100 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
-                  {formData.location.length}/100 characters
-                </span>
-              </div>
-              <input
-                type="text"
-                name="location"
-                value={formData.location}
-                onChange={handleChange}
-                onBlur={() => setLocationTouched(true)}
-                maxLength={100}
-                placeholder="e.g. 2 Discovery Way, Mawson Lakes 5095"
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
-                  locationError
-                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
-                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
-                }`}
-                required
-              />
-              {locationError ? (
-                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
-                  <span>{locationError}</span>
-                </p>
-              ) : (
-                <p className="text-[11px] text-foreground-muted mt-1">
-                  Physical installation address or facility department. Letters, numbers, and standard address punctuation only.
-                </p>
-              )}
-            </div>
-
-            {/* Location Description */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-foreground">
-                  Location description (optional)
-                </label>
-                <span className={`text-[11px] ${formData.location_description.length >= 300 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
-                  {formData.location_description.length}/300 characters
-                </span>
-              </div>
-              <textarea
-                name="location_description"
-                value={formData.location_description}
-                onChange={handleChange}
-                maxLength={300}
-                rows={2}
-                placeholder="e.g. Installed at the carpark shed of the client's location"
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs resize-none transition-colors ${
-                  descError
-                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
-                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
-                }`}
-              />
-              {descError && (
-                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
-                  <span>{descError}</span>
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Section 3: Hardware & Software */}
-        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-surface-hover pb-4 mb-6">
-            <h2 className="text-base font-bold text-foreground tracking-tight">
-              Hardware & software
-            </h2>
-            <p className="text-xs text-foreground-muted mt-0.5">
-              Firmware software versions and connected auxiliary subsystems.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {/* PLC Software Version */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                PLC software version <span className="text-status-fault-text">*</span>
-              </label>
-              <input
-                type="text"
-                name="plc_software_version"
-                value={formData.plc_software_version}
-                onChange={handleChange}
-                placeholder="e.g. v23410712"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
-                required
-              />
-            </div>
-
-            {/* Energy Meter Model */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Energy meter model <span className="text-status-fault-text">*</span>
-              </label>
-              <input
-                type="text"
-                name="energy_meter_model"
-                value={formData.energy_meter_model}
-                onChange={handleChange}
-                placeholder="e.g. Victron Energy Meter ET340"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
-                required
-              />
-            </div>
-
-            {/* Deodorizer Model */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Deodor model (optional)
-              </label>
-              <input
-                type="text"
-                name="deodor_model"
-                value={formData.deodor_model}
-                onChange={handleChange}
-                placeholder="e.g. Bio-Filter 200"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
-              />
-            </div>
-
-            {/* Extractor Model */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Extractor model (optional)
-              </label>
-              <input
-                type="text"
-                name="extractor_model"
-                value={formData.extractor_model}
-                onChange={handleChange}
-                placeholder="e.g. AirFlow-X10"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
-              />
-            </div>
-
-            {/* Has stairs */}
-            <div className="md:col-span-2 lg:col-span-4">
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Has stairs (optional)
-              </label>
-              <div className="inline-flex rounded-xl border border-border-strong p-0.5 bg-surface-muted">
-                <button
-                  type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, has_stairs: true }))}
-                  className={`px-5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    formData.has_stairs
-                      ? 'bg-white text-foreground font-semibold shadow-xs border border-border-strong'
-                      : 'text-foreground-muted hover:text-foreground'
-                  }`}
-                >
-                  Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, has_stairs: false }))}
-                  className={`px-5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    !formData.has_stairs
-                      ? 'bg-white text-foreground font-semibold shadow-xs border border-border-strong'
-                      : 'text-foreground-muted hover:text-foreground'
-                  }`}
-                >
-                  No
-                </button>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div className="md:col-span-2 lg:col-span-4">
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Notes (optional)
-              </label>
-              <textarea
-                name="notes"
-                value={formData.notes}
-                onChange={handleChange}
-                rows={2}
-                placeholder="Add any specific installation, maintenance, or commissioning notes..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs resize-none"
-              />
-            </div>
-          </div>
-        </div>
+        <MachineLocationAndSpecsSections
+          values={formData}
+          locationTitle="Location"
+          locationPlaceholder="e.g. 2 Discovery Way, Mawson Lakes 5095"
+          locationError={locationError}
+          descError={descError}
+          plcPlaceholder="e.g. v23410712"
+          energyPlaceholder="e.g. Victron Energy Meter ET340"
+          deodorPlaceholder="e.g. Bio-Filter 200"
+          extractorPlaceholder="e.g. AirFlow-X10"
+          notesPlaceholder="Add any specific installation, maintenance, or commissioning notes..."
+          onChange={handleChange}
+          onLocationBlur={() => setLocationTouched(true)}
+          onHasStairsChange={(val) => setFormData((prev) => ({ ...prev, has_stairs: val }))}
+        />
 
         {/* Section 4: Operational Status */}
         <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">

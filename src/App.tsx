@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './hooks';
 import { MasterLayout } from './components/layout/MasterLayout';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardOverviewPage } from './pages/DashboardOverviewPage';
@@ -76,7 +77,11 @@ export const AppContent: React.FC = () => {
           path="users"
           element={
             <ProtectedRoute>
-              <ProfilePage />
+              {isOem || user?.role === 'SITE_ADMIN' ? (
+                <Navigate to="/team" replace />
+              ) : (
+                <Navigate to="/profile" replace />
+              )}
             </ProtectedRoute>
           }
         />

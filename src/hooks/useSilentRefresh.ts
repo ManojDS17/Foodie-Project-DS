@@ -6,13 +6,14 @@ export interface SilentRefreshOptions {
 }
 
 export function useSilentRefresh(
-  refreshFn: () => Promise<void> | void,
+  refreshFn: (signal: AbortSignal) => Promise<void> | void,
   options: SilentRefreshOptions = {}
 ) {
   const { intervalMs = 12000, enabled = true } = options;
   const isRefreshingRef = useRef(false);
+  const activeControllerRef = useRef<AbortController | null>(null);
   const savedCallback = useRef(refreshFn);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
@@ -24,21 +25,35 @@ export function useSilentRefresh(
       return;
     }
 
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+
     try {
       isRefreshingRef.current = true;
       setIsRefreshing(true);
-      await savedCallback.current();
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.warn('Silent refresh deferred:', err);
+      await savedCallback.current(controller.signal);
+      if (!controller.signal.aborted) {
+        setLastUpdated(new Date());
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.warn('Silent refresh deferred:', err);
+      }
     } finally {
       isRefreshingRef.current = false;
       setIsRefreshing(false);
+      if (activeControllerRef.current === controller) {
+        activeControllerRef.current = null;
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      activeControllerRef.current?.abort();
+      activeControllerRef.current = null;
+      return;
+    }
 
     const intervalId = window.setInterval(executeRefresh, intervalMs);
 
@@ -53,6 +68,8 @@ export function useSilentRefresh(
     return () => {
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      activeControllerRef.current?.abort();
+      activeControllerRef.current = null;
     };
   }, [intervalMs, enabled, executeRefresh]);
 

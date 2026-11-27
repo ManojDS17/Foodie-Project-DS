@@ -107,6 +107,22 @@ def _normalize_expiry(expires_at: Optional[datetime]) -> Optional[datetime]:
     return expires_at
 
 
+def _is_org_suspended(
+    role: Optional[str],
+    organization_id,
+    org_is_active: Optional[bool],
+    org_is_deleted: Optional[bool],
+    org_status: Optional[str],
+) -> bool:
+    if role == "OEM_MANAGER" or not organization_id:
+        return False
+    return (
+        org_is_active is False
+        or org_is_deleted is True
+        or str(org_status or "").strip().lower() in ("inactive", "archived")
+    )
+
+
 @router.post("/login")
 def login(payload: LoginRequest, request: Request, response: Response):
     email = payload.email.strip().lower()
@@ -178,7 +194,6 @@ def login(payload: LoginRequest, request: Request, response: Response):
         "organization_id": str(user_dict["organization_id"]) if user_dict.get("organization_id") else None,
         "company_name": user_dict.get("company_name"),
         "client_code": user_dict.get("client_code"),
-        "assigned_site_id": None,
         "token_version": user_dict.get("token_version", 1),
     }
     token, expire_dt = create_access_token_with_expiry(token_data)
@@ -189,7 +204,7 @@ def login(payload: LoginRequest, request: Request, response: Response):
         httponly=True,
         secure=_is_secure_cookie(request),
         samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_HOURS * 3600,
+        max_age=ACCESS_TOKEN_EXPIRE_HOURS * 3600 if payload.remember_me else None,
         path="/api",
     )
 
@@ -265,15 +280,25 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request):
     user_row = None
     with get_db_cursor() as cur:
         cur.execute(
-            "SELECT id, first_name, last_name, is_active FROM users WHERE LOWER(email) = %s AND (is_deleted IS NOT TRUE);",
+            """
+            SELECT u.id, u.first_name, u.last_name, u.is_active, u.role, u.organization_id,
+                   o.is_active, o.is_deleted, o.status
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            WHERE LOWER(u.email) = %s AND (u.is_deleted IS NOT TRUE);
+            """,
             (email,),
         )
         user_row = cur.fetchone()
 
-    if not user_row or not user_row[3]:
+    if (
+        not user_row
+        or not user_row[3]
+        or _is_org_suspended(user_row[4], user_row[5], user_row[6], user_row[7], user_row[8])
+    ):
         return generic_response
 
-    user_id, first_name, last_name, _ = user_row
+    user_id, first_name, last_name = user_row[0], user_row[1], user_row[2]
     token = secrets.token_urlsafe(32)
     token_hash = hash_reset_token(token)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
@@ -314,15 +339,19 @@ def verify_reset_token(payload: dict):
 
     with get_db_cursor(commit=False) as cur:
         cur.execute("""
-            SELECT id, email, reset_token_expires_at 
-            FROM users 
-            WHERE reset_token = %s AND (is_deleted IS NOT TRUE) AND is_active IS TRUE;
+            SELECT u.id, u.email, u.reset_token_expires_at, u.role, u.organization_id,
+                   o.is_active, o.is_deleted, o.status
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            WHERE u.reset_token = %s AND (u.is_deleted IS NOT TRUE) AND u.is_active IS TRUE;
         """, (token_hash,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired password reset link.")
 
-        _, email, expires_at = row
+        _, email, expires_at, role, org_id, org_active, org_deleted, org_status = row
+        if _is_org_suspended(role, org_id, org_active, org_deleted, org_status):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Client organization account has been suspended or deactivated.")
         norm_expires = _normalize_expiry(expires_at)
         if not norm_expires or norm_expires < datetime.now(timezone.utc):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This link has expired. Please request a new one or contact your administrator.")
@@ -337,17 +366,22 @@ def reset_password(payload: ResetPasswordRequest, request: Request):
 
     with get_db_cursor(commit=True) as cur:
         cur.execute("""
-            SELECT id, email, reset_token_expires_at, password_hash, is_active 
-            FROM users 
-            WHERE reset_token = %s AND (is_deleted IS NOT TRUE);
+            SELECT u.id, u.email, u.reset_token_expires_at, u.password_hash, u.is_active,
+                   u.role, u.organization_id, o.is_active, o.is_deleted, o.status
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            WHERE u.reset_token = %s AND (u.is_deleted IS NOT TRUE)
+            FOR UPDATE OF u;
         """, (token_hash,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token.")
 
-        user_id, email, expires_at, current_hash, is_active = row
+        user_id, email, expires_at, current_hash, is_active, role, org_id, org_active, org_deleted, org_status = row
         if not is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
+        if _is_org_suspended(role, org_id, org_active, org_deleted, org_status):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Client organization account has been suspended or deactivated.")
 
         norm_expires = _normalize_expiry(expires_at)
         if not norm_expires or norm_expires < datetime.now(timezone.utc):
@@ -368,8 +402,16 @@ def reset_password(payload: ResetPasswordRequest, request: Request):
                 reset_token_expires_at = NULL,
                 token_version = token_version + 1,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s;
-        """, (new_hash, user_id))
+            WHERE id = %s
+              AND reset_token = %s
+              AND (is_deleted IS NOT TRUE)
+              AND is_active IS TRUE
+              AND reset_token_expires_at IS NOT NULL
+              AND reset_token_expires_at >= CURRENT_TIMESTAMP
+            RETURNING id;
+        """, (new_hash, user_id, token_hash))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token.")
 
     _clear_login_rate_limit(client_ip, email.strip().lower())
 

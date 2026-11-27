@@ -1,11 +1,19 @@
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import List
-from fastapi import APIRouter, HTTPException, status, Depends
-from ..database import get_db_cursor
+from typing import List, Optional
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from ..database import (
+    get_db_cursor,
+    require_uuid_or_400,
+    sync_active_machines_for_operator,
+)
 from ..schemas import UserCreate, UserUpdate, UserResponse
 from ..auth import get_password_hash, get_current_user, hash_reset_token
-from ..email_service import send_operator_welcome_email
+from ..email_service import (
+    dispatch_email_in_background,
+    send_operator_welcome_email,
+    send_password_reset_email,
+)
 
 router = APIRouter(prefix="/api/users", tags=["Users"], dependencies=[Depends(get_current_user)])
 
@@ -17,7 +25,13 @@ def compute_user_status(is_active: bool, last_login_at) -> str:
     return "Active"
 
 @router.get("", response_model=List[UserResponse])
-def get_all_users(current_user: dict = Depends(get_current_user)):
+def get_all_users(
+    response: Response,
+    skip: int = Query(0, ge=0),
+    limit: Optional[int] = Query(None, ge=1, le=500),
+    search: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     user_role = current_user.get("role")
     if user_role == "OPERATOR":
         raise HTTPException(
@@ -25,35 +39,61 @@ def get_all_users(current_user: dict = Depends(get_current_user)):
             detail="Access denied: Users are hidden for operators."
         )
 
-    with get_db_cursor() as cur:
-        if user_role == "OEM_MANAGER":
-            cur.execute("""
-                SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
-                       u.is_active, u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by, u.deleted_by,
-                       o.company_name, o.client_code,
-                       TRIM(CONCAT(cb.first_name, ' ', COALESCE(cb.last_name, ''))) as created_by_name
-                FROM users u
-                LEFT JOIN organizations o ON u.organization_id = o.id
-                LEFT JOIN users cb ON u.created_by = cb.id
-                WHERE u.is_deleted IS NOT TRUE
-                ORDER BY u.first_name ASC;
-            """)
-        else:
-            user_org_id = current_user.get("organization_id")
-            if not user_org_id:
-                return []
-            cur.execute("""
-                SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
-                       u.is_active, u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by, u.deleted_by,
-                       o.company_name, o.client_code,
-                       TRIM(CONCAT(cb.first_name, ' ', COALESCE(cb.last_name, ''))) as created_by_name
-                FROM users u
-                LEFT JOIN organizations o ON u.organization_id = o.id
-                LEFT JOIN users cb ON u.created_by = cb.id
-                WHERE u.is_deleted IS NOT TRUE AND u.organization_id = %s
-                ORDER BY u.first_name ASC;
-            """, (user_org_id,))
+    where_clauses = ["u.is_deleted IS NOT TRUE"]
+    params: list = []
 
+    if user_role != "OEM_MANAGER":
+        user_org_id = current_user.get("organization_id")
+        if not user_org_id:
+            response.headers["X-Total-Count"] = "0"
+            return []
+        where_clauses.append("u.organization_id = %s")
+        params.append(user_org_id)
+
+    search_term = search.strip() if search and search.strip() else None
+    if search_term:
+        pattern = f"%{search_term}%"
+        where_clauses.append(
+            "(u.first_name ILIKE %s OR COALESCE(u.last_name, '') ILIKE %s OR u.email ILIKE %s OR COALESCE(o.company_name, '') ILIKE %s)"
+        )
+        params.extend([pattern, pattern, pattern, pattern])
+
+    where_sql = " AND ".join(where_clauses)
+
+    with get_db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            WHERE {where_sql};
+            """,
+            tuple(params),
+        )
+        total_count = cur.fetchone()[0]
+        response.headers["X-Total-Count"] = str(total_count)
+
+        query = f"""
+            SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
+                   u.is_active, u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by, u.deleted_by,
+                   o.company_name, o.client_code,
+                   TRIM(CONCAT(cb.first_name, ' ', COALESCE(cb.last_name, ''))) as created_by_name
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            LEFT JOIN users cb ON u.created_by = cb.id
+            WHERE {where_sql}
+            ORDER BY u.first_name ASC
+        """
+        query_params = list(params)
+        if limit is not None:
+            query += " LIMIT %s OFFSET %s"
+            query_params.extend([limit, skip])
+        elif skip > 0:
+            query += " OFFSET %s"
+            query_params.append(skip)
+        query += ";"
+
+        cur.execute(query, tuple(query_params))
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
         results = []
@@ -82,6 +122,7 @@ def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user))
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Operators can only view their own user profile."
         )
+    valid_user_id = require_uuid_or_400(user_id, "user ID")
     with get_db_cursor() as cur:
         cur.execute("""
             SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name, u.role, u.phone_number,
@@ -92,7 +133,7 @@ def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user))
             LEFT JOIN organizations o ON u.organization_id = o.id
             LEFT JOIN users cb ON u.created_by = cb.id
             WHERE u.id = %s AND (u.is_deleted IS NOT TRUE);
-        """, (user_id,))
+        """, (valid_user_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -125,13 +166,14 @@ def get_user_by_id(user_id: str, current_user: dict = Depends(get_current_user))
         return UserResponse(**d)
 
 @router.post("/{user_id}/resend-invite")
-def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
+def resend_invite(user_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     user_role = current_user.get("role")
     if user_role not in ("OEM_MANAGER", "SITE_ADMIN"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    valid_user_id = require_uuid_or_400(user_id, "user ID")
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, organization_id, email, first_name, last_name, role FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        cur.execute("SELECT id, organization_id, email, first_name, last_name, role FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (valid_user_id,))
         u = cur.fetchone()
         if not u:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -151,33 +193,34 @@ def resend_invite(user_id: str, current_user: dict = Depends(get_current_user)):
                 updated_at = CURRENT_TIMESTAMP,
                 updated_by = %s
             WHERE id = %s;
-        """, (welcome_token_hash, welcome_token_expires, current_user.get("id"), user_id))
+        """, (welcome_token_hash, welcome_token_expires, current_user.get("id"), valid_user_id))
 
-        try:
-            cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s;", (u[1],))
-            org_info = cur.fetchone()
-            c_name = org_info[0] if org_info else "PowerTech Client"
-            c_code = org_info[1] if org_info else ""
-            send_operator_welcome_email(
-                to_email=u[2],
-                company_name=c_name,
-                client_code=c_code,
-                recipient_name=f"{u[3]} {u[4] or ''}".strip(),
-                reset_token=welcome_token
-            )
-        except Exception as e:
-            print(f"[Resend Invite Notice] Failed to dispatch email: {e}")
+        cur.execute("SELECT company_name, client_code FROM organizations WHERE id = %s;", (u[1],))
+        org_info = cur.fetchone()
+        c_name = org_info[0] if org_info else "PowerTech Client"
+        c_code = org_info[1] if org_info else ""
 
-        return {"message": f"Invitation link successfully resent to {u[2]}."}
+    background_tasks.add_task(
+        dispatch_email_in_background,
+        send_operator_welcome_email,
+        "Resend Invite",
+        to_email=u[2],
+        company_name=c_name,
+        client_code=c_code,
+        recipient_name=f"{u[3]} {u[4] or ''}".strip(),
+        reset_token=welcome_token,
+    )
+    return {"message": f"Invitation link successfully resent to {u[2]}."}
 
 @router.post("/{user_id}/reset-password")
-def trigger_password_reset(user_id: str, current_user: dict = Depends(get_current_user)):
+def trigger_password_reset(user_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     user_role = current_user.get("role")
     if user_role not in ("OEM_MANAGER", "SITE_ADMIN"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    valid_user_id = require_uuid_or_400(user_id, "user ID")
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, organization_id, email, first_name, last_name, role FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        cur.execute("SELECT id, organization_id, email, first_name, last_name, role FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (valid_user_id,))
         u = cur.fetchone()
         if not u:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -197,21 +240,20 @@ def trigger_password_reset(user_id: str, current_user: dict = Depends(get_curren
                 updated_at = CURRENT_TIMESTAMP,
                 updated_by = %s
             WHERE id = %s;
-        """, (reset_token_hash, reset_token_expires, current_user.get("id"), user_id))
+        """, (reset_token_hash, reset_token_expires, current_user.get("id"), valid_user_id))
 
-        try:
-            send_password_reset_email(
-                to_email=u[2],
-                token=reset_token,
-                recipient_name=f"{u[3]} {u[4] or ''}".strip()
-            )
-        except Exception as e:
-            print(f"[Password Reset Notice] Failed to dispatch email: {e}")
-
-        return {"message": f"Password reset instructions generated for {u[2]}."}
+    background_tasks.add_task(
+        dispatch_email_in_background,
+        send_password_reset_email,
+        "Admin Password Reset",
+        to_email=u[2],
+        token=reset_token,
+        recipient_name=f"{u[3]} {u[4] or ''}".strip(),
+    )
+    return {"message": f"Password reset instructions generated for {u[2]}."}
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, current_user: dict = Depends(get_current_user)):
+def create_user(payload: UserCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     user_role = current_user.get("role")
     if user_role not in ("OEM_MANAGER", "SITE_ADMIN"):
         raise HTTPException(
@@ -314,49 +356,29 @@ def create_user(payload: UserCreate, current_user: dict = Depends(get_current_us
         d["client_code"] = client_code
 
         if payload.role == "OPERATOR" and org_id:
-            cur.execute("""
-                SELECT m.id, ml.location_label, ml.lease_start_date, ml.lease_end_date
-                FROM machines m
-                JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
-                WHERE m.organization_id = %s 
-                  AND (m.is_deleted IS NOT TRUE);
-            """, (org_id,))
-            org_leased_machines = cur.fetchall()
-            for lm in org_leased_machines:
-                mach_id, loc, s_dt, e_dt = lm[0], lm[1], lm[2], lm[3]
-                cur.execute("""
-                    INSERT INTO machine_assign_to_operators (
-                        organization_id, operator_id, machine_id,
-                        start_date, end_date, location, created_by, assigned_by, status
-                    ) VALUES (
-                        %s, %s, %s,
-                        %s, %s, %s, %s, %s, 'Active'
-                    ) ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
-                    SET status = 'Active',
-                        start_date = EXCLUDED.start_date,
-                        end_date = EXCLUDED.end_date,
-                        location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
-                        revoked_at = NULL,
-                        revoked_by = NULL,
-                        updated_by = EXCLUDED.assigned_by,
-                        updated_at = CURRENT_TIMESTAMP;
-                """, (org_id, d["id"], mach_id, s_dt, e_dt, loc, current_user.get("id"), current_user.get("id")))
-
-        if payload.role == "OPERATOR":
-            poc_name = f"{payload.first_name.strip()} {(payload.last_name or '').strip()}".strip()
-            try:
-                send_operator_welcome_email(
-                    to_email=normalized_email,
-                    company_name=company_name or "Assigned Client",
-                    client_code=client_code or "",
-                    recipient_name=poc_name,
-                    reset_token=welcome_token
-                )
-            except Exception as e:
-                print(f"[Operator Welcome Email Notice] Failed to dispatch welcome email: {e}")
+            sync_active_machines_for_operator(
+                cur,
+                organization_id=org_id,
+                operator_id=d["id"],
+                actor_user_id=current_user.get("id"),
+            )
 
         d["status"] = compute_user_status(d.get("is_active", True), d.get("last_login_at"))
-        return UserResponse(**d)
+
+    if payload.role == "OPERATOR":
+        poc_name = f"{payload.first_name.strip()} {(payload.last_name or '').strip()}".strip()
+        background_tasks.add_task(
+            dispatch_email_in_background,
+            send_operator_welcome_email,
+            "Operator Welcome Email",
+            to_email=normalized_email,
+            company_name=company_name or "Assigned Client",
+            client_code=client_code or "",
+            recipient_name=poc_name,
+            reset_token=welcome_token,
+        )
+
+    return UserResponse(**d)
 
 @router.put("/{user_id}", response_model=UserResponse)
 def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(get_current_user)):
@@ -390,8 +412,10 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
             detail="Access denied: Cannot elevate permissions to OEM_MANAGER."
         )
 
+    valid_user_id = require_uuid_or_400(user_id, "user ID")
+
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT organization_id, email, role FROM users WHERE id = %s AND is_deleted IS NOT TRUE;", (user_id,))
+        cur.execute("SELECT organization_id, email, role FROM users WHERE id = %s AND is_deleted IS NOT TRUE;", (valid_user_id,))
         target_row = cur.fetchone()
         if not target_row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -411,7 +435,7 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Access denied: Site Administrators cannot modify OEM Manager accounts."
                 )
-            is_self = str(current_user.get("id")).strip().lower() == str(user_id).strip().lower()
+            is_self = str(current_user.get("id")).strip().lower() == str(valid_user_id).strip().lower()
             if target_role == "SITE_ADMIN":
                 if not is_self:
                     raise HTTPException(
@@ -440,7 +464,7 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
             cur.execute("""
                 SELECT id FROM users
                 WHERE LOWER(email) = %s AND id != %s AND (is_deleted IS NOT TRUE);
-            """, (clean_email, user_id))
+            """, (clean_email, valid_user_id))
             if cur.fetchone():
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -483,7 +507,7 @@ def update_user(user_id: str, payload: UserUpdate, current_user: dict = Depends(
             clean_phone,
             payload.is_active,
             current_user.get("id"),
-            user_id
+            valid_user_id
         ))
         row = cur.fetchone()
         if not row:
@@ -522,14 +546,15 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
             detail="Access denied: Only OEM Managers and Site Admins can remove team members."
         )
 
-    if str(current_user.get("id")) == str(user_id):
+    valid_user_id = require_uuid_or_400(user_id, "user ID")
+    if str(current_user.get("id")) == str(valid_user_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Operation rejected: You cannot remove your currently active account."
         )
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, organization_id, role, first_name, last_name, email FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (user_id,))
+        cur.execute("SELECT id, organization_id, role, first_name, last_name, email FROM users WHERE id = %s AND (is_deleted IS NOT TRUE);", (valid_user_id,))
         target_user = cur.fetchone()
         if not target_user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -556,7 +581,7 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
                 is_active = FALSE
             WHERE id = %s AND is_deleted IS NOT TRUE
             RETURNING id, email, first_name, last_name;
-        """, (current_user.get("id"), user_id))
+        """, (current_user.get("id"), valid_user_id))
         row = cur.fetchone()
 
         return {"message": "User removed successfully.", "id": str(row[0]), "email": row[1]}

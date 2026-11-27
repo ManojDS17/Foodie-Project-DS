@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   MapPin,
   Calendar,
@@ -23,9 +23,16 @@ import { AssignOperatorMachineModal } from '../operators/AssignOperatorMachineMo
 import { UserDetailView } from '../team/UserDetailView';
 import { EditUserView } from '../team/EditUserView';
 import { RemoveUserModal } from '../team/RemoveUserModal';
-import { Toast } from '../common/Toast';
+import { Toast, LoadErrorBanner } from '../common/Toast';
 import { RowActionMenu } from '../common/RowActionMenu';
-import { operatorAssignmentsApi, usersApi } from '../../services/api';
+import {
+  operatorAssignmentsApi,
+  usersApi,
+  downloadCsv,
+  formatDate,
+  formatLocation,
+  getCompanyInitials,
+} from '../../services/api';
 import { useSilentRefresh } from '../../hooks';
 import type { Organization, Machine, User, OperatorMachineAssignment } from '../../types';
 
@@ -59,12 +66,15 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   const [activeMachineMenuId, setActiveMachineMenuId] = useState<string | null>(null);
   const [viewingMachine, setViewingMachine] = useState<Machine | null>(null);
   const [editingAssignedMachine, setEditingAssignedMachine] = useState<Machine | null>(null);
+  const [prevUsers, setPrevUsers] = useState<User[]>(users);
+  const [prevMachines, setPrevMachines] = useState<Machine[]>(machines);
   const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
   const [terminatingMachine, setTerminatingMachine] = useState<Machine | null>(null);
   const [managingOperator, setManagingOperator] = useState<User | null>(null);
   const [operatorAssignments, setOperatorAssignments] = useState<OperatorMachineAssignment[]>([]);
 
   const [localUsers, setLocalUsers] = useState<User[]>(users);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [removingUser, setRemovingUser] = useState<User | null>(null);
@@ -74,13 +84,15 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
   const userActionMenuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  if (users !== prevUsers) {
+    setPrevUsers(users);
     setLocalUsers(users);
-  }, [users]);
+  }
 
-  useEffect(() => {
+  if (machines !== prevMachines) {
+    setPrevMachines(machines);
     setLocalMachines(machines);
-  }, [machines]);
+  }
 
   const handleAssignedMachineUpdated = (updated: Machine) => {
     setLocalMachines((prev) =>
@@ -112,14 +124,18 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
     };
   }, [activeUserMenuId]);
 
-  const refreshUsers = async () => {
+  const refreshUsers = useCallback(async (signal?: AbortSignal) => {
     try {
-      const allUsers = await usersApi.getAll();
+      const allUsers = await usersApi.getAll(undefined, signal);
+      if (signal?.aborted) return;
       setLocalUsers(allUsers);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to refresh users:', err);
+      setLoadError(err?.message || 'Failed to load client team data.');
     }
-  };
+  }, []);
 
   const handleConfirmRemoveUser = async () => {
     if (!removingUser) return;
@@ -136,33 +152,64 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
     }
   };
 
-  const fetchAssignments = async () => {
-    if (!client?.id) return;
+  const fetchAssignments = useCallback(async (signal?: AbortSignal) => {
+    if (!client.id) return;
     try {
-      const data = await operatorAssignmentsApi.getAll({ organization_id: client.id });
+      const data = await operatorAssignmentsApi.getAll({ organization_id: client.id }, signal);
+      if (signal?.aborted) return;
       setOperatorAssignments(data);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to load operator assignments:', err);
     }
-  };
+  }, [client]);
 
   useEffect(() => {
-    fetchAssignments();
-    refreshUsers();
+    const controller = new AbortController();
+    Promise.all([
+      usersApi.getAll(undefined, controller.signal),
+      operatorAssignmentsApi.getAll({ organization_id: client.id }, controller.signal),
+    ])
+      .then(([allUsers, assignments]) => {
+        if (controller.signal.aborted) return;
+        setLocalUsers(allUsers);
+        setOperatorAssignments(assignments);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Failed to load client team data:', err);
+        setLoadError(err?.message || 'Failed to load client team data.');
+      });
+    return () => controller.abort();
   }, [client.id]);
 
   useEffect(() => {
-    if (activeTab === 'USERS') {
-      refreshUsers();
-      fetchAssignments();
-    }
-  }, [activeTab]);
+    if (activeTab !== 'USERS') return;
+    const controller = new AbortController();
+    Promise.all([
+      usersApi.getAll(undefined, controller.signal),
+      operatorAssignmentsApi.getAll({ organization_id: client.id }, controller.signal),
+    ])
+      .then(([allUsers, assignments]) => {
+        if (controller.signal.aborted) return;
+        setLocalUsers(allUsers);
+        setOperatorAssignments(assignments);
+        setLoadError(null);
+      })
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('Failed to load client team data:', err);
+        setLoadError(err?.message || 'Failed to load client team data.');
+      });
+    return () => controller.abort();
+  }, [activeTab, client.id]);
 
   useSilentRefresh(
-    async () => {
+    async (signal) => {
       await Promise.all([
-        refreshUsers(),
-        fetchAssignments(),
+        refreshUsers(signal),
+        fetchAssignments(signal),
       ]);
     },
     {
@@ -214,39 +261,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const formatLocation = (address?: string): string => {
-    if (!address) return '—';
-    const parts = address.split(',').map((p) => p.trim());
-    if (parts.length > 1) {
-      const lastPart = parts[parts.length - 1];
-      const matchState = lastPart.match(/(QLD|SA|WA|VIC|TAS|NT|NSW|ACT)/i);
-      const suburb = parts[parts.length - 2] || parts[0];
-      if (matchState) {
-        return `${suburb.replace(/(\d+)/g, '').trim()} ${matchState[0].toUpperCase()}`;
-      }
-      return `${suburb}, ${lastPart}`;
-    }
-    return address;
-  };
-
-  const formatDate = (dateStr?: string): string => {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
-  const getInitials = (name: string): string => {
-    if (!name) return 'CL';
-    const clean = name.trim().split(/\s+/);
-    if (clean.length === 1) return clean[0].substring(0, 2).toUpperCase();
-    return (clean[0][0] + clean[1][0]).toUpperCase();
-  };
-
   const getModelCapacity = (model: string, capacity?: string | null): string => {
     if (capacity && capacity.trim()) return capacity;
     if (model.includes('1000')) return '1000 kg/day';
@@ -287,31 +301,23 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
   const totalEnergyKwh = clientMachines.length > 0 ? clientMachines.length * 17 : 0;
 
   const handleExportDetails = () => {
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [
-        'Field,Value',
-        `Client ID,"${client.client_code}"`,
-        `Company Name,"${client.company_name.replace(/"/g, '""')}"`,
-        `Business Type,"${client.business_type || 'Corporate'}"`,
-        `Tax ID,"${client.tax_id || ''}"`,
-        `Onboarding Date,"${client.onboarding_date || client.created_at}"`,
-        `Comms Preference,"${client.comms_preference || 'Phone'}"`,
-        `Payment Terms,"${client.payment_terms || '14 days'}"`,
-        `Contact POC,"${client.contact_poc || ''}"`,
-        `Email,"${client.email || ''}"`,
-        `Phone,"${client.phone_number || ''}"`,
-        `Website,"${client.website || ''}"`,
-        `Billing Address,"${(client.billing_address || '').replace(/"/g, '""')}"`,
-        `Assigned Machines,"${clientMachines.length}"`,
-      ].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${client.client_code}_details_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const rows: unknown[][] = [
+      ['Field', 'Value'],
+      ['Client ID', client.client_code],
+      ['Company Name', client.company_name],
+      ['Business Type', client.business_type || 'Corporate'],
+      ['Tax ID', client.tax_id || ''],
+      ['Onboarding Date', client.onboarding_date || client.created_at],
+      ['Comms Preference', client.comms_preference || 'Phone'],
+      ['Payment Terms', client.payment_terms || '14 days'],
+      ['Contact POC', client.contact_poc || ''],
+      ['Email', client.email || ''],
+      ['Phone', client.phone_number || ''],
+      ['Website', client.website || ''],
+      ['Billing Address', client.billing_address || ''],
+      ['Assigned Machines', clientMachines.length],
+    ];
+    downloadCsv(`${client.client_code}_details_${Date.now()}.csv`, rows);
   };
 
   const clientStatus = client.status || (client.is_active ? 'Active' : 'Inactive');
@@ -445,10 +451,20 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         <span className="font-bold text-foreground">{client.company_name}</span>
       </nav>
 
+      {loadError && (
+        <LoadErrorBanner
+          message={loadError}
+          onRetry={() => {
+            refreshUsers();
+            fetchAssignments();
+          }}
+        />
+      )}
+
       <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-xl bg-surface-hover text-foreground font-bold text-xl flex items-center justify-center border border-border-default shrink-0">
-            {getInitials(client.company_name)}
+            {getCompanyInitials(client.company_name)}
           </div>
 
           <div>

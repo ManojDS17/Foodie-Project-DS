@@ -12,6 +12,13 @@ import {
   User as UserIcon,
   Cpu,
 } from 'lucide-react';
+import {
+  usersApi,
+  formatDate,
+  formatDateTime,
+  getUserInitials,
+} from '../../services/api';
+import { StatusBadge } from '../common/StatusBadge';
 import type { User } from '../../types';
 
 export interface UserDetailViewProps {
@@ -35,9 +42,10 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   onEdit,
   onRemove,
   onManageMachines,
-  onToast: _onToast,
+  onToast,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -55,60 +63,27 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   }, [isMenuOpen]);
 
   const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Team Member';
-
-  const getInitials = (firstName?: string, lastName?: string, email?: string): string => {
-    if (firstName && lastName) {
-      return `${firstName[0]}${lastName[0]}`.toUpperCase();
-    }
-    if (firstName && firstName.length >= 2) {
-      return firstName.slice(0, 2).toUpperCase();
-    }
-    if (email && email.length >= 2) {
-      return email.slice(0, 2).toUpperCase();
-    }
-    return 'U';
-  };
-
-  const initials = getInitials(user.first_name, user.last_name, user.email);
-
-  const formatDateTime = (dateStr?: string | null): string => {
-    if (!dateStr) return 'Recently';
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      return d.toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const formatDateOnly = (dateStr?: string | null): string => {
-    if (!dateStr) return '—';
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      return d.toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
-  };
+  const initials = getUserInitials(user.first_name, user.last_name, user.email);
 
   const isSiteAdmin = user.role === 'SITE_ADMIN';
   const roleLabel = isSiteAdmin ? 'Site Admin' : user.role === 'OEM_MANAGER' ? 'OEM Manager' : 'Operator';
   const orgName = organizationName || user.company_name || 'Client Organisation';
-  const joinedDate = formatDateOnly(user.created_at);
+  const joinedDate = formatDate(user.created_at);
   const lastActiveStr = formatDateTime(user.last_login_at || user.updated_at || user.created_at);
+
+  const handleResetPassword = async () => {
+    if (isSendingReset) return;
+    setIsSendingReset(true);
+    try {
+      const res = await usersApi.resetPassword(user.id);
+      setIsMenuOpen(false);
+      onToast(res?.message || `Password reset instructions sent to ${user.email}.`, 'success');
+    } catch (err: any) {
+      onToast(err?.message || 'Failed to dispatch password reset instructions.', 'error');
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
 
   const activities = useMemo(() => {
     const list: Array<{ icon: any; title: string; time: string }> = [];
@@ -166,30 +141,13 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                 </span>
               )}
 
-              {(() => {
-                if (!user.is_active) {
-                  return (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-surface-hover text-foreground-muted border border-border-default">
-                      <span className="w-1.5 h-1.5 rounded-full bg-foreground-subtle" />
-                      Inactive
-                    </span>
-                  );
-                }
-                if (!user.last_login_at) {
-                  return (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      Pending
-                    </span>
-                  );
-                }
-                return (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-status-running-bg text-status-running-text border border-status-running-dot/30">
-                    <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot" />
-                    Active
-                  </span>
-                );
-              })()}
+              {!user.is_active ? (
+                <StatusBadge status="inactive" label="Inactive" bordered />
+              ) : !user.last_login_at ? (
+                <StatusBadge status="pending" label="Pending" bordered pulse />
+              ) : (
+                <StatusBadge status="active" label="Active" bordered />
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-foreground-muted">
@@ -247,11 +205,13 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
             <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl bg-white border border-border-default shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
               <button
                 type="button"
-                disabled
-                className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-subtle opacity-60 cursor-not-allowed flex items-center gap-2 select-none"
+                disabled={isSendingReset || !user.is_active}
+                onClick={handleResetPassword}
+                title={user.is_active ? 'Send password reset link' : 'Activate account before resetting password'}
+                className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted disabled:text-foreground-subtle disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer transition-colors"
               >
-                <Lock className="w-3.5 h-3.5 text-foreground-subtle" />
-                <span>Reset password</span>
+                <Lock className="w-3.5 h-3.5 text-foreground-muted" />
+                <span>{isSendingReset ? 'Sending reset link...' : 'Reset password'}</span>
               </button>
 
               {user.role !== 'SITE_ADMIN' && (

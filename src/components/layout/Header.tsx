@@ -15,11 +15,26 @@ import {
   LogOut,
   Menu,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks';
 import { FoodieLogo } from '../common/FoodieLogo';
 import { searchApi } from '../../services/api';
 import type { SearchResults } from '../../services/api';
 import type { UserRole } from '../../types';
+
+const FAQ_ITEMS = [
+  {
+    q: 'How are operator machine permissions managed?',
+    a: 'Operators are automatically linked to leased units in their organization. Site Admins and OEM Managers can assign or revoke machine access from Team Management or Client Details.',
+  },
+  {
+    q: 'How long do login sessions stay active?',
+    a: 'Authenticated sessions expire automatically after 15 minutes of inactivity. When your session times out, signing back in returns you directly to the page you were viewing.',
+  },
+  {
+    q: 'What happens when a machine lease is terminated?',
+    a: 'Terminating an active lease returns the machine to the available fleet and automatically revokes associated active operator assignments.',
+  },
+];
 
 export interface HeaderProps {
   onOpenMobileMenu?: () => void;
@@ -42,31 +57,46 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   const [isFaqOpen, setIsFaqOpen] = useState(false);
   const userMenuContainerRef = useRef<HTMLDivElement>(null);
 
-  // Debounced search query
+  // Debounced search query with AbortController cancellation
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setResults(null);
-      setIsSearching(false);
-      setIsOpen(false);
-      return;
-    }
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
 
-    setIsSearching(true);
-    setIsOpen(true);
-
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await searchApi.query(searchQuery.trim());
-        setResults(res);
-      } catch (err) {
-        console.error('Search query failed:', err);
+        const res = await searchApi.query(trimmed, controller.signal);
+        if (!controller.signal.aborted) {
+          setResults(res);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError' && !controller.signal.aborted) {
+          console.error('Search query failed:', err);
+        }
       } finally {
-        setIsSearching(false);
+        if (!controller.signal.aborted) {
+          setIsSearching(false);
+        }
       }
     }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [searchQuery]);
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    if (!value.trim()) {
+      setResults(null);
+      setIsSearching(false);
+      setIsOpen(false);
+    } else {
+      setIsSearching(true);
+      setIsOpen(true);
+    }
+  };
 
   // Click outside listener to dismiss search dropdown and user menu
   useEffect(() => {
@@ -166,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={() => {
               if (searchQuery.trim().length > 0) setIsOpen(true);
             }}
@@ -319,12 +349,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
         {/* Right Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 shrink-0">
           {/* FAQ Pill Button */}
-          <div
-            className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full border border-border-default bg-white text-foreground text-xs font-semibold shadow-2xs select-none shrink-0 pointer-events-none cursor-default"
+          <button
+            type="button"
+            onClick={() => setIsFaqOpen(true)}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full border border-border-default bg-white hover:bg-surface-hover text-foreground text-xs font-semibold shadow-2xs transition-colors cursor-pointer shrink-0"
           >
             <span>FAQ</span>
             <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-foreground-body shrink-0" />
-          </div>
+          </button>
 
           {/* Notifications Alert Bell with red 2 badge */}
           <button
@@ -483,16 +515,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
                 </button>
               </div>
 
-              <div className="p-8 text-center text-xs flex flex-col items-center justify-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-surface-muted flex items-center justify-center text-foreground-dim border border-border-default">
-                  <HelpCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-foreground text-sm">No FAQ entries available</h4>
-                  <p className="text-foreground-muted text-xs mt-1 max-w-xs mx-auto">
-                    Frequently asked questions and operational documentation will be populated here soon.
-                  </p>
-                </div>
+              <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                {FAQ_ITEMS.map((item) => (
+                  <div
+                    key={item.q}
+                    className="p-3.5 rounded-xl bg-surface-subtle border border-border-default"
+                  >
+                    <h4 className="font-bold text-foreground text-xs">{item.q}</h4>
+                    <p className="text-foreground-muted text-xs mt-1 leading-relaxed">{item.a}</p>
+                  </div>
+                ))}
               </div>
 
               <div className="px-6 py-3.5 border-t border-border-subtle bg-surface-muted flex items-center justify-between">

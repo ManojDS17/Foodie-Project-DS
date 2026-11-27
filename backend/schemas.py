@@ -1,12 +1,32 @@
 from typing import Optional, List
 from datetime import datetime
 import re
-from pydantic import BaseModel, Field, field_validator
+import uuid
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 EMAIL_REGEX = r'^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,63}$'
 SITE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
 PHONE_REGEX = r'^\+?[0-9\s]{7,15}$'
 VALID_ROLES = ['OEM_MANAGER', 'SITE_ADMIN', 'OPERATOR']
+
+def validate_iso_date_string(v: Optional[str], field_name: str = "Date") -> Optional[str]:
+    if not v or not str(v).strip():
+        return None
+    clean = str(v).strip()
+    try:
+        parsed = datetime.strptime(clean, "%Y-%m-%d").date()
+        return parsed.strftime("%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid YYYY-MM-DD date.") from exc
+
+def validate_uuid_string(v: Optional[str], field_name: str = "ID") -> Optional[str]:
+    if not v or not str(v).strip():
+        return None
+    clean = str(v).strip()
+    try:
+        return str(uuid.UUID(clean))
+    except ValueError as exc:
+        raise ValueError(f"Invalid {field_name} format. Expected a valid UUID.") from exc
 
 def validate_email_address(v: Optional[str]) -> Optional[str]:
     if not v or not v.strip():
@@ -96,6 +116,7 @@ def validate_description_string(v: Optional[str]) -> Optional[str]:
 class LoginRequest(BaseModel):
     email: str
     password: str
+    remember_me: bool = True
 
     @field_validator('email')
     @classmethod
@@ -108,7 +129,6 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     organization_id: Optional[str] = None
-    assigned_site_id: Optional[str] = None
     email: str
     first_name: str
     last_name: str
@@ -148,13 +168,10 @@ class ResetPasswordRequest(BaseModel):
     @field_validator('new_password')
     @classmethod
     def validate_new_password(cls, v: str) -> str:
-        if len(v) < 12:
-            raise ValueError('Password must be at least 12 characters.')
-        if not re.search(r'\d', v):
-            raise ValueError('Password must include at least one number.')
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
-            raise ValueError('Password must include at least one symbol.')
-        return v
+        clean = validate_password_complexity(v, "Password")
+        if not clean:
+            raise ValueError('Password must be at least 12 characters long.')
+        return clean
 
 
 # --------------------------------------------------------------------------
@@ -162,13 +179,17 @@ class ResetPasswordRequest(BaseModel):
 # --------------------------------------------------------------------------
 class UserCreate(BaseModel):
     organization_id: Optional[str] = None
-    assigned_site_id: Optional[str] = None
     email: str
     password: Optional[str] = None
     first_name: str
     last_name: Optional[str] = ""
     role: str
     phone_number: Optional[str] = None
+
+    @field_validator('organization_id')
+    @classmethod
+    def check_org_id(cls, v: Optional[str]) -> Optional[str]:
+        return validate_uuid_string(v, "organization ID")
 
     @field_validator('email')
     @classmethod
@@ -216,7 +237,6 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     phone_number: Optional[str] = None
-    assigned_site_id: Optional[str] = None
     is_active: Optional[bool] = None
 
     @field_validator('email')
@@ -324,6 +344,22 @@ class MachineAssignmentItem(BaseModel):
     lease_start_date: Optional[str] = None
     lease_end_date: Optional[str] = None
 
+    @field_validator('lease_start_date')
+    @classmethod
+    def check_lease_start_date(cls, v: Optional[str]) -> Optional[str]:
+        return validate_iso_date_string(v, "Lease start date")
+
+    @field_validator('lease_end_date')
+    @classmethod
+    def check_lease_end_date(cls, v: Optional[str]) -> Optional[str]:
+        return validate_iso_date_string(v, "Lease end date")
+
+    @model_validator(mode='after')
+    def check_date_order(self) -> 'MachineAssignmentItem':
+        if self.lease_start_date and self.lease_end_date and self.lease_end_date < self.lease_start_date:
+            raise ValueError(f"Lease end date ({self.lease_end_date}) cannot be earlier than lease start date ({self.lease_start_date}).")
+        return self
+
 class OrganizationCreate(BaseModel):
     client_code: str
     company_name: str
@@ -380,9 +416,7 @@ class OrganizationCreate(BaseModel):
     @field_validator('onboarding_date')
     @classmethod
     def check_onboarding_date(cls, v: Optional[str]) -> Optional[str]:
-        if not v or not v.strip():
-            return None
-        return v.strip()
+        return validate_iso_date_string(v, "Onboarding date")
 
     @field_validator('payment_terms')
     @classmethod
@@ -448,9 +482,7 @@ class OrganizationUpdate(BaseModel):
     @field_validator('onboarding_date')
     @classmethod
     def check_onboarding_date_update(cls, v: Optional[str]) -> Optional[str]:
-        if not v or not v.strip():
-            return None
-        return v.strip()
+        return validate_iso_date_string(v, "Onboarding date")
 
     @field_validator('tax_id')
     @classmethod
@@ -487,13 +519,16 @@ class OrganizationResponse(BaseModel):
 class BulkDeleteRequest(BaseModel):
     ids: List[str]
 
-class SearchResultItemSite(BaseModel):
-    id: str
-    site_code: str
-    site_name: str
-    address: str
-    timezone: str
-    is_active: bool
+    @field_validator('ids')
+    @classmethod
+    def check_ids(cls, v: List[str]) -> List[str]:
+        cleaned: List[str] = []
+        for item in v:
+            parsed = validate_uuid_string(item, "client ID")
+            if not parsed:
+                raise ValueError("Client IDs cannot be empty.")
+            cleaned.append(parsed)
+        return cleaned
 
 class SearchResultItemClient(BaseModel):
     id: str
@@ -526,25 +561,13 @@ class SearchResultItemMachine(BaseModel):
 class SearchResponse(BaseModel):
     clients: List[SearchResultItemClient] = []
     machines: List[SearchResultItemMachine] = []
-    sites: List[SearchResultItemSite] = []
+    sites: List[dict] = []
     users: List[SearchResultItemUser] = []
 
 # --------------------------------------------------------------------------
 # Machine Management & Commissioning Schemas
 # --------------------------------------------------------------------------
 MACHINE_CODE_REGEX = r'^[A-Za-z0-9-_]{2,20}$'
-IP_ADDRESS_REGEX = r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-VALID_MACHINE_MODELS = {
-    'Foodie F25': '25 kg/day',
-    'Foodie F100': '100 kg/day',
-    'Foodie F500': '500 kg/day',
-    'Foodie F1000': '1000 kg/day',
-    'F25': '25 kg/day',
-    'F100': '100 kg/day',
-    'F500': '500 kg/day',
-    'F1000': '1000 kg/day',
-}
-VALID_LEASE_STATUSES = ['Active', 'Pending', 'Expired', 'Terminated']
 VALID_CONNECTIVITY = ['Online', 'Offline']
 VALID_PAYMENT_TERMS = ['15 days', '30 days', '60 days']
 VALID_COMMS_PREFERENCES = ['Email', 'Phone']
@@ -556,35 +579,6 @@ class MachineModelResponse(BaseModel):
     capacity: str
     is_active: bool
 
-class MachineLeaseCreate(BaseModel):
-    machine_id: str
-    organization_id: str
-    location_label: Optional[str] = None
-    lease_reference: Optional[str] = None
-    lease_start_date: str
-    lease_end_date: str
-    lease_status: Optional[str] = 'Active'
-
-class MachineLeaseResponse(BaseModel):
-    id: str
-    lease_reference: Optional[str] = None
-    machine_id: str
-    organization_id: str
-    location_label: Optional[str] = None
-    lease_start_date: Optional[str] = None
-    lease_end_date: Optional[str] = None
-    lease_status: str
-    created_by: Optional[str] = None
-    assigned_by: Optional[str] = None
-    assigned_at: Optional[datetime] = None
-    updated_by: Optional[str] = None
-    updated_at: Optional[datetime] = None
-    terminated_by: Optional[str] = None
-    terminated_at: Optional[datetime] = None
-    termination_remark: Optional[str] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
 class TerminateLeaseRequest(BaseModel):
     termination_remark: Optional[str] = None
 
@@ -594,6 +588,38 @@ class OperatorMachineAssignmentCreate(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     location: Optional[str] = None
+
+    @field_validator('operator_id')
+    @classmethod
+    def check_operator_id(cls, v: str) -> str:
+        parsed = validate_uuid_string(v, "operator ID")
+        if not parsed:
+            raise ValueError("Operator ID is required.")
+        return parsed
+
+    @field_validator('machine_id')
+    @classmethod
+    def check_machine_id(cls, v: str) -> str:
+        parsed = validate_uuid_string(v, "machine ID")
+        if not parsed:
+            raise ValueError("Machine ID is required.")
+        return parsed
+
+    @field_validator('start_date')
+    @classmethod
+    def check_start_date(cls, v: Optional[str]) -> Optional[str]:
+        return validate_iso_date_string(v, "Start date")
+
+    @field_validator('end_date')
+    @classmethod
+    def check_end_date(cls, v: Optional[str]) -> Optional[str]:
+        return validate_iso_date_string(v, "End date")
+
+    @model_validator(mode='after')
+    def check_assignment_dates(self) -> 'OperatorMachineAssignmentCreate':
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError(f"End date ({self.end_date}) cannot be earlier than start date ({self.start_date}).")
+        return self
 
 class OperatorMachineAssignmentResponse(BaseModel):
     id: str
@@ -683,6 +709,16 @@ class MachineCreate(BaseModel):
             raise ValueError(f"Connectivity status must be one of: {', '.join(VALID_CONNECTIVITY)}")
         return v or 'Offline'
 
+    @field_validator('organization_id')
+    @classmethod
+    def check_organization_id(cls, v: Optional[str]) -> Optional[str]:
+        return validate_uuid_string(v, "organization ID")
+
+    @field_validator('model_id')
+    @classmethod
+    def check_model_id(cls, v: Optional[str]) -> Optional[str]:
+        return validate_uuid_string(v, "model ID")
+
 class MachineUpdate(BaseModel):
     serial_number: Optional[str] = None
     model: Optional[str] = None
@@ -722,6 +758,32 @@ class MachineUpdate(BaseModel):
         if v and v not in VALID_CONNECTIVITY:
             raise ValueError(f"Connectivity status must be one of: {', '.join(VALID_CONNECTIVITY)}")
         return v
+
+    @field_validator('organization_id')
+    @classmethod
+    def check_organization_id(cls, v: Optional[str]) -> Optional[str]:
+        return validate_uuid_string(v, "organization ID")
+
+    @field_validator('model_id')
+    @classmethod
+    def check_model_id(cls, v: Optional[str]) -> Optional[str]:
+        return validate_uuid_string(v, "model ID")
+
+    @field_validator('lease_start_date')
+    @classmethod
+    def check_lease_start_date(cls, v: Optional[str]) -> Optional[str]:
+        return validate_iso_date_string(v, "Lease start date")
+
+    @field_validator('lease_end_date')
+    @classmethod
+    def check_lease_end_date(cls, v: Optional[str]) -> Optional[str]:
+        return validate_iso_date_string(v, "Lease end date")
+
+    @model_validator(mode='after')
+    def check_lease_dates(self) -> 'MachineUpdate':
+        if self.lease_start_date and self.lease_end_date and self.lease_end_date < self.lease_start_date:
+            raise ValueError(f"Lease end date ({self.lease_end_date}) cannot be earlier than lease start date ({self.lease_start_date}).")
+        return self
 
 class MachineResponse(BaseModel):
     id: str

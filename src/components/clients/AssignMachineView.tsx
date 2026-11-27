@@ -6,10 +6,14 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react';
-import { machinesApi } from '../../services/api';
+import {
+  machinesApi,
+  calculateOneYearLeaseEndDate,
+  getTodayIsoDate,
+} from '../../services/api';
 import { Button } from '../common/ui';
 import type { Organization, Machine } from '../../types';
-import { AssignMachinesSection, calculateOneYearLeaseEndDate } from './AssignMachinesSection';
+import { AssignMachinesSection } from './AssignMachinesSection';
 import type { AssignMachineRow } from './AssignMachinesSection';
 
 export type { AssignMachineRow };
@@ -28,37 +32,46 @@ export const AssignMachineView: React.FC<AssignMachineViewProps> = ({
   onSuccess,
 }) => {
   const [availableMachines, setAvailableMachines] = useState<Machine[]>([]);
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [rows, setRows] = useState<AssignMachineRow[]>([
-    {
-      machine_id: '',
-      location: '',
-      lease_start_date: todayStr,
-      lease_end_date: calculateOneYearLeaseEndDate(todayStr),
-    },
-  ]);
+  const [rows, setRows] = useState<AssignMachineRow[]>(() => {
+    const todayStr = getTodayIsoDate();
+    return [
+      {
+        machine_id: '',
+        location: '',
+        lease_start_date: todayStr,
+        lease_end_date: calculateOneYearLeaseEndDate(todayStr),
+      },
+    ];
+  });
 
-  const [isLoadingMachines, setIsLoadingMachines] = useState(false);
+  const [isLoadingMachines, setIsLoadingMachines] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsLoadingMachines(true);
-    setError(null);
+    const controller = new AbortController();
 
     machinesApi
-      .getAll()
+      .getAll(undefined, controller.signal)
       .then((allMachines) => {
+        if (controller.signal.aborted) return;
         const unassigned = allMachines.filter((m) => !m.organization_id);
         setAvailableMachines(unassigned);
       })
-      .catch((err) => {
+      .catch((err: any) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
         console.error('Failed to load available machines:', err);
         setError('Failed to load available fleet machines.');
       })
       .finally(() => {
-        setIsLoadingMachines(false);
+        if (!controller.signal.aborted) {
+          setIsLoadingMachines(false);
+        }
       });
+
+    return () => {
+      controller.abort();
+    };
   }, [client.id]);
 
   const handleRowChange = (index: number, field: keyof AssignMachineRow, value: string) => {

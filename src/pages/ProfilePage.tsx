@@ -1,19 +1,37 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User as UserIcon, Mail, Phone, Shield, CheckCircle2, Loader2, Save, RotateCcw, AlertCircle } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { usersApi } from '../services/api';
-import { sanitizePhoneNumber, validatePhoneNumberInput } from '../components/clients/AddClientView';
+import { useAuth } from '../hooks';
+import {
+  usersApi,
+  sanitizePhoneNumber,
+  validatePhoneNumberInput,
+} from '../services/api';
+
+const buildProfileForm = (currentUser: ReturnType<typeof useAuth>['user']) => ({
+  first_name: currentUser?.first_name || '',
+  last_name: currentUser?.last_name || '',
+  email: currentUser?.email || '',
+  phone_number: currentUser?.phone_number || '',
+  role:
+    currentUser?.role === 'OEM_MANAGER'
+      ? 'OEM Manager'
+      : currentUser?.role === 'SITE_ADMIN'
+      ? 'Site Admin'
+      : 'Operator',
+});
 
 export const ProfilePage: React.FC = () => {
   const { user: currentUser, updateUser } = useAuth();
+  const [prevUser, setPrevUser] = useState(currentUser);
 
-  const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone_number: '',
-    role: '',
-  });
+  const [formData, setFormData] = useState(() => buildProfileForm(currentUser));
+
+  if (currentUser !== prevUser) {
+    setPrevUser(currentUser);
+    if (currentUser) {
+      setFormData(buildProfileForm(currentUser));
+    }
+  }
 
   const [errors, setErrors] = useState<{ first_name?: string; last_name?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,18 +44,6 @@ export const ProfilePage: React.FC = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (currentUser) {
-      setFormData({
-        first_name: currentUser.first_name || '',
-        last_name: currentUser.last_name || '',
-        email: currentUser.email || '',
-        phone_number: currentUser.phone_number || '',
-        role: currentUser.role === 'OEM_MANAGER' ? 'OEM Manager' : currentUser.role === 'SITE_ADMIN' ? 'Site Admin' : 'Operator',
-      });
-    }
-  }, [currentUser]);
 
   const initials = `${formData.first_name.charAt(0) || 'O'}${formData.last_name.charAt(0) || 'M'}`.toUpperCase();
 

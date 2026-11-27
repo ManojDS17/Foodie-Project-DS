@@ -1,6 +1,10 @@
 import os
+import uuid
 from contextlib import contextmanager
+from datetime import date, datetime
+from typing import Optional, Tuple
 from dotenv import load_dotenv
+from fastapi import HTTPException, status
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 import bcrypt
@@ -333,3 +337,213 @@ def init_db():
         seed_demo_data(cur)
 
     print("Database connection initialized and verified successfully.")
+
+
+# --------------------------------------------------------------------------
+# Shared UUID Validation, Lease Date Math & Operator Machine Sync Helpers
+# --------------------------------------------------------------------------
+def parse_uuid_or_400(value: Optional[str], field_name: str = "ID") -> Optional[str]:
+    """Validate an optional UUID string and return its canonical lowercase form."""
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    try:
+        return str(uuid.UUID(cleaned))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {field_name} format. Expected a valid UUID.",
+        ) from exc
+
+
+def require_uuid_or_400(value: str, field_name: str = "ID") -> str:
+    """Validate a required UUID path/body parameter or raise HTTP 400."""
+    parsed = parse_uuid_or_400(value, field_name=field_name)
+    if not parsed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_name} is required and must be a valid UUID.",
+        )
+    return parsed
+
+
+def calculate_one_year_end_date(start_dt: date) -> date:
+    """Calculate 1-year lease end date with leap-year handling (Feb 29 -> Feb 28)."""
+    try:
+        return start_dt.replace(year=start_dt.year + 1)
+    except ValueError:
+        return date(start_dt.year + 1, 2, 28)
+
+
+def parse_iso_date_or_400(value: Optional[str], field_name: str = "Date") -> Optional[date]:
+    """Parse an optional YYYY-MM-DD date string or raise HTTP 400 on malformed values."""
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    try:
+        return datetime.strptime(cleaned, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_name} must be a valid YYYY-MM-DD date.",
+        ) from exc
+
+
+def resolve_lease_dates(
+    lease_start_date: Optional[str],
+    lease_end_date: Optional[str],
+    *,
+    default_start_today: bool = True,
+    default_end_one_year: bool = True,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Validate optional lease dates and compute defaults cleanly without ignoring invalid dates."""
+    start_dt = parse_iso_date_or_400(lease_start_date, "Lease start date")
+    end_dt = parse_iso_date_or_400(lease_end_date, "Lease end date")
+
+    if start_dt is None and default_start_today:
+        start_dt = date.today()
+
+    if end_dt is None and start_dt is not None and default_end_one_year:
+        end_dt = calculate_one_year_end_date(start_dt)
+
+    if start_dt is not None and end_dt is not None and end_dt < start_dt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lease end date ({end_dt.isoformat()}) cannot be earlier than lease start date ({start_dt.isoformat()}).",
+        )
+
+    return (
+        start_dt.strftime("%Y-%m-%d") if start_dt else None,
+        end_dt.strftime("%Y-%m-%d") if end_dt else None,
+    )
+
+
+_UPSERT_OPERATOR_ASSIGNMENT_SQL = """
+    INSERT INTO machine_assign_to_operators (
+        organization_id, operator_id, machine_id,
+        start_date, end_date, location, created_by, assigned_by, status
+    ) VALUES (
+        %s, %s, %s,
+        %s::DATE, %s::DATE, %s, %s, %s, 'Active'
+    )
+    ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
+    SET status = 'Active',
+        start_date = EXCLUDED.start_date,
+        end_date = EXCLUDED.end_date,
+        location = CASE WHEN %s IS TRUE THEN EXCLUDED.location ELSE COALESCE(EXCLUDED.location, machine_assign_to_operators.location) END,
+        revoked_at = NULL,
+        revoked_by = NULL,
+        updated_by = EXCLUDED.assigned_by,
+        updated_at = CURRENT_TIMESTAMP
+"""
+
+
+def upsert_operator_machine_assignment(
+    cur,
+    *,
+    organization_id: str,
+    operator_id: str,
+    machine_id: str,
+    start_date,
+    end_date,
+    location: Optional[str],
+    actor_user_id: Optional[str],
+    force_location_update: bool = False,
+    returning_details: bool = False,
+):
+    """Create or reactivate an active operator-to-machine assignment row."""
+    sql = _UPSERT_OPERATOR_ASSIGNMENT_SQL
+    if returning_details:
+        sql += (
+            " RETURNING id, organization_id, operator_id, machine_id,"
+            " TO_CHAR(start_date, 'YYYY-MM-DD'), TO_CHAR(end_date, 'YYYY-MM-DD'),"
+            " location, created_by, assigned_by, assigned_at, updated_by,"
+            " updated_at, revoked_by, revoked_at, status, created_at"
+        )
+    sql += ";"
+    cur.execute(
+        sql,
+        (
+            organization_id,
+            operator_id,
+            machine_id,
+            start_date,
+            end_date,
+            location,
+            actor_user_id,
+            actor_user_id,
+            force_location_update,
+        ),
+    )
+    return cur.fetchone() if returning_details else None
+
+
+def sync_active_operators_for_machine(
+    cur,
+    *,
+    organization_id: str,
+    machine_id: str,
+    start_date: str,
+    end_date: str,
+    location: Optional[str],
+    actor_user_id: Optional[str],
+    force_location_update: bool = False,
+) -> None:
+    """Assign an active leased machine to all active operators in that organization."""
+    cur.execute(
+        """
+        SELECT id FROM users
+        WHERE organization_id = %s
+          AND role = 'OPERATOR'
+          AND is_active = TRUE
+          AND (is_deleted IS NOT TRUE);
+        """,
+        (organization_id,),
+    )
+    for (op_id,) in cur.fetchall():
+        upsert_operator_machine_assignment(
+            cur,
+            organization_id=organization_id,
+            operator_id=op_id,
+            machine_id=machine_id,
+            start_date=start_date,
+            end_date=end_date,
+            location=location,
+            actor_user_id=actor_user_id,
+            force_location_update=force_location_update,
+        )
+
+
+def sync_active_machines_for_operator(
+    cur,
+    *,
+    organization_id: str,
+    operator_id: str,
+    actor_user_id: Optional[str],
+) -> None:
+    """Assign all active leased organization machines to a newly created/activated operator."""
+    cur.execute(
+        """
+        SELECT m.id, ml.location_label, ml.lease_start_date, ml.lease_end_date
+        FROM machines m
+        JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
+        WHERE m.organization_id = %s
+          AND (m.is_deleted IS NOT TRUE);
+        """,
+        (organization_id,),
+    )
+    for mach_id, loc, s_dt, e_dt in cur.fetchall():
+        upsert_operator_machine_assignment(
+            cur,
+            organization_id=organization_id,
+            operator_id=operator_id,
+            machine_id=mach_id,
+            start_date=s_dt,
+            end_date=e_dt,
+            location=loc,
+            actor_user_id=actor_user_id,
+        )

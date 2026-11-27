@@ -125,20 +125,40 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return (data || {}) as T;
 }
 
+export interface ListQueryParams {
+  skip?: number;
+  limit?: number;
+  search?: string;
+}
+
+const buildListQueryString = (params?: ListQueryParams): string => {
+  if (!params) return '';
+  const q = new URLSearchParams();
+  if (typeof params.skip === 'number') q.set('skip', String(params.skip));
+  if (typeof params.limit === 'number') q.set('limit', String(params.limit));
+  if (params.search && params.search.trim()) q.set('search', params.search.trim());
+  const qs = q.toString();
+  return qs ? `?${qs}` : '';
+};
+
 // ----------------------------------------------------------------------------
 // AUTHENTICATION API (JWT Based)
 // ----------------------------------------------------------------------------
 export const authApi = {
-  login: async (email: string, password: string): Promise<{ user: User; expires_at?: string | null }> => {
+  login: async (
+    email: string,
+    password: string,
+    remember_me = true
+  ): Promise<{ user: User; expires_at?: string | null }> => {
     clearLegacyAuthStorage();
     return request<{ user: User; expires_at?: string | null }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, remember_me }),
     });
   },
 
-  getMe: async (): Promise<User & { expires_at?: string | null }> => {
-    return request<User & { expires_at?: string | null }>('/auth/me');
+  getMe: async (signal?: AbortSignal): Promise<User & { expires_at?: string | null }> => {
+    return request<User & { expires_at?: string | null }>('/auth/me', { signal });
   },
 
   forgotPassword: async (email: string): Promise<{ success: boolean; message: string; expires_in_minutes: number }> => {
@@ -174,31 +194,20 @@ export const authApi = {
   },
 };
 
-// ----------------------------------------------------------------------------
-// SITES API
-// ----------------------------------------------------------------------------
+// Legacy unmounted stub preserved for existing unused site registration page compilation
 export const sitesApi = {
-  getAll: async (): Promise<Site[]> => {
-    return [];
-  },
-
-  create: async (_siteData: any): Promise<Site> => {
-    return {} as Site;
-  },
-
-  update: async (_id: string, _updatedFields: any): Promise<Site> => {
-    return {} as Site;
-  },
-
-  delete: async (_id: string): Promise<void> => { },
+  getAll: async (): Promise<Site[]> => [],
+  create: async (_siteData: Record<string, unknown>): Promise<Site> => ({} as Site),
+  update: async (_id: string, _updatedFields: Record<string, unknown>): Promise<Site> => ({} as Site),
+  delete: async (_id: string): Promise<void> => {},
 };
 
 // ----------------------------------------------------------------------------
 // USERS API (Direct PostgreSQL / FastAPI CRUD)
 // ----------------------------------------------------------------------------
 export const usersApi = {
-  getAll: async (): Promise<User[]> => {
-    return await request<User[]>('/users');
+  getAll: async (params?: ListQueryParams, signal?: AbortSignal): Promise<User[]> => {
+    return await request<User[]>(`/users${buildListQueryString(params)}`, { signal });
   },
 
   getById: async (id: string): Promise<User> => {
@@ -240,8 +249,8 @@ export const usersApi = {
 // ORGANIZATIONS API (Direct PostgreSQL / FastAPI)
 // ----------------------------------------------------------------------------
 export const orgsApi = {
-  getAll: async (): Promise<Organization[]> => {
-    return await request<Organization[]>('/organizations');
+  getAll: async (params?: ListQueryParams, signal?: AbortSignal): Promise<Organization[]> => {
+    return await request<Organization[]>(`/organizations${buildListQueryString(params)}`, { signal });
   },
 
   getNextCode: async (): Promise<{ next_code: string }> => {
@@ -307,11 +316,11 @@ export interface SearchResults {
 }
 
 export const searchApi = {
-  query: async (q: string): Promise<SearchResults> => {
+  query: async (q: string, signal?: AbortSignal): Promise<SearchResults> => {
     if (!q.trim()) {
       return { clients: [], machines: [], sites: [], users: [] };
     }
-    return await request<SearchResults>(`/search?q=${encodeURIComponent(q.trim())}`);
+    return await request<SearchResults>(`/search?q=${encodeURIComponent(q.trim())}`, { signal });
   },
 };
 
@@ -319,8 +328,8 @@ export const searchApi = {
 // MACHINES API (Direct PostgreSQL / FastAPI Machine Onboarding & Leases)
 // ----------------------------------------------------------------------------
 export const machinesApi = {
-  getAll: async (): Promise<Machine[]> => {
-    return await request<Machine[]>('/machines');
+  getAll: async (params?: ListQueryParams, signal?: AbortSignal): Promise<Machine[]> => {
+    return await request<Machine[]>(`/machines${buildListQueryString(params)}`, { signal });
   },
 
   getNextCode: async (): Promise<{ next_code: string }> => {
@@ -369,12 +378,15 @@ export const machinesApi = {
 };
 
 export const operatorAssignmentsApi = {
-  getAll: async (params?: { organization_id?: string; operator_id?: string }): Promise<OperatorMachineAssignment[]> => {
+  getAll: async (
+    params?: { organization_id?: string; operator_id?: string },
+    signal?: AbortSignal
+  ): Promise<OperatorMachineAssignment[]> => {
     const q = new URLSearchParams();
     if (params?.organization_id) q.set('organization_id', params.organization_id);
     if (params?.operator_id) q.set('operator_id', params.operator_id);
     const qs = q.toString() ? `?${q.toString()}` : '';
-    return await request<OperatorMachineAssignment[]>(`/machines/operator-assignments${qs}`);
+    return await request<OperatorMachineAssignment[]>(`/machines/operator-assignments${qs}`, { signal });
   },
 
   assign: async (data: OperatorMachineAssignmentCreateData): Promise<OperatorMachineAssignment> => {
@@ -392,8 +404,292 @@ export const operatorAssignmentsApi = {
 };
 
 export const dashboardApi = {
-  getStats: async (): Promise<DashboardStats> => {
-    return await request<DashboardStats>('/dashboard/stats');
+  getStats: async (signal?: AbortSignal): Promise<DashboardStats> => {
+    return await request<DashboardStats>('/dashboard/stats', { signal });
   },
+};
+
+// ----------------------------------------------------------------------------
+// SHARED CSV EXPORT HELPERS (Excel Formula Neutralization + Blob Download)
+// ----------------------------------------------------------------------------
+const FORMULA_TRIGGER_REGEX = /^\s*[=+\-@\t\r]/;
+
+export const sanitizeCsvCell = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '""';
+  }
+  let text = String(value);
+  if (FORMULA_TRIGGER_REGEX.test(text)) {
+    text = `'${text}`;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+};
+
+export const buildCsvContent = (rows: unknown[][]): string => {
+  return rows.map((row) => row.map(sanitizeCsvCell).join(',')).join('\n');
+};
+
+export const downloadCsv = (filename: string, rows: unknown[][]): void => {
+  const csvContent = buildCsvContent(rows);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// ----------------------------------------------------------------------------
+// SHARED VALIDATION & PASSWORD POLICY HELPERS
+// ----------------------------------------------------------------------------
+export const EMAIL_REGEX =
+  /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,63}$/;
+
+export const sanitizePhoneNumber = (val: string): string => {
+  if (!val) return '';
+  const trimmedLeading = val.replace(/^\s+/, '');
+  const hasLeadingPlus = trimmedLeading.startsWith('+');
+  const digitsAndSpaces = trimmedLeading.replace(/[^0-9\s]/g, '').replace(/\s{2,}/g, ' ');
+  const result = hasLeadingPlus ? `+${digitsAndSpaces}` : digitsAndSpaces;
+  return result.slice(0, 15);
+};
+
+export const isValidEmail = (email: string): boolean => {
+  if (!email || typeof email !== 'string') return false;
+  const clean = email.trim().toLowerCase();
+  if (clean.startsWith('.') || clean.endsWith('.')) return false;
+  if (clean.includes('..') || clean.includes('.@') || clean.includes('@.')) return false;
+  return EMAIL_REGEX.test(clean);
+};
+
+export const validatePhoneNumberInput = (phone: string): string | null => {
+  const trimmed = phone.trim();
+  if (!trimmed) return null;
+
+  if (/[^0-9+\s]/.test(trimmed)) {
+    return 'Phone number can only contain numbers, spaces, and an optional leading plus sign (+). Symbols like -, (, ) are not allowed.';
+  }
+  if (trimmed.includes('+') && (!trimmed.startsWith('+') || (trimmed.match(/\+/g) || []).length > 1)) {
+    return 'The plus sign (+) is only permitted at the beginning of the phone number.';
+  }
+  if (trimmed.length > 15) {
+    return 'Phone number cannot exceed 15 characters.';
+  }
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly.length < 7) {
+    return 'Please enter a valid phone number with at least 7 digits (e.g. +61 400 000 000).';
+  }
+  if (digitsOnly.length > 15) {
+    return 'Phone number cannot exceed 15 digits.';
+  }
+  return null;
+};
+
+export const limitToMaxWords = (val: string, maxWords: number): string => {
+  const trimmed = val.trim();
+  if (!trimmed) return val;
+  const words = trimmed.split(/\s+/);
+  if (words.length <= maxWords) return val;
+  return words.slice(0, maxWords).join(' ');
+};
+
+export const formatABN = (val: string): string => {
+  const digits = val.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+  return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+};
+
+export const isValidABN = (val: string): boolean => {
+  const digits = val.replace(/\D/g, '');
+  if (digits.length !== 11) return false;
+  const weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+  const sum = digits.split('').reduce((acc, char, index) => {
+    const digit = index === 0 ? parseInt(char, 10) - 1 : parseInt(char, 10);
+    return acc + digit * weights[index];
+  }, 0);
+  return sum % 89 === 0;
+};
+
+export const validateLocationInput = (loc: string): string | null => {
+  const clean = loc.trim();
+  if (!clean) return 'Installation location is required.';
+  if (clean.length < 3) return 'Installation location must be at least 3 characters.';
+  if (clean.length > 100) return 'Installation location cannot exceed 100 characters.';
+  if (/[<>{}]|--|\/\*|;/.test(clean)) {
+    return 'Location cannot contain code symbols or SQL characters (e.g. <, >, ;, --).';
+  }
+  if (!/^[A-Za-z0-9\s,.\-#/()'&]+$/.test(clean)) {
+    return 'Location can only contain letters, numbers, spaces, and standard address punctuation (e.g. commas, hyphens, periods, #).';
+  }
+  return null;
+};
+
+export const validateLocationDescription = (desc: string): string | null => {
+  const clean = desc.trim();
+  if (!clean) return null;
+  if (clean.length > 300) return 'Location description cannot exceed 300 characters.';
+  if (/[<>{}]|--|\/\*|;/.test(clean)) {
+    return 'Location description cannot contain code tags or SQL characters (e.g. <, >, ;, --).';
+  }
+  return null;
+};
+
+export interface PasswordChecks {
+  hasMinLength: boolean;
+  hasMaxLength: boolean;
+  hasNumber: boolean;
+  hasSymbol: boolean;
+  passwordsMatch: boolean;
+  isPolicyMet: boolean;
+}
+
+export const getPasswordChecks = (password: string, confirmPassword = ''): PasswordChecks => {
+  const hasMinLength = password.length >= 12;
+  const hasMaxLength = password.length <= 50;
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  const passwordsMatch =
+    password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
+  return {
+    hasMinLength,
+    hasMaxLength,
+    hasNumber,
+    hasSymbol,
+    passwordsMatch,
+    isPolicyMet: hasMinLength && hasMaxLength && hasNumber && hasSymbol,
+  };
+};
+
+export const validatePasswordPolicy = (password: string, fieldName = 'Password'): string | null => {
+  if (password.length < 12) {
+    return `${fieldName} must be at least 12 characters long.`;
+  }
+  if (password.length > 50) {
+    return `${fieldName} cannot exceed 50 characters.`;
+  }
+  if (!/\d/.test(password)) {
+    return `${fieldName} must contain at least one number (0-9).`;
+  }
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+    return `${fieldName} must contain at least one special character / symbol.`;
+  }
+  return null;
+};
+
+export const getTodayIsoDate = (): string => new Date().toISOString().split('T')[0];
+
+export const calculateOneYearLeaseEndDate = (startDateStr: string): string => {
+  if (!startDateStr || !startDateStr.includes('-')) return '';
+  try {
+    const parts = startDateStr.split('-');
+    if (parts.length !== 3) return '';
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    if (!y || !m || !d) return '';
+
+    const targetYear = y + 1;
+    const targetMonth = m;
+    const targetDay = m === 2 && d === 29 ? 28 : d;
+
+    return `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+  } catch {
+    return '';
+  }
+};
+
+// ----------------------------------------------------------------------------
+// SHARED DISPLAY FORMATTERS
+// ----------------------------------------------------------------------------
+export const formatLocation = (address?: string | null): string => {
+  if (!address) return '—';
+  const parts = address.split(',').map((p) => p.trim());
+  if (parts.length > 1) {
+    const lastPart = parts[parts.length - 1];
+    const matchState = lastPart.match(/(QLD|SA|WA|VIC|TAS|NT|NSW|ACT)/i);
+    const suburb = parts[parts.length - 2] || parts[0];
+    if (matchState) {
+      return `${suburb.replace(/(\d+)/g, '').trim()} ${matchState[0].toUpperCase()}`;
+    }
+    return `${suburb}, ${lastPart}`;
+  }
+  return address;
+};
+
+export const formatMachineLocation = (
+  machine: Pick<Machine, 'organization_id' | 'lease_location_label' | 'location_label'>
+): string => {
+  if (machine.organization_id) {
+    if (machine.lease_location_label && machine.lease_location_label.trim()) {
+      return machine.lease_location_label.trim();
+    }
+    return '—';
+  }
+  if (machine.location_label && machine.location_label.trim()) {
+    return machine.location_label.trim();
+  }
+  return '—';
+};
+
+export const formatDate = (dateStr?: string | null, fallback = '—'): string => {
+  if (!dateStr) return fallback;
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
+};
+
+export const formatDateTime = (dateStr?: string | null, fallback = 'Recently'): string => {
+  if (!dateStr) return fallback;
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return dateStr;
+  }
+};
+
+export const getCompanyInitials = (name?: string | null): string => {
+  if (!name) return 'CL';
+  const clean = name.trim().split(/\s+/);
+  if (clean.length === 1) return clean[0].substring(0, 2).toUpperCase();
+  return (clean[0][0] + clean[1][0]).toUpperCase();
+};
+
+export const getUserInitials = (
+  firstName?: string | null,
+  lastName?: string | null,
+  email?: string | null
+): string => {
+  if (firstName && lastName) {
+    return `${firstName[0]}${lastName[0]}`.toUpperCase();
+  }
+  if (firstName && firstName.length >= 2) {
+    return firstName.slice(0, 2).toUpperCase();
+  }
+  if (email && email.length >= 2) {
+    return email.slice(0, 2).toUpperCase();
+  }
+  return 'U';
 };
 

@@ -1,14 +1,23 @@
-from datetime import datetime, date
+from datetime import date
 import re
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, status, Depends
-from ..database import get_db_cursor
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+import psycopg2
+from ..database import (
+    calculate_one_year_end_date,
+    get_db_cursor,
+    parse_iso_date_or_400,
+    parse_uuid_or_400,
+    require_uuid_or_400,
+    resolve_lease_dates,
+    sync_active_operators_for_machine,
+    upsert_operator_machine_assignment,
+)
 from ..schemas import (
     MachineCreate,
     MachineUpdate,
     MachineResponse,
     MachineModelResponse,
-    VALID_MACHINE_MODELS,
     TerminateLeaseRequest,
     OperatorMachineAssignmentCreate,
     OperatorMachineAssignmentResponse,
@@ -16,13 +25,6 @@ from ..schemas import (
 from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/machines", tags=["Machines"], dependencies=[Depends(get_current_user)])
-
-def calculate_one_year_end_date(start_dt: date) -> date:
-    """Calculate 1-year lease end date with leap-year handling (Feb 29 -> Feb 28)."""
-    try:
-        return start_dt.replace(year=start_dt.year + 1)
-    except ValueError:
-        return date(start_dt.year + 1, 2, 28)
 
 SQL_SELECT_MACHINE_JOINED = """
     SELECT 
@@ -60,27 +62,31 @@ def row_to_machine_dict(cols, row) -> dict:
         d["deleted_by"] = str(d["deleted_by"])
     return d
 
+
+def _compute_next_machine_code(cur) -> str:
+    """Compute the next sequential machine code in C001+ series across all rows."""
+    cur.execute("SELECT machine_code, serial_number FROM machines;")
+    rows = cur.fetchall()
+    nums = set()
+    for m_code, s_num in rows:
+        for val in (m_code, s_num):
+            if not val:
+                continue
+            m = re.match(r'^C(\d+)', val.strip(), re.IGNORECASE)
+            if m:
+                try:
+                    nums.add(int(m.group(1)))
+                except ValueError:
+                    continue
+    next_num = max(nums) + 1 if nums else 1
+    return f"C{next_num:03d}"
+
+
 @router.get("/next-code")
 def get_next_machine_code():
     """Calculates the next sequential machine code in C001 series, preserving series order and never reusing any deleted or existing machine ID."""
     with get_db_cursor() as cur:
-        cur.execute("SELECT machine_code, serial_number FROM machines;")
-        rows = cur.fetchall()
-        nums = set()
-        for m_code, s_num in rows:
-            for val in (m_code, s_num):
-                if not val:
-                    continue
-                m = re.match(r'^C(\d+)', val.strip(), re.IGNORECASE)
-                if m:
-                    try:
-                        num = int(m.group(1))
-                        if num < 900:
-                            nums.add(num)
-                    except ValueError:
-                        continue
-        next_num = max(nums) + 1 if nums else 1
-        return {"next_code": f"C{next_num:03d}"}
+        return {"next_code": _compute_next_machine_code(cur)}
 
 @router.get("/models", response_model=List[MachineModelResponse])
 def get_machine_models():
@@ -104,13 +110,78 @@ def get_machine_models():
         return [MachineModelResponse(**{**dict(zip(cols, r)), "id": str(r[0])}) for r in rows]
 
 @router.get("", response_model=List[MachineResponse])
-def get_all_machines(current_user: dict = Depends(get_current_user)):
+def get_all_machines(
+    response: Response,
+    skip: int = Query(0, ge=0),
+    limit: Optional[int] = Query(None, ge=1, le=500),
+    search: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     user_role = current_user.get("role")
+    where_clauses = ["(m.is_deleted IS NOT TRUE)"]
+    params: list = []
+
+    search_term = search.strip() if search and search.strip() else None
+    if search_term:
+        pattern = f"%{search_term}%"
+        where_clauses.append(
+            "(m.machine_code ILIKE %s OR m.serial_number ILIKE %s OR m.model ILIKE %s OR COALESCE(o.company_name, '') ILIKE %s OR COALESCE(m.location_label, '') ILIKE %s)"
+        )
+        params.extend([pattern, pattern, pattern, pattern, pattern])
+
+    pagination_sql = ""
+    pagination_params: list = []
+    if limit is not None:
+        pagination_sql = " LIMIT %s OFFSET %s"
+        pagination_params = [limit, skip]
+    elif skip > 0:
+        pagination_sql = " OFFSET %s"
+        pagination_params = [skip]
+
     with get_db_cursor() as cur:
         if user_role == "OEM_MANAGER":
-            cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.is_deleted IS NOT TRUE) ORDER BY m.created_at DESC, m.machine_code DESC;")
+            where_sql = " AND ".join(where_clauses)
+            cur.execute(
+                f"SELECT COUNT(*) FROM machines m LEFT JOIN organizations o ON m.organization_id = o.id WHERE {where_sql};",
+                tuple(params),
+            )
+            response.headers["X-Total-Count"] = str(cur.fetchone()[0])
+            cur.execute(
+                f"{SQL_SELECT_MACHINE_JOINED} WHERE {where_sql} ORDER BY m.created_at DESC, m.machine_code DESC{pagination_sql};",
+                tuple(params + pagination_params),
+            )
         elif user_role == "OPERATOR":
-            cur.execute("""
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                response.headers["X-Total-Count"] = "0"
+                return []
+            where_sql = " AND ".join(where_clauses + ["m.organization_id = %s"])
+            op_params = [current_user.get("id")] + params + [user_org_id]
+            cur.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM machines m
+                JOIN organizations o
+                  ON m.organization_id = o.id
+                 AND (o.is_deleted IS NOT TRUE)
+                 AND COALESCE(o.is_active, TRUE) IS TRUE
+                 AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
+                JOIN machine_leases ml
+                  ON m.id = ml.machine_id
+                 AND ml.organization_id = m.organization_id
+                 AND ml.lease_status = 'Active'
+                JOIN machine_assign_to_operators mato
+                  ON m.id = mato.machine_id
+                 AND mato.organization_id = m.organization_id
+                 AND mato.operator_id = %s
+                 AND mato.status = 'Active'
+                WHERE {where_sql};
+                """,
+                tuple(op_params),
+            )
+            response.headers["X-Total-Count"] = str(cur.fetchone()[0])
+            cur.execute(
+                f"""
                 SELECT 
                     m.id, m.machine_code, m.serial_number, m.model_id, m.model, m.capacity, m.hardware_version,
                     m.organization_id, o.client_code, o.company_name,
@@ -127,22 +198,40 @@ def get_all_machines(current_user: dict = Depends(get_current_user)):
                     m.created_by, m.updated_by, m.deleted_by,
                     m.created_at, m.updated_at
                 FROM machines m
-                LEFT JOIN organizations o ON m.organization_id = o.id
-                LEFT JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active' AND (m.organization_id IS NULL OR ml.organization_id = m.organization_id)
+                JOIN organizations o
+                  ON m.organization_id = o.id
+                 AND (o.is_deleted IS NOT TRUE)
+                 AND COALESCE(o.is_active, TRUE) IS TRUE
+                 AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
+                JOIN machine_leases ml
+                  ON m.id = ml.machine_id
+                 AND ml.organization_id = m.organization_id
+                 AND ml.lease_status = 'Active'
                 JOIN machine_assign_to_operators mato 
                   ON m.id = mato.machine_id 
+                 AND mato.organization_id = m.organization_id
                  AND mato.operator_id = %s 
                  AND mato.status = 'Active'
-                WHERE (m.is_deleted IS NOT TRUE)
-                ORDER BY m.created_at DESC, m.machine_code DESC;
-            """, (current_user.get("id"),))
+                WHERE {where_sql}
+                ORDER BY m.created_at DESC, m.machine_code DESC{pagination_sql};
+                """,
+                tuple(op_params + pagination_params),
+            )
         else:
             user_org_id = current_user.get("organization_id")
             if not user_org_id:
+                response.headers["X-Total-Count"] = "0"
                 return []
+            org_where = " AND ".join(where_clauses + ["m.organization_id = %s"])
+            org_params = params + [user_org_id]
             cur.execute(
-                f"{SQL_SELECT_MACHINE_JOINED} WHERE (m.is_deleted IS NOT TRUE) AND m.organization_id = %s ORDER BY m.created_at DESC, m.machine_code DESC;",
-                (user_org_id,)
+                f"SELECT COUNT(*) FROM machines m LEFT JOIN organizations o ON m.organization_id = o.id WHERE {org_where};",
+                tuple(org_params),
+            )
+            response.headers["X-Total-Count"] = str(cur.fetchone()[0])
+            cur.execute(
+                f"{SQL_SELECT_MACHINE_JOINED} WHERE {org_where} ORDER BY m.created_at DESC, m.machine_code DESC{pagination_sql};",
+                tuple(org_params + pagination_params),
             )
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
@@ -154,6 +243,8 @@ def get_operator_machine_assignments(
     operator_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
+    valid_org_filter = parse_uuid_or_400(organization_id, "organization ID")
+    valid_op_filter = parse_uuid_or_400(operator_id, "operator ID")
     user_role = current_user.get("role")
     with get_db_cursor() as cur:
         query = """
@@ -178,26 +269,29 @@ def get_operator_machine_assignments(
         params = []
 
         if user_role == "OPERATOR":
-            query += " AND mato.operator_id = %s"
-            params.append(current_user.get("id"))
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                return []
+            query += " AND mato.operator_id = %s AND mato.organization_id = %s AND m.organization_id = mato.organization_id"
+            params.extend([current_user.get("id"), user_org_id])
         elif user_role != "OEM_MANAGER":
             user_org_id = current_user.get("organization_id")
             if not user_org_id:
                 return []
             query += " AND mato.organization_id = %s"
             params.append(user_org_id)
-            if operator_id:
+            if valid_op_filter:
                 query += " AND mato.operator_id = %s"
-                params.append(operator_id)
-        elif organization_id:
+                params.append(valid_op_filter)
+        elif valid_org_filter:
             query += " AND mato.organization_id = %s"
-            params.append(organization_id)
-            if operator_id:
+            params.append(valid_org_filter)
+            if valid_op_filter:
                 query += " AND mato.operator_id = %s"
-                params.append(operator_id)
-        elif operator_id:
+                params.append(valid_op_filter)
+        elif valid_op_filter:
             query += " AND mato.operator_id = %s"
-            params.append(operator_id)
+            params.append(valid_op_filter)
 
         query += " ORDER BY mato.created_at DESC;"
         cur.execute(query, tuple(params))
@@ -251,15 +345,12 @@ def assign_machine_to_operator(
             if user_org_id != op_org_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot assign machines outside your organization.")
 
-        s_date = payload.start_date.strip() if payload.start_date and payload.start_date.strip() else date.today().strftime("%Y-%m-%d")
-        if payload.end_date and payload.end_date.strip():
-            e_date = payload.end_date.strip()
-        else:
-            try:
-                s_obj = datetime.strptime(s_date, "%Y-%m-%d").date()
-                e_date = calculate_one_year_end_date(s_obj).strftime("%Y-%m-%d")
-            except Exception:
-                e_date = calculate_one_year_end_date(date.today()).strftime("%Y-%m-%d")
+        s_date, e_date = resolve_lease_dates(
+            payload.start_date,
+            payload.end_date,
+            default_start_today=True,
+            default_end_one_year=True,
+        )
 
         location = payload.location.strip() if payload.location and payload.location.strip() else None
         if not location:
@@ -270,26 +361,17 @@ def assign_machine_to_operator(
             else:
                 location = None
 
-        cur.execute("""
-            INSERT INTO machine_assign_to_operators (
-                organization_id, operator_id, machine_id,
-                start_date, end_date, location, created_by, assigned_by, status
-            ) VALUES (
-                %s, %s, %s,
-                %s::DATE, %s::DATE, %s, %s, %s, 'Active'
-            )
-            ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
-            SET status = 'Active',
-                start_date = EXCLUDED.start_date,
-                end_date = EXCLUDED.end_date,
-                location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
-                revoked_at = NULL,
-                revoked_by = NULL,
-                updated_by = EXCLUDED.assigned_by,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING id, organization_id, operator_id, machine_id, TO_CHAR(start_date, 'YYYY-MM-DD'), TO_CHAR(end_date, 'YYYY-MM-DD'), location, created_by, assigned_by, assigned_at, updated_by, updated_at, revoked_by, revoked_at, status, created_at;
-        """, (op_org_id, payload.operator_id, payload.machine_id, s_date, e_date, location, current_user.get("id"), current_user.get("id")))
-        row = cur.fetchone()
+        row = upsert_operator_machine_assignment(
+            cur,
+            organization_id=op_org_id,
+            operator_id=payload.operator_id,
+            machine_id=payload.machine_id,
+            start_date=s_date,
+            end_date=e_date,
+            location=location,
+            actor_user_id=current_user.get("id"),
+            returning_details=True,
+        )
 
         return OperatorMachineAssignmentResponse(
             id=str(row[0]),
@@ -323,9 +405,10 @@ def revoke_operator_machine_assignment(
     user_role = current_user.get("role")
     if user_role == "OPERATOR":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Operators cannot revoke machine assignments.")
+    valid_assignment_id = require_uuid_or_400(assignment_id, "assignment ID")
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, organization_id FROM machine_assign_to_operators WHERE id = %s;", (assignment_id,))
+        cur.execute("SELECT id, organization_id FROM machine_assign_to_operators WHERE id = %s;", (valid_assignment_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment record not found.")
@@ -342,7 +425,7 @@ def revoke_operator_machine_assignment(
                 revoked_by = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s;
-        """, (current_user.get("id"), assignment_id))
+        """, (current_user.get("id"), valid_assignment_id))
 
         return {"success": True, "message": "Operator machine assignment revoked successfully."}
 
@@ -351,6 +434,12 @@ def get_machine(machine_id: str, current_user: dict = Depends(get_current_user))
     user_role = current_user.get("role")
     with get_db_cursor() as cur:
         if user_role == "OPERATOR":
+            user_org_id = current_user.get("organization_id")
+            if not user_org_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: You do not have permission to access this machine.",
+                )
             cur.execute(
                 """
                 SELECT 
@@ -369,16 +458,25 @@ def get_machine(machine_id: str, current_user: dict = Depends(get_current_user))
                     m.created_by, m.updated_by, m.deleted_by,
                     m.created_at, m.updated_at
                 FROM machines m
-                LEFT JOIN organizations o ON m.organization_id = o.id
-                LEFT JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active' AND (m.organization_id IS NULL OR ml.organization_id = m.organization_id)
+                JOIN organizations o
+                  ON m.organization_id = o.id
+                 AND (o.is_deleted IS NOT TRUE)
+                 AND COALESCE(o.is_active, TRUE) IS TRUE
+                 AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
+                JOIN machine_leases ml
+                  ON m.id = ml.machine_id
+                 AND ml.organization_id = m.organization_id
+                 AND ml.lease_status = 'Active'
                 JOIN machine_assign_to_operators mato 
                   ON m.id = mato.machine_id 
+                 AND mato.organization_id = m.organization_id
                  AND mato.operator_id = %s 
                  AND mato.status = 'Active'
                 WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s)) 
+                  AND m.organization_id = %s
                   AND (m.is_deleted IS NOT TRUE);
                 """,
-                (current_user.get("id"), machine_id, machine_id, machine_id)
+                (current_user.get("id"), machine_id, machine_id, machine_id, user_org_id)
             )
         elif user_role != "OEM_MANAGER":
             user_org_id = current_user.get("organization_id")
@@ -419,14 +517,10 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Only OEM Managers can commission new machines."
         )
-    if not payload.serial_number or not payload.serial_number.strip():
-        next_code = get_next_machine_code()["next_code"]
-        normalized_serial = next_code
-        normalized_code = next_code
-    else:
-        normalized_serial = payload.serial_number.strip().upper()
-        raw_code = payload.machine_code or payload.serial_number
-        normalized_code = raw_code.strip().upper()
+
+    has_explicit_serial = bool(payload.serial_number and payload.serial_number.strip())
+    explicit_serial = payload.serial_number.strip().upper() if has_explicit_serial else None
+    explicit_code = (payload.machine_code or payload.serial_number or "").strip().upper() if has_explicit_serial else None
 
     model_name = payload.model.strip()
     if model_name.upper() == 'F25':
@@ -442,6 +536,15 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
     capacity = payload.capacity.strip() if (payload.capacity and payload.capacity.strip()) else None
 
     with get_db_cursor(commit=True) as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext('machines_next_code'));")
+        if has_explicit_serial:
+            normalized_serial = explicit_serial
+            normalized_code = explicit_code
+        else:
+            next_code = _compute_next_machine_code(cur)
+            normalized_serial = next_code
+            normalized_code = next_code
+
         # Check duplicate machine_code across all records (including archived/deleted)
         cur.execute("SELECT id, is_deleted FROM machines WHERE UPPER(machine_code) = %s;", (normalized_code,))
         row = cur.fetchone()
@@ -485,41 +588,47 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
             if not capacity and model_row[2]:
                 capacity = model_row[2]
 
-        cur.execute("""
-            INSERT INTO machines (
-                machine_code, serial_number, model_id, model, capacity, hardware_version,
-                organization_id, location_label, location_description,
-                plc_software_version, energy_meter_model, deodor_model, extractor_model,
-                has_stairs, notes, connectivity_status, operational_status, is_active,
-                created_by
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
-                %s
-            ) RETURNING id;
-        """, (
-            normalized_code,
-            normalized_serial,
-            resolved_model_id,
-            model_name,
-            capacity,
-            payload.hardware_version.strip() if (payload.hardware_version and payload.hardware_version.strip()) else None,
-            payload.organization_id or None,
-            payload.location_label.strip() if payload.location_label else None,
-            payload.location_description.strip() if payload.location_description else None,
-            payload.plc_software_version.strip() if payload.plc_software_version else None,
-            payload.energy_meter_model.strip() if payload.energy_meter_model else None,
-            payload.deodor_model.strip() if payload.deodor_model else None,
-            payload.extractor_model.strip() if payload.extractor_model else None,
-            bool(payload.has_stairs),
-            payload.notes.strip() if payload.notes else None,
-            payload.connectivity_status or 'Offline',
-            payload.operational_status or 'Idle',
-            True,
-            current_user.get("id")
-        ))
+        try:
+            cur.execute("""
+                INSERT INTO machines (
+                    machine_code, serial_number, model_id, model, capacity, hardware_version,
+                    organization_id, location_label, location_description,
+                    plc_software_version, energy_meter_model, deodor_model, extractor_model,
+                    has_stairs, notes, connectivity_status, operational_status, is_active,
+                    created_by
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s
+                ) RETURNING id;
+            """, (
+                normalized_code,
+                normalized_serial,
+                resolved_model_id,
+                model_name,
+                capacity,
+                payload.hardware_version.strip() if (payload.hardware_version and payload.hardware_version.strip()) else None,
+                payload.organization_id or None,
+                payload.location_label.strip() if payload.location_label else None,
+                payload.location_description.strip() if payload.location_description else None,
+                payload.plc_software_version.strip() if payload.plc_software_version else None,
+                payload.energy_meter_model.strip() if payload.energy_meter_model else None,
+                payload.deodor_model.strip() if payload.deodor_model else None,
+                payload.extractor_model.strip() if payload.extractor_model else None,
+                bool(payload.has_stairs),
+                payload.notes.strip() if payload.notes else None,
+                payload.connectivity_status or 'Offline',
+                payload.operational_status or 'Idle',
+                True,
+                current_user.get("id")
+            ))
+        except psycopg2.IntegrityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Machine code or serial number conflicts with an existing machine record.",
+            ) from exc
         new_id = cur.fetchone()[0]
 
         if payload.organization_id:
@@ -540,32 +649,15 @@ def create_machine(payload: MachineCreate, current_user: dict = Depends(get_curr
                 SET lease_status = 'Active';
             """, (new_id, payload.organization_id, payload.location_label, today_str, end_str, lease_ref, current_user.get("id"), current_user.get("id")))
 
-            cur.execute("""
-                SELECT id FROM users
-                WHERE organization_id = %s
-                  AND role = 'OPERATOR'
-                  AND is_active = TRUE
-                  AND (is_deleted IS NOT TRUE);
-            """, (payload.organization_id,))
-            ops = cur.fetchall()
-            for op in ops:
-                cur.execute("""
-                    INSERT INTO machine_assign_to_operators (
-                        organization_id, operator_id, machine_id,
-                        start_date, end_date, location, created_by, assigned_by, status
-                    ) VALUES (
-                        %s, %s, %s,
-                        %s::DATE, %s::DATE, %s, %s, %s, 'Active'
-                    ) ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
-                    SET status = 'Active',
-                        start_date = EXCLUDED.start_date,
-                        end_date = EXCLUDED.end_date,
-                        location = COALESCE(EXCLUDED.location, machine_assign_to_operators.location),
-                        revoked_at = NULL,
-                        revoked_by = NULL,
-                        updated_by = EXCLUDED.assigned_by,
-                        updated_at = CURRENT_TIMESTAMP;
-                """, (payload.organization_id, op[0], new_id, today_str, end_str, payload.location_label, current_user.get("id"), current_user.get("id")))
+            sync_active_operators_for_machine(
+                cur,
+                organization_id=payload.organization_id,
+                machine_id=new_id,
+                start_date=today_str,
+                end_date=end_str,
+                location=payload.location_label,
+                actor_user_id=current_user.get("id"),
+            )
 
         cur.execute(f"{SQL_SELECT_MACHINE_JOINED} WHERE m.id = %s;", (new_id,))
         row = cur.fetchone()
@@ -667,35 +759,12 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                         updated_at = CURRENT_TIMESTAMP
                     WHERE machine_id = %s AND organization_id != %s AND status = 'Active';
                 """, (current_user.get("id"), real_machine_id, payload.organization_id))
-                l_start = payload.lease_start_date.strip() if payload.lease_start_date and payload.lease_start_date.strip() else None
-                l_end = payload.lease_end_date.strip() if payload.lease_end_date and payload.lease_end_date.strip() else None
-                try:
-                    start_dt = datetime.strptime(l_start, "%Y-%m-%d").date() if l_start else date.today()
-                except ValueError:
-                    start_dt = date.today()
-                l_start_str = start_dt.strftime("%Y-%m-%d")
-
-                if not l_end:
-                    try:
-                        end_dt = start_dt.replace(year=start_dt.year + 1)
-                    except ValueError:
-                        end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 1)
-                    l_end_str = end_dt.strftime("%Y-%m-%d")
-                else:
-                    try:
-                        parsed_end = datetime.strptime(l_end, "%Y-%m-%d").date()
-                        if parsed_end < start_dt:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=f"Lease end date ({l_end}) cannot be earlier than lease start date ({l_start_str})."
-                            )
-                        l_end_str = parsed_end.strftime("%Y-%m-%d")
-                    except ValueError:
-                        try:
-                            end_dt = start_dt.replace(year=start_dt.year + 1)
-                        except ValueError:
-                            end_dt = start_dt.replace(month=2, day=28, year=start_dt.year + 1)
-                        l_end_str = end_dt.strftime("%Y-%m-%d")
+                l_start_str, l_end_str = resolve_lease_dates(
+                    payload.lease_start_date,
+                    payload.lease_end_date,
+                    default_start_today=True,
+                    default_end_one_year=True,
+                )
 
                 has_lease_loc = "lease_location_label" in payload.model_fields_set
                 lease_loc = payload.lease_location_label.strip() if payload.lease_location_label and payload.lease_location_label.strip() else None
@@ -719,32 +788,16 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
                         updated_at = CURRENT_TIMESTAMP;
                 """, (real_machine_id, payload.organization_id, lease_loc, l_start_str, l_end_str, lease_ref, current_user.get("id"), current_user.get("id"), has_lease_loc, lease_loc))
 
-                cur.execute("""
-                    SELECT id FROM users
-                    WHERE organization_id = %s
-                      AND role = 'OPERATOR'
-                      AND is_active = TRUE
-                      AND (is_deleted IS NOT TRUE);
-                """, (payload.organization_id,))
-                ops = cur.fetchall()
-                for op in ops:
-                    cur.execute("""
-                        INSERT INTO machine_assign_to_operators (
-                            organization_id, operator_id, machine_id,
-                            start_date, end_date, location, created_by, assigned_by, status
-                        ) VALUES (
-                            %s, %s, %s,
-                            %s::DATE, %s::DATE, %s, %s, %s, 'Active'
-                        ) ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO UPDATE
-                        SET status = 'Active',
-                            start_date = EXCLUDED.start_date,
-                            end_date = EXCLUDED.end_date,
-                            location = CASE WHEN %s IS TRUE THEN %s ELSE machine_assign_to_operators.location END,
-                            revoked_at = NULL,
-                            revoked_by = NULL,
-                            updated_by = EXCLUDED.assigned_by,
-                            updated_at = CURRENT_TIMESTAMP;
-                    """, (payload.organization_id, op[0], real_machine_id, l_start_str, l_end_str, lease_loc, current_user.get("id"), current_user.get("id"), has_lease_loc, lease_loc))
+                sync_active_operators_for_machine(
+                    cur,
+                    organization_id=payload.organization_id,
+                    machine_id=real_machine_id,
+                    start_date=l_start_str,
+                    end_date=l_end_str,
+                    location=lease_loc,
+                    actor_user_id=current_user.get("id"),
+                    force_location_update=has_lease_loc,
+                )
 
         elif is_lease_edit:
             cur.execute("SELECT lease_start_date, lease_end_date FROM machine_leases WHERE machine_id = %s AND lease_status = 'Active';", (real_machine_id,))
@@ -752,21 +805,8 @@ def update_machine(machine_id: str, payload: MachineUpdate, current_user: dict =
             existing_start = existing_lease[0] if existing_lease else None
             existing_end = existing_lease[1] if existing_lease else None
 
-            l_start = payload.lease_start_date.strip() if payload.lease_start_date and payload.lease_start_date.strip() else None
-            l_end = payload.lease_end_date.strip() if payload.lease_end_date and payload.lease_end_date.strip() else None
-
-            start_dt = None
-            if l_start:
-                try:
-                    start_dt = datetime.strptime(l_start, "%Y-%m-%d").date()
-                except ValueError:
-                    pass
-            end_dt = None
-            if l_end:
-                try:
-                    end_dt = datetime.strptime(l_end, "%Y-%m-%d").date()
-                except ValueError:
-                    pass
+            start_dt = parse_iso_date_or_400(payload.lease_start_date, "Lease start date")
+            end_dt = parse_iso_date_or_400(payload.lease_end_date, "Lease end date")
 
             eff_start = start_dt if start_dt else existing_start
             eff_end = end_dt if end_dt else existing_end
@@ -893,16 +933,17 @@ def unassign_machine(machine_id: str, payload: Optional[TerminateLeaseRequest] =
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Only OEM Managers can terminate machine leases."
         )
+    valid_machine_id = require_uuid_or_400(machine_id, "machine ID")
 
     remark = payload.termination_remark.strip() if payload and payload.termination_remark and payload.termination_remark.strip() else None
 
     with get_db_cursor(commit=True) as cur:
-        cur.execute("SELECT id, serial_number, organization_id FROM machines WHERE id = %s AND (is_deleted IS NOT TRUE);", (machine_id,))
+        cur.execute("SELECT id, serial_number, organization_id FROM machines WHERE id = %s AND (is_deleted IS NOT TRUE);", (valid_machine_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.")
 
-        cur.execute("UPDATE machines SET organization_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING serial_number;", (machine_id,))
+        cur.execute("UPDATE machines SET organization_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING serial_number;", (valid_machine_id,))
         serial = cur.fetchone()[0]
 
         cur.execute("""
@@ -913,7 +954,7 @@ def unassign_machine(machine_id: str, payload: Optional[TerminateLeaseRequest] =
                 termination_remark = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE machine_id = %s AND lease_status = 'Active';
-        """, (current_user.get("id"), remark, machine_id))
+        """, (current_user.get("id"), remark, valid_machine_id))
 
         cur.execute("""
             UPDATE machine_assign_to_operators
@@ -922,6 +963,6 @@ def unassign_machine(machine_id: str, payload: Optional[TerminateLeaseRequest] =
                 revoked_by = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE machine_id = %s AND status = 'Active';
-        """, (current_user.get("id"), machine_id))
+        """, (current_user.get("id"), valid_machine_id))
 
-        return {"success": True, "message": f"Machine '{serial}' lease terminated successfully and returned to fleet.", "id": machine_id}
+        return {"success": True, "message": f"Machine '{serial}' lease terminated successfully and returned to fleet.", "id": valid_machine_id}

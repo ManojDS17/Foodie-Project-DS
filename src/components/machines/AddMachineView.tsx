@@ -8,38 +8,276 @@ import {
   Home,
   X,
 } from 'lucide-react';
-import { machinesApi } from '../../services/api';
+import {
+  machinesApi,
+  validateLocationInput,
+  validateLocationDescription,
+} from '../../services/api';
 import { Button } from '../common/ui';
 import type { Machine, MachineModel } from '../../types';
+
+export interface MachineLocationAndSpecsValues {
+  location: string;
+  location_description: string;
+  plc_software_version: string;
+  energy_meter_model: string;
+  deodor_model: string;
+  extractor_model: string;
+  has_stairs: boolean;
+  notes: string;
+}
+
+export interface MachineLocationAndSpecsSectionsProps {
+  values: MachineLocationAndSpecsValues;
+  locationTitle?: string;
+  locationPlaceholder?: string;
+  locationError: string | null;
+  descError: string | null;
+  plcPlaceholder?: string;
+  energyPlaceholder?: string;
+  deodorPlaceholder?: string;
+  extractorPlaceholder?: string;
+  notesPlaceholder?: string;
+  onChange: (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => void;
+  onLocationBlur: () => void;
+  onHasStairsChange: (hasStairs: boolean) => void;
+}
+
+export const MachineLocationAndSpecsSections: React.FC<
+  MachineLocationAndSpecsSectionsProps
+> = ({
+  values,
+  locationTitle = 'Installation Location',
+  locationPlaceholder = 'e.g. 2 Discovery Way, Mawson Lakes 5095',
+  locationError,
+  descError,
+  plcPlaceholder = 'e.g. v23410712',
+  energyPlaceholder = 'e.g. Victron Energy Meter ET340',
+  deodorPlaceholder = 'e.g. D-180',
+  extractorPlaceholder = 'e.g. DC-1200P',
+  notesPlaceholder = 'e.g. Deliver to rear access gate',
+  onChange,
+  onLocationBlur,
+  onHasStairsChange,
+}) => {
+  return (
+    <>
+      {/* Section 2: Installation Location */}
+      <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+        <div className="border-b border-surface-hover pb-4 mb-6">
+          <h2 className="text-base font-bold text-foreground tracking-tight">
+            {locationTitle}
+          </h2>
+        </div>
+
+        <div className="space-y-4">
+          {/* Location Label */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-foreground">
+                Location <span className="text-status-fault-text">*</span>
+              </label>
+              <span
+                className={`text-[11px] ${
+                  values.location.length >= 100
+                    ? 'text-status-fault-text font-semibold'
+                    : 'text-foreground-subtle'
+                }`}
+              >
+                {values.location.length}/100 characters
+              </span>
+            </div>
+            <input
+              type="text"
+              name="location"
+              value={values.location}
+              onChange={onChange}
+              onBlur={onLocationBlur}
+              maxLength={100}
+              placeholder={locationPlaceholder}
+              className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                locationError
+                  ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                  : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
+              }`}
+              required
+            />
+            {locationError ? (
+              <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
+                <span>{locationError}</span>
+              </p>
+            ) : (
+              <p className="text-[11px] text-foreground-muted mt-1">
+                Physical installation address or facility department. Letters, numbers, and standard address punctuation only.
+              </p>
+            )}
+          </div>
+
+          {/* Location Description */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-foreground">
+                Location description (optional)
+              </label>
+              <span
+                className={`text-[11px] ${
+                  values.location_description.length >= 300
+                    ? 'text-status-fault-text font-semibold'
+                    : 'text-foreground-subtle'
+                }`}
+              >
+                {values.location_description.length}/300 characters
+              </span>
+            </div>
+            <textarea
+              name="location_description"
+              value={values.location_description}
+              onChange={onChange}
+              maxLength={300}
+              rows={2}
+              placeholder="e.g. Installed at the carpark shed of the client's location"
+              className={`w-full px-3.5 py-2.5 rounded-xl border text-xs resize-none transition-colors ${
+                descError
+                  ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
+                  : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
+              }`}
+            />
+            {descError && (
+              <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
+                <span>{descError}</span>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 3: Hardware & Software */}
+      <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
+        <div className="border-b border-surface-hover pb-4 mb-6">
+          <h2 className="text-base font-bold text-foreground tracking-tight">
+            Hardware &amp; software
+          </h2>
+          <p className="text-xs text-foreground-muted mt-0.5">
+            Firmware software versions and connected auxiliary subsystems.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              PLC software version <span className="text-status-fault-text">*</span>
+            </label>
+            <input
+              type="text"
+              name="plc_software_version"
+              value={values.plc_software_version}
+              onChange={onChange}
+              placeholder={plcPlaceholder}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              Energy meter model <span className="text-status-fault-text">*</span>
+            </label>
+            <input
+              type="text"
+              name="energy_meter_model"
+              value={values.energy_meter_model}
+              onChange={onChange}
+              placeholder={energyPlaceholder}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              Deodor model (optional)
+            </label>
+            <input
+              type="text"
+              name="deodor_model"
+              value={values.deodor_model}
+              onChange={onChange}
+              placeholder={deodorPlaceholder}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              Extractor model (optional)
+            </label>
+            <input
+              type="text"
+              name="extractor_model"
+              value={values.extractor_model}
+              onChange={onChange}
+              placeholder={extractorPlaceholder}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
+            />
+          </div>
+
+          <div className="md:col-span-2 lg:col-span-4">
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              Has stairs (optional)
+            </label>
+            <div className="inline-flex rounded-xl border border-border-strong p-0.5 bg-surface-muted">
+              <button
+                type="button"
+                onClick={() => onHasStairsChange(true)}
+                className={`px-5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
+                  values.has_stairs
+                    ? 'bg-white text-foreground font-semibold shadow-xs border border-border-strong'
+                    : 'text-foreground-muted hover:text-foreground'
+                }`}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => onHasStairsChange(false)}
+                className={`px-5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
+                  !values.has_stairs
+                    ? 'bg-white text-foreground font-semibold shadow-xs border border-border-strong'
+                    : 'text-foreground-muted hover:text-foreground'
+                }`}
+              >
+                No
+              </button>
+            </div>
+          </div>
+
+          <div className="md:col-span-2 lg:col-span-4">
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              Notes (optional)
+            </label>
+            <textarea
+              name="notes"
+              value={values.notes}
+              onChange={onChange}
+              rows={2}
+              placeholder={notesPlaceholder}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs resize-none"
+            />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
 
 export interface AddMachineViewProps {
   onBack: () => void;
   onSuccess: (newMachine: Machine) => void;
 }
-
-export const validateLocationInput = (loc: string): string | null => {
-  const clean = loc.trim();
-  if (!clean) return 'Installation location is required.';
-  if (clean.length < 3) return 'Installation location must be at least 3 characters.';
-  if (clean.length > 100) return 'Installation location cannot exceed 100 characters.';
-  if (/[<>{}]|--|\/\*|;/.test(clean)) {
-    return 'Location cannot contain code symbols or SQL characters (e.g. <, >, ;, --).';
-  }
-  if (!/^[A-Za-z0-9\s,.\-#/()'&]+$/.test(clean)) {
-    return 'Location can only contain letters, numbers, spaces, and standard address punctuation (e.g. commas, hyphens, periods, #).';
-  }
-  return null;
-};
-
-export const validateLocationDescription = (desc: string): string | null => {
-  const clean = desc.trim();
-  if (!clean) return null;
-  if (clean.length > 300) return 'Location description cannot exceed 300 characters.';
-  if (/[<>{}]|--|\/\*|;/.test(clean)) {
-    return 'Location description cannot contain code tags or SQL characters (e.g. <, >, ;, --).';
-  }
-  return null;
-};
 
 export const AddMachineView: React.FC<AddMachineViewProps> = ({
   onBack,
@@ -359,206 +597,21 @@ export const AddMachineView: React.FC<AddMachineViewProps> = ({
           </div>
         </div>
 
-        {/* Section 2: Installation Location */}
-        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-surface-hover pb-4 mb-6">
-            <h2 className="text-base font-bold text-foreground tracking-tight">
-              Installation Location
-            </h2>
-          </div>
-
-          <div className="space-y-4">
-            {/* Location */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-foreground">
-                  Location <span className="text-status-fault-text">*</span>
-                </label>
-                <span className={`text-[11px] ${formData.location.length >= 100 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
-                  {formData.location.length}/100 characters
-                </span>
-              </div>
-              <input
-                type="text"
-                name="location"
-                value={formData.location}
-                onChange={handleChange}
-                onBlur={() => setLocationTouched(true)}
-                maxLength={100}
-                placeholder="e.g. 2 Discovery Way, Mawson Lakes 5095"
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
-                  locationError
-                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
-                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
-                }`}
-                required
-              />
-              {locationError ? (
-                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
-                  <span>{locationError}</span>
-                </p>
-              ) : (
-                <p className="text-[11px] text-foreground-muted mt-1">
-                  Physical installation address or facility department. Letters, numbers, and standard address punctuation only.
-                </p>
-              )}
-            </div>
-
-            {/* Location Description */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-foreground">
-                  Location description (optional)
-                </label>
-                <span className={`text-[11px] ${formData.location_description.length >= 300 ? 'text-status-fault-text font-semibold' : 'text-foreground-subtle'}`}>
-                  {formData.location_description.length}/300 characters
-                </span>
-              </div>
-              <textarea
-                name="location_description"
-                value={formData.location_description}
-                onChange={handleChange}
-                maxLength={300}
-                rows={2}
-                placeholder="e.g. Installed at the carpark shed of the client's location"
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs resize-none transition-colors ${
-                  descError
-                    ? 'border-primary bg-primary-light text-status-fault-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary'
-                    : 'border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground'
-                }`}
-              />
-              {descError && (
-                <p className="text-[11px] text-status-fault-text mt-1.5 flex items-start gap-1 font-medium leading-tight">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-status-fault-text" />
-                  <span>{descError}</span>
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Section 3: Hardware & Ancillaries */}
-        <div className="bg-white rounded-2xl border border-border-default p-4 sm:p-6 shadow-2xs">
-          <div className="border-b border-surface-hover pb-4 mb-6">
-            <h2 className="text-base font-bold text-foreground tracking-tight">
-              Hardware & software
-            </h2>
-            <p className="text-xs text-foreground-muted mt-0.5">
-              Firmware software version and auxiliary composter equipment.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {/* PLC Software Version */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                PLC software version <span className="text-status-fault-text">*</span>
-              </label>
-              <input
-                type="text"
-                name="plc_software_version"
-                value={formData.plc_software_version}
-                onChange={handleChange}
-                placeholder="e.g. v20251201"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
-                required
-              />
-            </div>
-
-            {/* Energy Meter Model */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Energy meter model <span className="text-status-fault-text">*</span>
-              </label>
-              <input
-                type="text"
-                name="energy_meter_model"
-                value={formData.energy_meter_model}
-                onChange={handleChange}
-                placeholder="e.g. Victron Energy Meter ET340 - 3 phase"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs font-medium"
-                required
-              />
-            </div>
-
-            {/* Deodorizer Model */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Deodor model (optional)
-              </label>
-              <input
-                type="text"
-                name="deodor_model"
-                value={formData.deodor_model}
-                onChange={handleChange}
-                placeholder="e.g. D-180"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
-              />
-            </div>
-
-            {/* Extractor Model */}
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Extractor model (optional)
-              </label>
-              <input
-                type="text"
-                name="extractor_model"
-                value={formData.extractor_model}
-                onChange={handleChange}
-                placeholder="e.g. DC-1200P"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs"
-              />
-            </div>
-
-            {/* Has stairs (optional) - Exact Yes / No segmented control */}
-            <div className="md:col-span-2 lg:col-span-4">
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Has stairs (optional)
-              </label>
-              <div className="inline-flex rounded-xl border border-border-strong p-0.5 bg-surface-muted">
-                <button
-                  type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, has_stairs: true }))}
-                  className={`px-5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    formData.has_stairs
-                      ? 'bg-white text-foreground font-semibold shadow-xs border border-border-strong'
-                      : 'text-foreground-muted hover:text-foreground'
-                  }`}
-                >
-                  Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, has_stairs: false }))}
-                  className={`px-5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    !formData.has_stairs
-                      ? 'bg-white text-foreground font-semibold shadow-xs border border-border-strong'
-                      : 'text-foreground-muted hover:text-foreground'
-                  }`}
-                >
-                  No
-                </button>
-              </div>
-            </div>
-
-            {/* Notes (optional) */}
-            <div className="md:col-span-2 lg:col-span-4">
-              <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Notes (optional)
-              </label>
-              <textarea
-                name="notes"
-                value={formData.notes}
-                onChange={handleChange}
-                rows={2}
-                placeholder="e.g. Deliver to rear access gate"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-strong bg-white text-foreground focus:outline-none focus:border-foreground text-xs resize-none"
-              />
-            </div>
-          </div>
-        </div>
+        <MachineLocationAndSpecsSections
+          values={formData}
+          locationTitle="Installation Location"
+          locationPlaceholder="e.g. 2 Discovery Way, Mawson Lakes 5095"
+          locationError={locationError}
+          descError={descError}
+          plcPlaceholder="e.g. v20251201"
+          energyPlaceholder="e.g. Victron Energy Meter ET340 - 3 phase"
+          deodorPlaceholder="e.g. D-180"
+          extractorPlaceholder="e.g. DC-1200P"
+          notesPlaceholder="e.g. Deliver to rear access gate"
+          onChange={handleChange}
+          onLocationBlur={() => setLocationTouched(true)}
+          onHasStairsChange={(val) => setFormData((prev) => ({ ...prev, has_stairs: val }))}
+        />
 
         {/* Docked Bottom Bar */}
         <div className="bg-white rounded-2xl border border-border-default p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">

@@ -109,29 +109,38 @@ def search_entities(
                     connectivity_status=r[7] or "Offline",
                     temp="62°C"
                 ))
-        elif user_role == "OPERATOR":
+        elif user_role == "OPERATOR" and user_org_id:
             cur.execute("""
                 SELECT m.id, m.machine_code, m.serial_number, m.model,
-                       COALESCE(mato.location, ml.location_label, '') AS location,
+                       COALESCE(ml.location_label, mato.location, '') AS location,
                        o.company_name,
                        m.operational_status, m.connectivity_status
                 FROM machines m
+                JOIN organizations o
+                  ON m.organization_id = o.id
+                 AND (o.is_deleted IS NOT TRUE)
+                 AND COALESCE(o.is_active, TRUE) IS TRUE
+                 AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
+                JOIN machine_leases ml
+                  ON m.id = ml.machine_id
+                 AND ml.organization_id = m.organization_id
+                 AND ml.lease_status = 'Active'
                 JOIN machine_assign_to_operators mato 
                   ON m.id = mato.machine_id 
+                 AND mato.organization_id = m.organization_id
                  AND mato.operator_id = %s 
                  AND mato.status = 'Active'
-                LEFT JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active'
-                LEFT JOIN organizations o ON m.organization_id = o.id
                 WHERE (m.is_deleted IS NOT TRUE)
+                  AND m.organization_id = %s
                   AND (
                     m.machine_code ILIKE %s
                     OR m.serial_number ILIKE %s
                     OR m.model ILIKE %s
-                    OR COALESCE(mato.location, ml.location_label, '') ILIKE %s
+                    OR COALESCE(ml.location_label, mato.location, '') ILIKE %s
                   )
                 ORDER BY m.created_at DESC
                 LIMIT 8;
-            """, (current_user.get("id"), search_pattern, search_pattern, search_pattern, search_pattern))
+            """, (current_user.get("id"), user_org_id, search_pattern, search_pattern, search_pattern, search_pattern))
             for r in cur.fetchall():
                 machines.append(SearchResultItemMachine(
                     id=str(r[0]),
