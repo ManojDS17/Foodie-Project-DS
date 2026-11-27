@@ -18,6 +18,8 @@ export interface MachineModel {
   display_name: string;
   capacity: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
 }
 
 export interface Organization {
@@ -26,7 +28,7 @@ export interface Organization {
   company_name: string;
   onboarding_date?: string;
   business_type?: 'Corporate' | 'Individual';
-  status?: 'Active' | 'Pending' | 'Inactive';
+  status?: 'Active' | 'Pending' | 'Inactive' | 'Archived';
   tax_id?: string;
   contact_poc: string;
   email: string;
@@ -35,12 +37,14 @@ export interface Organization {
   billing_address?: string;
   shipping_address?: string;
   payment_terms?: string;
-  preferred_currency?: string;
+  total_machines?: number;
   comms_preference?: string;
   is_active: boolean;
   is_deleted?: boolean;
   deleted_at?: string;
   created_by?: string;
+  created_by_name?: string | null;
+  updated_by?: string;
   deleted_by?: string;
   created_at: string;
   updated_at: string;
@@ -62,6 +66,7 @@ export interface OrganizationCreateData {
   contact_poc?: string;
   phone_number?: string;
   email?: string;
+  password?: string;
   website?: string;
   billing_address?: string;
   shipping_address?: string;
@@ -81,6 +86,8 @@ export interface Site {
   longitude?: number | null;
   timezone: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -95,11 +102,29 @@ export interface User {
   role: UserRole;
   phone_number?: string;
   is_active: boolean;
+  status?: 'Active' | 'Pending' | 'Inactive';
+  is_deleted?: boolean;
+  deleted_at?: string;
   company_name?: string | null;
   client_code?: string | null;
   last_login_at?: string | null;
+  created_by?: string;
+  created_by_name?: string | null;
+  updated_by?: string;
+  deleted_by?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserCreateData {
+  first_name: string;
+  last_name?: string;
+  email: string;
+  password?: string;
+  phone_number?: string;
+  organization_id?: string;
+  assigned_site_id?: string;
+  role: UserRole;
 }
 
 export interface SiteFormData {
@@ -111,6 +136,8 @@ export interface SiteFormData {
   longitude?: string;
   timezone: string;
   is_active: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
 }
 
 export interface UserFormData {
@@ -140,6 +167,7 @@ export interface Machine {
   site_code?: string | null;
   site_name?: string | null;
   location_label?: string | null;
+  lease_location_label?: string | null;
   location_description?: string | null;
   plc_software_version?: string | null;
   energy_meter_model?: string | null;
@@ -153,12 +181,15 @@ export interface Machine {
   lease_reference?: string | null;
   manufacture_date?: string | null;
   warranty_expiry_date?: string | null;
+  total_batches?: number | string | null;
   connectivity_status: string;
   operational_status?: string;
   is_active: boolean;
   is_deleted?: boolean;
   deleted_at?: string;
   created_by?: string;
+  created_by_name?: string | null;
+  updated_by?: string;
   deleted_by?: string;
   created_at?: string;
   updated_at?: string;
@@ -239,4 +270,36 @@ export interface DashboardStats {
   attention_machines: AttentionMachine[];
   upcoming_maintenance: UpcomingMaintenanceItem[];
   recent_clients: RecentClientItem[];
+}
+
+export interface OperatorMachineAssignment {
+  id: string;
+  organization_id: string;
+  operator_id: string;
+  operator_name?: string | null;
+  operator_email?: string | null;
+  machine_id: string;
+  machine_code?: string | null;
+  serial_number?: string | null;
+  model?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  location?: string | null;
+  created_by?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+  revoked_by?: string | null;
+  revoked_at?: string | null;
+  status: 'Active' | 'Revoked';
+  created_at?: string | null;
+}
+
+export interface OperatorMachineAssignmentCreateData {
+  operator_id: string;
+  machine_id: string;
+  start_date?: string;
+  end_date?: string;
+  location?: string;
 }

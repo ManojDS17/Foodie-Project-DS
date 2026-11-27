@@ -7,6 +7,8 @@ import { InputField } from '../components/common/InputField';
 import { SelectField } from '../components/common/SelectField';
 import { machinesApi, sitesApi, orgsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { calculateOneYearLeaseEndDate } from '../components/clients/AssignMachinesSection';
+import { Toast } from '../components/common/Toast';
 import type { Machine, MachineFormData, Site, Organization } from '../types';
 
 const MACHINE_MODELS = [
@@ -36,6 +38,7 @@ export const MachineOnboardingPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
 
   // Form State for Creating New Machine & Lease
   const initialForm: MachineFormData = {
@@ -358,10 +361,15 @@ export const MachineOnboardingPage: React.FC = () => {
       try {
         await machinesApi.delete(id);
         await loadData();
-        setSuccessMessage(`Machine "${code}" decommissioned successfully.`);
-        setTimeout(() => setSuccessMessage(null), 4000);
+        setToast({
+          message: `Machine "${code}" decommissioned successfully.`,
+          type: 'success',
+        });
       } catch (err: any) {
-        alert('Failed to remove machine: ' + err.message);
+        setToast({
+          message: 'Failed to remove machine: ' + (err?.message || 'Unknown error'),
+          type: 'error',
+        });
       }
     }
   };
@@ -369,12 +377,12 @@ export const MachineOnboardingPage: React.FC = () => {
   // If not OEM Manager, display security guard notice
   if (!isOem) {
     return (
-      <div className="bg-white border border-[#E3E4E6] rounded-xl p-8 max-w-xl mx-auto my-12 text-center shadow-xs">
-        <div className="w-12 h-12 bg-red-50 text-[#E32032] rounded-full flex items-center justify-center mx-auto mb-4">
+      <div className="bg-white border border-border-subtle rounded-xl p-8 max-w-xl mx-auto my-12 text-center shadow-xs">
+        <div className="w-12 h-12 bg-red-50 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
           <Shield className="w-6 h-6" />
         </div>
-        <h2 className="text-lg font-bold text-[#171717]">OEM Asset Manager Scope Required</h2>
-        <p className="text-xs text-[#666666] mt-2 leading-relaxed">
+        <h2 className="text-lg font-bold text-foreground">OEM Asset Manager Scope Required</h2>
+        <p className="text-xs text-foreground-muted mt-2 leading-relaxed">
           Machine hardware onboarding, PLC network provisioning, and commercial client lease agreements are strictly restricted to 
           <strong> PowerTech Energy OEM Asset Managers</strong>.
         </p>
@@ -385,47 +393,49 @@ export const MachineOnboardingPage: React.FC = () => {
   return (
     <div className="flex flex-col gap-6">
       {/* Page Title & Clean Subtitle */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-[#E3E4E6]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-border-subtle">
         <div>
-          <h1 className="text-xl font-extrabold text-[#171717] flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-[#E32032]" />
+          <h1 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+            <Cpu className="w-5 h-5 text-primary" />
             Machine Onboarding & Client Lease Management
           </h1>
-          <p className="text-xs text-[#666666] mt-0.5">
+          <p className="text-xs text-foreground-muted mt-0.5">
             Provision physical composter hardware, configure PLC network connectivity, and assign client lease terms.
           </p>
         </div>
 
-        <div className="text-xs text-[#666666] bg-white border border-[#E3E4E6] px-3 py-1.5 rounded-lg flex items-center gap-2 self-start">
+        <div className="text-xs text-foreground-muted bg-white border border-border-subtle px-3 py-1.5 rounded-lg flex items-center gap-2 self-start">
           <span>Fleet Assets:</span>
-          <strong className="text-[#171717] font-bold">{machines.length} Total Units</strong>
+          <strong className="text-foreground font-bold">{machines.length} Total Units</strong>
         </div>
       </div>
 
       {/* Success Notification Banner */}
       {successMessage && (
-        <div className="bg-[#D7FFE6] border border-[#00C951] text-[#0A7135] px-4 py-3 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-xs transition-all">
+        <div className="bg-status-running-bg border border-status-running-dot text-status-running-text px-4 py-3 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-xs transition-all">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span>{successMessage}</span>
         </div>
       )}
 
+
+
       {/* Two-Section Onboarding Form (Hardware Specs + Lease Terms) */}
-      <div className="bg-white border border-[#E3E4E6] rounded-xl shadow-xs overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#E3E4E6] bg-[#FAFAFA] flex items-center justify-between">
+      <div className="bg-white border border-border-subtle rounded-xl shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-border-subtle bg-surface-muted flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Plus className="w-4 h-4 text-[#E32032]" />
-            <h2 className="text-sm font-bold text-[#171717]">Onboard New Composter & Provision Lease</h2>
+            <Plus className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-bold text-foreground">Onboard New Composter & Provision Lease</h2>
           </div>
-          <span className="text-[11px] text-[#666666] font-medium">Fields marked with * are required</span>
+          <span className="text-[11px] text-foreground-muted font-medium">Fields marked with * are required</span>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-6">
           {/* Section 1: Technical Machine Hardware Specifications */}
           <div>
-            <div className="flex items-center gap-2 pb-2 mb-4 border-b border-[#E3E4E6]">
-              <HardDrive className="w-4 h-4 text-[#E32032]" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#171717]">
+            <div className="flex items-center gap-2 pb-2 mb-4 border-b border-border-subtle">
+              <HardDrive className="w-4 h-4 text-primary" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                 1. Machine Technical & Controller Specifications
               </h3>
             </div>
@@ -496,9 +506,9 @@ export const MachineOnboardingPage: React.FC = () => {
 
           {/* Section 2: Commercial Lease Terms & Site Deployment */}
           <div>
-            <div className="flex items-center gap-2 pb-2 mb-4 border-b border-[#E3E4E6]">
-              <FileText className="w-4 h-4 text-[#00C951]" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#171717]">
+            <div className="flex items-center gap-2 pb-2 mb-4 border-b border-border-subtle">
+              <FileText className="w-4 h-4 text-status-running-text" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                 2. Client Commercial Lease & Facility Deployment
               </h3>
             </div>
@@ -537,7 +547,15 @@ export const MachineOnboardingPage: React.FC = () => {
                 required
                 type="date"
                 value={formData.lease_start_date}
-                onChange={(e) => setFormData({ ...formData, lease_start_date: e.target.value })}
+                onChange={(e) => {
+                  const newStart = e.target.value;
+                  const autoEnd = calculateOneYearLeaseEndDate(newStart);
+                  setFormData({
+                    ...formData,
+                    lease_start_date: newStart,
+                    lease_end_date: autoEnd || formData.lease_end_date,
+                  });
+                }}
                 error={errors.lease_start_date}
               />
 
@@ -568,11 +586,11 @@ export const MachineOnboardingPage: React.FC = () => {
           </div>
 
           {/* Form Actions */}
-          <div className="flex items-center justify-end pt-4 border-t border-[#E3E4E6]">
+          <div className="flex items-center justify-end pt-4 border-t border-border-subtle">
             <button
               type="submit"
               disabled={isSubmitting}
-              className="bg-[#E32032] hover:bg-[#C71828] disabled:opacity-60 text-white px-5 py-2.5 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+              className="bg-primary hover:bg-primary-hover disabled:opacity-60 text-white px-5 py-2.5 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
             >
               {isSubmitting ? (
                 <>
@@ -591,15 +609,15 @@ export const MachineOnboardingPage: React.FC = () => {
       </div>
 
       {/* Fleet Asset Register Table */}
-      <div className="bg-white border border-[#E3E4E6] rounded-xl shadow-xs overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#E3E4E6] bg-[#FAFAFA] flex items-center justify-between">
+      <div className="bg-white border border-border-subtle rounded-xl shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-border-subtle bg-surface-muted flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-bold text-[#171717]">All Machines · Asset & Lease Register</h2>
-            <p className="text-[11px] text-[#666666]">
+            <h2 className="text-sm font-bold text-foreground">All Machines · Asset & Lease Register</h2>
+            <p className="text-[11px] text-foreground-muted">
               Real-time hardware inventory, controller IP assignments, and customer commercial leases
             </p>
           </div>
-          <span className="text-xs font-bold text-[#666666] bg-white border border-[#E3E4E6] px-2.5 py-1 rounded">
+          <span className="text-xs font-bold text-foreground-muted bg-white border border-border-subtle px-2.5 py-1 rounded">
             {machines.length} Machines
           </span>
         </div>
@@ -607,7 +625,7 @@ export const MachineOnboardingPage: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-[#FAFAFA] border-b border-[#E3E4E6] text-[11px] font-bold text-[#666666] uppercase tracking-wider">
+              <tr className="bg-surface-muted border-b border-border-subtle text-[11px] font-bold text-foreground-muted uppercase tracking-wider">
                 <th className="py-3 px-5">Asset ID</th>
                 <th className="py-3 px-5">Model / Capacity</th>
                 <th className="py-3 px-5">Serial & PLC IP</th>
@@ -618,28 +636,28 @@ export const MachineOnboardingPage: React.FC = () => {
                 <th className="py-3 px-5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#E3E4E6] text-xs text-[#171717]">
+            <tbody className="divide-y divide-border-subtle text-xs text-foreground">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-[#666666]">
+                  <td colSpan={8} className="py-8 text-center text-foreground-muted">
                     <div className="flex items-center justify-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-[#E32032]" />
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       <span>Loading fleet asset register from PostgreSQL...</span>
                     </div>
                   </td>
                 </tr>
               ) : machines.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-[#666666]">
+                  <td colSpan={8} className="py-8 text-center text-foreground-muted">
                     No composter assets found. Onboard the first unit above.
                   </td>
                 </tr>
               ) : (
                 machines.map((m) => (
-                  <tr key={m.id} className="hover:bg-[#F8F9FA] transition-colors">
+                  <tr key={m.id} className="hover:bg-surface-subtle transition-colors">
                     <td className="py-3.5 px-5">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-xs bg-slate-100 px-2 py-0.5 rounded border border-[#E3E4E6] text-[#171717]">
+                        <span className="font-mono font-bold text-xs bg-slate-100 px-2 py-0.5 rounded border border-border-subtle text-foreground">
                           {m.machine_code}
                         </span>
                         <span className="text-[10px] text-slate-500 font-medium">
@@ -650,8 +668,8 @@ export const MachineOnboardingPage: React.FC = () => {
 
                     <td className="py-3.5 px-5">
                       <div>
-                        <span className="font-bold text-[#171717]">{m.model}</span>
-                        <span className="text-[11px] text-[#666666] block">{m.capacity}</span>
+                        <span className="font-bold text-foreground">{m.model}</span>
+                        <span className="text-[11px] text-foreground-muted block">{m.capacity}</span>
                       </div>
                     </td>
 
@@ -667,16 +685,16 @@ export const MachineOnboardingPage: React.FC = () => {
 
                     <td className="py-3.5 px-5">
                       <div>
-                        <span className="font-semibold text-[#171717] block">
-                          {m.company_name || 'Green Valley Foods'}
+                        <span className="font-semibold text-foreground block">
+                          {m.company_name || '—'}
                         </span>
-                        <span className="text-[11px] text-[#666666] block">
-                          {m.site_name || 'Assigned Site'} {m.location_label ? `(${m.location_label})` : ''}
+                        <span className="text-[11px] text-foreground-muted block">
+                          {m.site_name || '—'} {m.location_label ? `(${m.location_label})` : ''}
                         </span>
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-5 text-[#666666]">
+                    <td className="py-3.5 px-5 text-foreground-muted">
                       <span className="text-[11px] block">
                         {m.lease_start_date || 'No start date'}
                       </span>
@@ -700,9 +718,9 @@ export const MachineOnboardingPage: React.FC = () => {
                     <td className="py-3.5 px-5">
                       <div className="flex items-center gap-1.5">
                         <span className={`w-2 h-2 rounded-full ${
-                          m.connectivity_status === 'Online' ? 'bg-[#00C951]' : 'bg-slate-400'
+                          m.connectivity_status === 'Online' ? 'bg-status-running-dot' : 'bg-slate-400'
                         }`} />
-                        <span className="text-[11px] font-semibold text-[#171717]">
+                        <span className="text-[11px] font-semibold text-foreground">
                           {m.connectivity_status}
                         </span>
                       </div>
@@ -714,7 +732,7 @@ export const MachineOnboardingPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleOpenView(m)}
-                          className="text-slate-600 hover:text-[#171717] p-1.5 rounded hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                          className="text-slate-600 hover:text-foreground p-1.5 rounded hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
                           title="View Asset & Lease Details"
                         >
                           <Eye className="w-3.5 h-3.5 text-slate-500" />
@@ -725,7 +743,7 @@ export const MachineOnboardingPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleOpenEdit(m)}
-                          className="text-[#E32032] hover:text-[#C71828] p-1.5 rounded hover:bg-red-50 transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                          className="text-primary hover:text-primary-hover p-1.5 rounded hover:bg-red-50 transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
                           title="Edit Asset / Lease Terms"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -736,7 +754,7 @@ export const MachineOnboardingPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleDelete(m.id, m.machine_code)}
-                          className="text-slate-400 hover:text-[#E32032] p-1.5 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                          className="text-slate-400 hover:text-primary p-1.5 rounded hover:bg-red-50 transition-colors cursor-pointer"
                           title="Decommission Machine"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -754,23 +772,23 @@ export const MachineOnboardingPage: React.FC = () => {
       {/* Modal with Separate View Tab & Edit Tab */}
       {editingMachine && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white border border-[#E3E4E6] rounded-xl shadow-lg w-full max-w-xl overflow-hidden animate-fadeIn">
+          <div className="bg-white border border-border-subtle rounded-xl shadow-lg w-full max-w-xl overflow-hidden animate-fadeIn">
             {/* Modal Header & Tabs */}
-            <div className="px-6 pt-4 pb-0 border-b border-[#E3E4E6] bg-[#FAFAFA]">
+            <div className="px-6 pt-4 pb-0 border-b border-border-subtle bg-surface-muted">
               <div className="flex items-center justify-between pb-3">
                 <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-[#E32032]" />
-                  <h3 className="text-sm font-bold text-[#171717]">
+                  <Cpu className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-bold text-foreground">
                     {editingMachine.model}
                   </h3>
-                  <span className="font-mono text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-[#E3E4E6]">
+                  <span className="font-mono text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-border-subtle">
                     {editingMachine.machine_code}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setEditingMachine(null)}
-                  className="text-[#666666] hover:text-[#171717] p-1 rounded cursor-pointer"
+                  className="text-foreground-muted hover:text-foreground p-1 rounded cursor-pointer"
                   title="Close"
                 >
                   <X className="w-4 h-4" />
@@ -784,8 +802,8 @@ export const MachineOnboardingPage: React.FC = () => {
                   onClick={() => setActiveModalTab('view')}
                   className={`pb-2.5 px-1 flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 ${
                     activeModalTab === 'view'
-                      ? 'border-[#E32032] text-[#E32032]'
-                      : 'border-transparent text-[#666666] hover:text-[#171717]'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-foreground-muted hover:text-foreground'
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" />
@@ -796,8 +814,8 @@ export const MachineOnboardingPage: React.FC = () => {
                   onClick={() => setActiveModalTab('edit')}
                   className={`pb-2.5 px-1 flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 ${
                     activeModalTab === 'edit'
-                      ? 'border-[#E32032] text-[#E32032]'
-                      : 'border-transparent text-[#666666] hover:text-[#171717]'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-foreground-muted hover:text-foreground'
                   }`}
                 >
                   <Edit2 className="w-3.5 h-3.5" />
@@ -810,97 +828,97 @@ export const MachineOnboardingPage: React.FC = () => {
             {activeModalTab === 'view' && (
               <div className="p-6 flex flex-col gap-4 max-h-[75vh] overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                       Machine Code
                     </span>
-                    <span className="text-xs font-mono font-bold text-[#171717] mt-1 block">
+                    <span className="text-xs font-mono font-bold text-foreground mt-1 block">
                       {editingMachine.machine_code}
                     </span>
                   </div>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                       Serial Number
                     </span>
-                    <span className="text-xs font-mono font-bold text-[#171717] mt-1 block">
+                    <span className="text-xs font-mono font-bold text-foreground mt-1 block">
                       {editingMachine.serial_number}
                     </span>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                       Model & Rated Capacity
                     </span>
-                    <span className="text-xs font-bold text-[#171717] mt-1 block">
+                    <span className="text-xs font-bold text-foreground mt-1 block">
                       {editingMachine.model} ({editingMachine.capacity})
                     </span>
                   </div>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                       PLC Controller IP
                     </span>
-                    <span className="text-xs font-mono font-bold text-[#171717] mt-1 block">
+                    <span className="text-xs font-mono font-bold text-foreground mt-1 block">
                       {editingMachine.plc_ip} ({editingMachine.hardware_version})
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                     Assigned Customer Organization
                   </span>
-                  <span className="text-xs font-bold text-[#171717] mt-1 block">
+                  <span className="text-xs font-bold text-foreground mt-1 block">
                     {editingMachine.company_name} ({editingMachine.client_code})
                   </span>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                     Deployment Site & Placement
                   </span>
-                  <span className="text-xs text-[#171717] mt-1 block">
+                  <span className="text-xs text-foreground mt-1 block">
                     {editingMachine.site_name} ({editingMachine.site_code})
                     {editingMachine.location_label && ` — Location: ${editingMachine.location_label}`}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                       Lease Term
                     </span>
-                    <span className="text-xs font-medium text-[#171717] mt-1 block">
+                    <span className="text-xs font-medium text-foreground mt-1 block">
                       {editingMachine.lease_start_date} to {editingMachine.lease_end_date || 'Ongoing'}
                     </span>
                   </div>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-[#E3E4E6]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
                       Lease Status
                     </span>
-                    <span className="text-xs font-bold text-[#171717] mt-1 block">
+                    <span className="text-xs font-bold text-foreground mt-1 block">
                       {editingMachine.lease_status}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-4 border-t border-[#E3E4E6] mt-2">
-                  <span className="text-[11px] text-[#666666]">
+                <div className="flex items-center justify-between pt-4 border-t border-border-subtle mt-2">
+                  <span className="text-[11px] text-foreground-muted">
                     Verified asset in PostgreSQL
                   </span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setEditingMachine(null)}
-                      className="px-4 py-2 border border-[#E3E4E6] rounded-lg text-xs font-bold text-[#666666] hover:bg-slate-50 cursor-pointer"
+                      className="px-4 py-2 border border-border-subtle rounded-lg text-xs font-bold text-foreground-muted hover:bg-slate-50 cursor-pointer"
                     >
                       Close
                     </button>
                     <button
                       type="button"
                       onClick={() => setActiveModalTab('edit')}
-                      className="bg-[#E32032] hover:bg-[#C71828] text-white px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                      className="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                       <span>Edit This Asset</span>
@@ -915,17 +933,17 @@ export const MachineOnboardingPage: React.FC = () => {
               <form onSubmit={handleSaveEdit} className="p-6 flex flex-col gap-4 max-h-[75vh] overflow-y-auto">
                 {/* Machine Code: Immutable */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-[#171717] flex items-center justify-between">
+                  <label className="text-xs font-bold text-foreground flex items-center justify-between">
                     <span>Machine Code (Asset ID)</span>
-                    <span className="text-[10px] text-[#666666] font-medium flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded border border-[#E3E4E6]">
-                      <Lock className="w-3 h-3 text-[#666666]" /> Non-editable
+                    <span className="text-[10px] text-foreground-muted font-medium flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded border border-border-subtle">
+                      <Lock className="w-3 h-3 text-foreground-muted" /> Non-editable
                     </span>
                   </label>
                   <input
                     type="text"
                     disabled
                     value={editingMachine.machine_code}
-                    className="w-full px-3.5 py-2 text-xs bg-slate-100 border border-[#E3E4E6] rounded-lg font-mono font-bold text-slate-500 cursor-not-allowed select-none"
+                    className="w-full px-3.5 py-2 text-xs bg-slate-100 border border-border-subtle rounded-lg font-mono font-bold text-slate-500 cursor-not-allowed select-none"
                   />
                 </div>
 
@@ -994,7 +1012,15 @@ export const MachineOnboardingPage: React.FC = () => {
                     label="Lease Start Date"
                     type="date"
                     value={editFormData.lease_start_date}
-                    onChange={(e) => setEditFormData({ ...editFormData, lease_start_date: e.target.value })}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      const autoEnd = calculateOneYearLeaseEndDate(newStart);
+                      setEditFormData({
+                        ...editFormData,
+                        lease_start_date: newStart,
+                        lease_end_date: autoEnd || editFormData.lease_end_date,
+                      });
+                    }}
                   />
 
                   <InputField
@@ -1022,17 +1048,17 @@ export const MachineOnboardingPage: React.FC = () => {
                 </div>
 
                 {/* Modal Actions */}
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E3E4E6] mt-2">
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-border-subtle mt-2">
                   <button
                     type="button"
                     onClick={() => setEditingMachine(null)}
-                    className="px-4 py-2 border border-[#E3E4E6] rounded-lg text-xs font-bold text-[#666666] hover:bg-slate-50 cursor-pointer"
+                    className="px-4 py-2 border border-border-subtle rounded-lg text-xs font-bold text-foreground-muted hover:bg-slate-50 cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="bg-[#E32032] hover:bg-[#C71828] text-white px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>Save Changes</span>
@@ -1042,6 +1068,13 @@ export const MachineOnboardingPage: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   );

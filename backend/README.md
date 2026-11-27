@@ -24,22 +24,19 @@ py -3.11 -m uvicorn backend.main:app --host 0.0.0.0 --port 5000 --reload
 
 ---
 
-## 2. Default Seeded Credentials
+## 2. Default Seeded Credentials (Local Non-Production Only)
 
-| Role | Email | Password |
-| :--- | :--- | :--- |
-| **OEM Manager** | `oem@gmail.com` | `admin123` |
-| **Site Admin** | `siteadmin@gmail.com` | `admin123` |
-| **Operator** | `operator@gmail.com` | `admin123` |
+When running locally (`ENVIRONMENT != production` and `DB_NAME != foodie_prod`), `init_db()` seeds sample dev users (`oem@gmail.com`, `siteadmin@gmail.com`, `operator@gmail.com`) via `seed_demo_data()` in `backend/database.py`. Update or remove seeded accounts before exposing any shared environment.
 
 ---
 
-## 3. Database Connection (`database.py`)
-- **Database Engine**: PostgreSQL 16
-- **Database Name**: `foodie_db`
-- **Host**: `localhost:5432`
-- **User**: `postgres`
-- **Password**: `Rajasthan@2005`
+## 3. Environment & Database Connection (`database.py`, `auth.py`)
+Copy `backend/.env.example` to `backend/.env` and configure all secrets locally (never commit `.env` or real passwords):
+- **Database Engine**: PostgreSQL
+- **Database Name**: `DB_NAME` (default `foodie_db`)
+- **Host / Port**: `DB_HOST` (`localhost`) / `DB_PORT` (`5432`)
+- **User / Password**: Configured via `DB_USER` and `DB_PASSWORD` in `backend/.env`
+- **JWT Secret**: Required `JWT_SECRET` (>= 32 random bytes, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`)
 - **Connection Pool**: `psycopg2.pool.SimpleConnectionPool`
 
 ---

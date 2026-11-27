@@ -6,7 +6,7 @@ export interface DeleteMachineModalProps {
   isOpen: boolean;
   machine: Machine | null;
   onClose: () => void;
-  onConfirm: () => Promise<void>;
+  onConfirm: () => Promise<void> | Promise<boolean> | void;
   isDeleting: boolean;
 }
 
@@ -23,29 +23,29 @@ export const DeleteMachineModal: React.FC<DeleteMachineModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto"
+      className="fixed inset-0 z-[100] overflow-y-auto"
       role="dialog"
       aria-modal="true"
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/45 backdrop-blur-2xs transition-opacity animate-in fade-in duration-200"
+        className="fixed inset-0 bg-black/50 backdrop-blur-2xs transition-opacity animate-in fade-in duration-200"
         onClick={isDeleting ? undefined : onClose}
         aria-hidden="true"
       />
 
       <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className="relative w-full max-w-md bg-white rounded-xl shadow-xl border border-[#E5E7EB] p-6 text-left transform transition-all animate-in zoom-in-95 duration-200"
+          className="relative w-full max-w-md bg-surface-card rounded-xl shadow-xl border border-border-default p-6 text-left transform transition-all animate-in zoom-in-95 duration-200"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <h3 className="text-base font-bold text-[#171717]">
+          <h3 className="text-base font-bold text-foreground">
             Delete {machine.serial_number || machine.machine_code}?
           </h3>
 
           {/* Description */}
-          <p className="text-xs text-[#666666] mt-2.5 leading-relaxed">
+          <p className="text-xs text-foreground-muted mt-2.5 leading-relaxed">
             This will archive the machine from active fleet inventory.
           </p>
 
@@ -56,12 +56,12 @@ export const DeleteMachineModal: React.FC<DeleteMachineModalProps> = ({
           )}
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 mt-6 pt-4 border-t border-[#F3F4F6]">
+          <div className="flex items-center justify-end gap-2.5 mt-6 pt-4 border-t border-surface-hover">
             <button
               type="button"
               disabled={isDeleting}
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-xs font-semibold text-[#171717] bg-white border border-[#D1D5DB] hover:bg-[#F9FAFB] transition-all cursor-pointer disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-xs font-semibold text-foreground bg-surface-card border border-border-strong hover:bg-surface-muted transition-all cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
@@ -69,7 +69,7 @@ export const DeleteMachineModal: React.FC<DeleteMachineModalProps> = ({
               type="button"
               disabled={isDeleting || isAssigned}
               onClick={onConfirm}
-              className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-[#E32032] hover:bg-[#C1121F] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+              className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-primary hover:bg-primary-hover transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
               {isDeleting ? (
                 <>

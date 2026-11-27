@@ -1,31 +1,66 @@
-import type { Site, User, Organization, Machine, MachineModel, OrganizationCreateData, DashboardStats } from '../types';
+import type {
+  Site,
+  User,
+  UserCreateData,
+  Organization,
+  Machine,
+  MachineModel,
+  OrganizationCreateData,
+  DashboardStats,
+  OperatorMachineAssignment,
+  OperatorMachineAssignmentCreateData,
+} from '../types';
 
-const API_BASE_URL = 'http://localhost:5000/api';
-const TOKEN_KEY = 'foodie_jwt_token_v1';
-
-export const tokenStorage = {
-  get: (): string | null => localStorage.getItem(TOKEN_KEY),
-  set: (token: string): void => localStorage.setItem(TOKEN_KEY, token),
-  clear: (): void => localStorage.removeItem(TOKEN_KEY),
+const getApiBaseUrl = (): string => {
+  return '/api';
 };
 
+const API_BASE_URL = getApiBaseUrl();
+
+export function clearLegacyAuthStorage(): void {
+  try {
+    localStorage.removeItem('foodie_jwt_token_v1');
+    localStorage.removeItem('foodie_auth_user_v4');
+    localStorage.removeItem('foodie_auth_user');
+  } catch {}
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = tokenStorage.get();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  let response: Response;
+
+  try {
+    response = await fetch(primaryUrl, {
+      ...options,
+      credentials: 'include',
+      headers,
+    });
+  } catch (fetchErr: any) {
+    let fallbackUrl: string | null = null;
+    if (primaryUrl.startsWith('/api') && typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fallbackUrl = `http://127.0.0.1:5000${primaryUrl}`;
+    }
+
+    if (fallbackUrl) {
+      try {
+        response = await fetch(fallbackUrl, {
+          ...options,
+          credentials: 'include',
+          headers,
+        });
+      } catch {
+        throw fetchErr;
+      }
+    } else {
+      throw fetchErr;
+    }
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
-
-  // Safely parse JSON or text bodies without failing on empty responses or 204 No Content
   let data: any = null;
   try {
     const text = await response.text();
@@ -41,10 +76,49 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!response.ok) {
-    const errorMsg =
-      data?.detail ||
-      data?.error ||
-      (typeof data === 'string' ? data : `Request failed with status ${response.status}`);
+    if (response.status === 401 && !endpoint.includes('/auth/login')) {
+      clearLegacyAuthStorage();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('foodie:unauthorized'));
+        if (!endpoint.includes('/auth/me') && !endpoint.includes('/auth/logout') && !window.location.pathname.includes('/login')) {
+          const isExpired = sessionStorage.getItem('foodie_session_expired') === 'true';
+          const expiredEmail = sessionStorage.getItem('foodie_expired_email');
+          const isSignedOut = sessionStorage.getItem('foodie_signed_out') === 'true';
+
+          if (isExpired) {
+            window.location.href = `/login?view=expired${expiredEmail ? `&email=${encodeURIComponent(expiredEmail)}` : ''}`;
+          } else if (isSignedOut) {
+            window.location.href = '/login?view=signed_out';
+          } else {
+            window.location.href = '/login';
+          }
+        }
+      }
+    }
+    let errorMsg = `Request failed with status ${response.status}`;
+    if (data) {
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (typeof data.detail === 'string') {
+        errorMsg = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        errorMsg = data.detail
+          .map((item: any) => {
+            if (typeof item === 'string') return item;
+            if (item?.msg) return item.msg.replace(/^Value error,\s*/i, '');
+            if (item?.message) return item.message;
+            return JSON.stringify(item);
+          })
+          .filter(Boolean)
+          .join(', ');
+      } else if (data.detail && typeof data.detail === 'object') {
+        errorMsg = data.detail.msg || data.detail.message || JSON.stringify(data.detail);
+      } else if (typeof data.error === 'string') {
+        errorMsg = data.error;
+      } else if (typeof data.message === 'string') {
+        errorMsg = data.message;
+      }
+    }
     throw new Error(errorMsg);
   }
 
@@ -55,20 +129,19 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // AUTHENTICATION API (JWT Based)
 // ----------------------------------------------------------------------------
 export const authApi = {
-  login: async (email: string, password: string): Promise<{ token: string; user: User }> => {
-    const res = await request<{ token: string; user: User }>('/auth/login', {
+  login: async (email: string, password: string): Promise<{ user: User; expires_at?: string | null }> => {
+    clearLegacyAuthStorage();
+    return request<{ user: User; expires_at?: string | null }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    tokenStorage.set(res.token);
-    return res;
   },
 
-  getMe: async (): Promise<User> => {
-    return request<User>('/auth/me');
+  getMe: async (): Promise<User & { expires_at?: string | null }> => {
+    return request<User & { expires_at?: string | null }>('/auth/me');
   },
 
-  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; email: string; expires_in_minutes: number }> => {
+  forgotPassword: async (email: string): Promise<{ success: boolean; message: string; expires_in_minutes: number }> => {
     return request('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
@@ -89,8 +162,15 @@ export const authApi = {
     });
   },
 
-  logout: () => {
-    tokenStorage.clear();
+  logout: async () => {
+    clearLegacyAuthStorage();
+    try {
+      await request<any>('/auth/logout', {
+        method: 'POST',
+      });
+    } catch {
+      // Ignored if offline or cookie already expired
+    }
   },
 };
 
@@ -121,7 +201,11 @@ export const usersApi = {
     return await request<User[]>('/users');
   },
 
-  create: async (userData: any): Promise<User> => {
+  getById: async (id: string): Promise<User> => {
+    return await request<User>(`/users/${id}`);
+  },
+
+  create: async (userData: UserCreateData): Promise<User> => {
     return await request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
@@ -137,6 +221,18 @@ export const usersApi = {
 
   delete: async (id: string): Promise<void> => {
     await request(`/users/${id}`, { method: 'DELETE' });
+  },
+
+  resendInvite: async (id: string): Promise<{ message: string }> => {
+    return await request<{ message: string }>(`/users/${id}/resend-invite`, {
+      method: 'POST',
+    });
+  },
+
+  resetPassword: async (id: string): Promise<{ message: string }> => {
+    return await request<{ message: string }>(`/users/${id}/reset-password`, {
+      method: 'POST',
+    });
   },
 };
 
@@ -186,15 +282,34 @@ export const orgsApi = {
 // SEARCH API (Multi-Entity Search across PostgreSQL)
 // ----------------------------------------------------------------------------
 export interface SearchResults {
-  sites: { id: string; site_code: string; site_name: string; address: string; is_active: boolean }[];
-  users: { id: string; first_name: string; last_name: string; email: string; role: string }[];
-  machines: { id: string; model: string; location: string; status: string; temp: string }[];
+  clients: {
+    id: string;
+    client_code: string;
+    company_name: string;
+    contact_poc?: string;
+    email?: string;
+    phone_number?: string;
+    status?: string;
+  }[];
+  machines: {
+    id: string;
+    machine_code: string;
+    serial_number: string;
+    model: string;
+    location?: string;
+    company_name?: string;
+    status: string;
+    connectivity_status?: string;
+    temp?: string;
+  }[];
+  sites?: any[];
+  users?: any[];
 }
 
 export const searchApi = {
   query: async (q: string): Promise<SearchResults> => {
     if (!q.trim()) {
-      return { sites: [], users: [], machines: [] };
+      return { clients: [], machines: [], sites: [], users: [] };
     }
     return await request<SearchResults>(`/search?q=${encodeURIComponent(q.trim())}`);
   },
@@ -238,16 +353,44 @@ export const machinesApi = {
     return await request<{ success: boolean; message: string }>(`/machines/${id}`, { method: 'DELETE' });
   },
 
-  unassign: async (id: string): Promise<{ success: boolean; message: string; id: string }> => {
+  unassign: async (id: string, termination_remark?: string): Promise<{ success: boolean; message: string; id: string }> => {
     return await request<{ success: boolean; message: string; id: string }>(`/machines/${id}/unassign`, {
+      method: 'POST',
+      body: JSON.stringify({ termination_remark: termination_remark || null }),
+    });
+  },
+
+  terminateLease: async (id: string, termination_remark?: string): Promise<{ success: boolean; message: string; id: string }> => {
+    return await request<{ success: boolean; message: string; id: string }>(`/machines/${id}/unassign`, {
+      method: 'POST',
+      body: JSON.stringify({ termination_remark: termination_remark || null }),
+    });
+  },
+};
+
+export const operatorAssignmentsApi = {
+  getAll: async (params?: { organization_id?: string; operator_id?: string }): Promise<OperatorMachineAssignment[]> => {
+    const q = new URLSearchParams();
+    if (params?.organization_id) q.set('organization_id', params.organization_id);
+    if (params?.operator_id) q.set('operator_id', params.operator_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await request<OperatorMachineAssignment[]>(`/machines/operator-assignments${qs}`);
+  },
+
+  assign: async (data: OperatorMachineAssignmentCreateData): Promise<OperatorMachineAssignment> => {
+    return await request<OperatorMachineAssignment>('/machines/operator-assignments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  revoke: async (assignmentId: string): Promise<{ success: boolean; message: string }> => {
+    return await request<{ success: boolean; message: string }>(`/machines/operator-assignments/${assignmentId}/revoke`, {
       method: 'POST',
     });
   },
 };
 
-// ----------------------------------------------------------------------------
-// DASHBOARD API (Live Dynamic Telemetry & Fleet Overview)
-// ----------------------------------------------------------------------------
 export const dashboardApi = {
   getStats: async (): Promise<DashboardStats> => {
     return await request<DashboardStats>('/dashboard/stats');
