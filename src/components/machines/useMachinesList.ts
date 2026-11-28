@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { machinesApi, orgsApi } from '../../services/api';
+import { getSavedRowsPerPage } from '../common/pagination';
 import type { Machine, Organization } from '../../types';
 
 const fetchMachinesPageBundle = async (isOem: boolean, signal?: AbortSignal) => {
@@ -35,16 +36,7 @@ export function useMachinesList({ isOem, onToast }: UseMachinesListOptions) {
   const [modelFilter, setModelFilter] = useState<string>('All');
 
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('foodie_rows_per_page');
-      if (saved) {
-        const parsed = Number(saved);
-        if ([5, 10, 20, 25, 50, 100].includes(parsed)) return parsed;
-      }
-    } catch {}
-    return 10;
-  });
+  const [rowsPerPage, setRowsPerPage] = useState<number>(() => getSavedRowsPerPage());
 
   const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
   const [prevTargetMachineParam, setPrevTargetMachineParam] = useState<string | null>(

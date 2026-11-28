@@ -72,7 +72,7 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     with get_db_cursor() as cur:
         user_role = current_user.get("role")
         user_id = current_user.get("id")
-        is_client = user_role != "OEM_MANAGER" and bool(current_user.get("organization_id"))
+        is_client = user_role != "OEM_MANAGER"
         client_org_id = current_user.get("organization_id") if is_client else None
 
         total_clients, clients_this_month = fetch_client_metrics(cur, is_client=is_client)

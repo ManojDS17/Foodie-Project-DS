@@ -10,7 +10,7 @@ import {
   Eye,
   ArrowRight,
 } from 'lucide-react';
-import { MetricCard } from '../common/MetricCard';
+import { MetricCard, TelemetryMetricCard } from '../common/MetricCard';
 import { FleetEnergyChart, DashboardSidePanels } from './FleetEnergyChart';
 import { StatusBadge } from '../common/StatusBadge';
 import { LoadErrorBanner } from '../common/Toast';
@@ -155,33 +155,13 @@ export const ClientDashboardView: React.FC = () => {
           onClick={() => navigate('/machines')}
         />
 
-        <MetricCard
+        <TelemetryMetricCard
           id="client-metric-energy"
           title="Energy consumed"
-          value={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? dashboardStats.energy_consumed_today_kwh.toLocaleString()
-              : 'Not connected'
-          }
-          unit={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? 'kWh'
-              : undefined
-          }
-          subtitle={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? 'Today, my machines'
-              : 'Hardware telemetry unavailable'
-          }
-          valueColor={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? undefined
-              : 'text-foreground-muted'
-          }
+          telemetryConnected={dashboardStats?.telemetry_connected}
+          value={dashboardStats?.energy_consumed_today_kwh}
+          unit="kWh"
+          connectedSubtitle="Today, my machines"
           icon={Zap}
         />
 
@@ -196,33 +176,13 @@ export const ClientDashboardView: React.FC = () => {
           onClick={() => navigate('/alerts')}
         />
 
-        <MetricCard
+        <TelemetryMetricCard
           id="client-metric-output"
           title="Output produced"
-          value={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.compost_produced_today_kg === 'number'
-              ? dashboardStats.compost_produced_today_kg.toLocaleString()
-              : 'Not connected'
-          }
-          unit={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.compost_produced_today_kg === 'number'
-              ? 'kg'
-              : undefined
-          }
-          subtitle={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.compost_produced_today_kg === 'number'
-              ? 'Today, my machines'
-              : 'Hardware telemetry unavailable'
-          }
-          valueColor={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.compost_produced_today_kg === 'number'
-              ? undefined
-              : 'text-foreground-muted'
-          }
+          telemetryConnected={dashboardStats?.telemetry_connected}
+          value={dashboardStats?.compost_produced_today_kg}
+          unit="kg"
+          connectedSubtitle="Today, my machines"
           icon={Leaf}
           iconVariant="success"
         />

@@ -35,6 +35,43 @@ SQL_SELECT_MACHINE_JOINED = """
     LEFT JOIN machine_leases ml ON m.id = ml.machine_id AND ml.lease_status = 'Active' AND (m.organization_id IS NULL OR ml.organization_id = m.organization_id)
 """
 
+SQL_OPERATOR_MACHINE_FROM_JOIN = """
+    FROM machines m
+    JOIN organizations o
+      ON m.organization_id = o.id
+     AND (o.is_deleted IS NOT TRUE)
+     AND COALESCE(o.is_active, TRUE) IS TRUE
+     AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
+    JOIN machine_leases ml
+      ON m.id = ml.machine_id
+     AND ml.organization_id = m.organization_id
+     AND ml.lease_status = 'Active'
+    JOIN machine_assign_to_operators mato
+      ON m.id = mato.machine_id
+     AND mato.organization_id = m.organization_id
+     AND mato.operator_id = %s
+     AND mato.status = 'Active'
+"""
+
+SQL_SELECT_OPERATOR_MACHINE_JOINED = f"""
+    SELECT
+        m.id, m.machine_code, m.serial_number, m.model_id, m.model, m.capacity, m.hardware_version,
+        m.organization_id, o.client_code, o.company_name,
+        m.location_label, m.location_description,
+        COALESCE(ml.location_label, mato.location) AS lease_location_label,
+        m.plc_software_version, m.energy_meter_model, m.deodor_model, m.extractor_model,
+        COALESCE(m.has_stairs, false) AS has_stairs, m.notes,
+        TO_CHAR(ml.lease_start_date, 'YYYY-MM-DD') AS lease_start_date,
+        TO_CHAR(ml.lease_end_date, 'YYYY-MM-DD') AS lease_end_date,
+        COALESCE(ml.lease_status, 'Available') AS lease_status,
+        ml.lease_reference,
+        m.connectivity_status,
+        COALESCE(m.operational_status, 'Idle') AS operational_status, m.is_active,
+        m.created_by, m.updated_by, m.deleted_by,
+        m.created_at, m.updated_at
+    {SQL_OPERATOR_MACHINE_FROM_JOIN}
+"""
+
 _MODEL_ALIAS_MAP = {
     "F25": "Foodie F25",
     "F100": "Foodie F100",
@@ -143,21 +180,7 @@ def list_machines(
         cur.execute(
             f"""
             SELECT COUNT(*)
-            FROM machines m
-            JOIN organizations o
-              ON m.organization_id = o.id
-             AND (o.is_deleted IS NOT TRUE)
-             AND COALESCE(o.is_active, TRUE) IS TRUE
-             AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
-            JOIN machine_leases ml
-              ON m.id = ml.machine_id
-             AND ml.organization_id = m.organization_id
-             AND ml.lease_status = 'Active'
-            JOIN machine_assign_to_operators mato
-              ON m.id = mato.machine_id
-             AND mato.organization_id = m.organization_id
-             AND mato.operator_id = %s
-             AND mato.status = 'Active'
+            {SQL_OPERATOR_MACHINE_FROM_JOIN}
             WHERE {where_sql};
             """,
             tuple(op_params),
@@ -165,36 +188,7 @@ def list_machines(
         response.headers["X-Total-Count"] = str(cur.fetchone()[0])
         cur.execute(
             f"""
-            SELECT
-                m.id, m.machine_code, m.serial_number, m.model_id, m.model, m.capacity, m.hardware_version,
-                m.organization_id, o.client_code, o.company_name,
-                m.location_label, m.location_description,
-                COALESCE(ml.location_label, mato.location) AS lease_location_label,
-                m.plc_software_version, m.energy_meter_model, m.deodor_model, m.extractor_model,
-                COALESCE(m.has_stairs, false) AS has_stairs, m.notes,
-                TO_CHAR(ml.lease_start_date, 'YYYY-MM-DD') AS lease_start_date,
-                TO_CHAR(ml.lease_end_date, 'YYYY-MM-DD') AS lease_end_date,
-                COALESCE(ml.lease_status, 'Available') AS lease_status,
-                ml.lease_reference,
-                m.connectivity_status,
-                COALESCE(m.operational_status, 'Idle') AS operational_status, m.is_active,
-                m.created_by, m.updated_by, m.deleted_by,
-                m.created_at, m.updated_at
-            FROM machines m
-            JOIN organizations o
-              ON m.organization_id = o.id
-             AND (o.is_deleted IS NOT TRUE)
-             AND COALESCE(o.is_active, TRUE) IS TRUE
-             AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
-            JOIN machine_leases ml
-              ON m.id = ml.machine_id
-             AND ml.organization_id = m.organization_id
-             AND ml.lease_status = 'Active'
-            JOIN machine_assign_to_operators mato
-              ON m.id = mato.machine_id
-             AND mato.organization_id = m.organization_id
-             AND mato.operator_id = %s
-             AND mato.status = 'Active'
+            {SQL_SELECT_OPERATOR_MACHINE_JOINED}
             WHERE {where_sql}
             ORDER BY m.created_at DESC, m.machine_code DESC{pagination_sql};
             """,
@@ -233,37 +227,8 @@ def get_machine_by_identifier(cur, *, machine_id: str, current_user: dict) -> Ma
                 detail="Access denied: You do not have permission to access this machine.",
             )
         cur.execute(
-            """
-            SELECT
-                m.id, m.machine_code, m.serial_number, m.model_id, m.model, m.capacity, m.hardware_version,
-                m.organization_id, o.client_code, o.company_name,
-                m.location_label, m.location_description,
-                COALESCE(ml.location_label, mato.location) AS lease_location_label,
-                m.plc_software_version, m.energy_meter_model, m.deodor_model, m.extractor_model,
-                COALESCE(m.has_stairs, false) AS has_stairs, m.notes,
-                TO_CHAR(ml.lease_start_date, 'YYYY-MM-DD') AS lease_start_date,
-                TO_CHAR(ml.lease_end_date, 'YYYY-MM-DD') AS lease_end_date,
-                COALESCE(ml.lease_status, 'Available') AS lease_status,
-                ml.lease_reference,
-                m.connectivity_status,
-                COALESCE(m.operational_status, 'Idle') AS operational_status, m.is_active,
-                m.created_by, m.updated_by, m.deleted_by,
-                m.created_at, m.updated_at
-            FROM machines m
-            JOIN organizations o
-              ON m.organization_id = o.id
-             AND (o.is_deleted IS NOT TRUE)
-             AND COALESCE(o.is_active, TRUE) IS TRUE
-             AND LOWER(COALESCE(o.status, 'active')) NOT IN ('inactive', 'archived')
-            JOIN machine_leases ml
-              ON m.id = ml.machine_id
-             AND ml.organization_id = m.organization_id
-             AND ml.lease_status = 'Active'
-            JOIN machine_assign_to_operators mato
-              ON m.id = mato.machine_id
-             AND mato.organization_id = m.organization_id
-             AND mato.operator_id = %s
-             AND mato.status = 'Active'
+            f"""
+            {SQL_SELECT_OPERATOR_MACHINE_JOINED}
             WHERE (m.id::text = %s OR UPPER(m.machine_code) = UPPER(%s) OR UPPER(m.serial_number) = UPPER(%s))
               AND m.organization_id = %s
               AND (m.is_deleted IS NOT TRUE);

@@ -8,6 +8,7 @@ import {
   usersApi,
 } from '../../services/api';
 import { useSilentRefresh } from '../../hooks';
+import { getSavedRowsPerPage } from '../common/pagination';
 import type { Machine, Organization, User } from '../../types';
 
 const fetchClientsPageBundle = async (signal?: AbortSignal) => {
@@ -43,16 +44,7 @@ export function useClientsList({ pauseRefresh, onToast }: UseClientsListOptions)
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('foodie_rows_per_page');
-      if (saved) {
-        const parsed = Number(saved);
-        if ([5, 10, 20, 25, 50, 100].includes(parsed)) return parsed;
-      }
-    } catch {}
-    return 10;
-  });
+  const [rowsPerPage, setRowsPerPage] = useState<number>(() => getSavedRowsPerPage());
 
   const [selectedClient, setSelectedClient] = useState<Organization | null>(null);
   const [prevSelectedClientId, setPrevSelectedClientId] = useState<string | null>(

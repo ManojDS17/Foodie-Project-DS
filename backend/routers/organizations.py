@@ -36,8 +36,13 @@ def _compute_next_client_code(cur) -> str:
 
 
 @router.get("/next-code")
-def get_next_client_code():
+def get_next_client_code(current_user: dict = Depends(get_current_user)):
     """Calculates the next sequential client code in CL-0001 series, preserving series order and never reusing any deleted or existing client ID."""
+    if current_user.get("role") != "OEM_MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only OEM Managers can generate client codes.",
+        )
     with get_db_cursor() as cur:
         return {"next_code": _compute_next_client_code(cur)}
 

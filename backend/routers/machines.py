@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from ..auth import get_current_user
 from ..database import get_db_cursor
 from ..schemas import (
@@ -39,8 +39,13 @@ router = APIRouter(prefix="/api/machines", tags=["Machines"], dependencies=[Depe
 
 
 @router.get("/next-code")
-def get_next_machine_code():
+def get_next_machine_code(current_user: dict = Depends(get_current_user)):
     """Return the next sequential machine code in the C001 series without reusing prior IDs."""
+    if current_user.get("role") != "OEM_MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only OEM Managers can generate machine codes.",
+        )
     with get_db_cursor() as cur:
         return {"next_code": compute_next_machine_code(cur)}
 

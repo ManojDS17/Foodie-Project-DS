@@ -1,7 +1,7 @@
 import React from 'react';
-import { Cpu, Eye, Pencil, Trash2, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import type { OperatorMachineAssignment, User } from '../../types';
-import { RowActionMenu } from '../common/RowActionMenu';
+import { UserRowActionsMenu, UserStatusBadge } from '../team/UserActionControls';
 
 export interface ClientOperatorTableProps {
   users: User[];
@@ -13,31 +13,6 @@ export interface ClientOperatorTableProps {
   onManageMachines: (user: User) => void;
   onRemoveUser: (user: User) => void;
 }
-
-const renderUserStatusBadge = (u: User) => {
-  if (!u.is_active) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-surface-hover text-foreground-muted border border-border-default">
-        <span className="w-1.5 h-1.5 rounded-full bg-foreground-subtle" />
-        <span>Inactive</span>
-      </span>
-    );
-  }
-  if (!u.last_login_at) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-        <span>Pending</span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-status-running-bg text-status-running-text border border-status-running-dot/30">
-      <span className="w-1.5 h-1.5 rounded-full bg-status-running-dot" />
-      <span>Active</span>
-    </span>
-  );
-};
 
 export const ClientOperatorTable: React.FC<ClientOperatorTableProps> = ({
   users,
@@ -132,70 +107,22 @@ export const ClientOperatorTable: React.FC<ClientOperatorTableProps> = ({
                       <span className="text-foreground-muted text-xs font-medium">All fleet access</span>
                     )}
                   </td>
-                  <td className="py-4 px-6">{renderUserStatusBadge(u)}</td>
+                  <td className="py-4 px-6">
+                    <UserStatusBadge user={u} size="sm" />
+                  </td>
                   <td className="py-4 px-6 text-right relative">
                     <div className="inline-flex items-center gap-2 text-left justify-end">
-                      <RowActionMenu
+                      <UserRowActionsMenu
+                        user={u}
                         isOpen={activeUserMenuId === u.id}
+                        removeLabel="Remove from team"
                         onToggle={() => onToggleMenu(activeUserMenuId === u.id ? null : u.id)}
                         onClose={() => onToggleMenu(null)}
-                        buttonAriaLabel={`Actions for ${u.first_name}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onToggleMenu(null);
-                            onViewUser(u);
-                          }}
-                          className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-foreground-muted" />
-                          <span>View user</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onToggleMenu(null);
-                            onEditUser(u);
-                          }}
-                          className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
-                        >
-                          <Pencil className="w-3.5 h-3.5 text-foreground-muted" />
-                          <span>Edit user</span>
-                        </button>
-
-                        {u.role === 'OPERATOR' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onToggleMenu(null);
-                              onManageMachines(u);
-                            }}
-                            className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
-                          >
-                            <Cpu className="w-3.5 h-3.5 text-foreground-muted" />
-                            <span>Manage machines</span>
-                          </button>
-                        )}
-
-                        {u.role !== 'SITE_ADMIN' && (
-                          <>
-                            <div className="my-1 border-t border-surface-hover" />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onToggleMenu(null);
-                                onRemoveUser(u);
-                              }}
-                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-status-fault-text hover:bg-primary-light flex items-center gap-2 cursor-pointer transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-status-fault-text" />
-                              <span>Remove from team</span>
-                            </button>
-                          </>
-                        )}
-                      </RowActionMenu>
+                        onView={onViewUser}
+                        onEdit={onEditUser}
+                        onManageMachines={onManageMachines}
+                        onRemove={onRemoveUser}
+                      />
                     </div>
                   </td>
                 </tr>

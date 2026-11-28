@@ -3,6 +3,7 @@ import { LayoutGrid, Plus } from 'lucide-react';
 import { formatDate } from '../../services/api';
 import type { Machine } from '../../types';
 import { RowActionMenu } from '../common/RowActionMenu';
+import { ConnectivityBadge, OperationalStatusBadge } from '../machines/MachineStatusBadges';
 
 const getModelCapacity = (model: string, capacity?: string | null): string => {
   if (capacity && capacity.trim()) return capacity;
@@ -109,37 +110,14 @@ export const ClientMachineTable: React.FC<ClientMachineTableProps> = ({
                   </td>
 
                   <td className="py-4 px-6">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${
-                        isRunning
-                          ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
-                          : 'bg-status-idle-bg text-status-idle-text border-status-idle-dot/30'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          isRunning ? 'bg-status-running-dot' : 'bg-status-idle-dot'
-                        }`}
-                      />
-                      <span>{isRunning ? 'Running' : 'Idle'}</span>
-                    </span>
+                    <OperationalStatusBadge operationalStatus={isRunning ? 'Running' : 'Idle'} />
                   </td>
 
                   <td className="py-4 px-6">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${
-                        isOnline
-                          ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
-                          : 'bg-primary-light text-status-fault-text border-primary-border'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          isOnline ? 'bg-status-running-dot' : 'bg-status-fault-dot'
-                        }`}
-                      />
-                      <span>{isOnline ? 'Online' : 'Offline'}</span>
-                    </span>
+                    <ConnectivityBadge
+                      connectivityStatus={m.connectivity_status}
+                      offlineVariant="fault"
+                    />
                   </td>
 
                   <td className="py-4 px-6 text-right">

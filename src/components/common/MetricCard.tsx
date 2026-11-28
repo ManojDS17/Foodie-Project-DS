@@ -80,3 +80,40 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     </div>
   );
 };
+
+export interface TelemetryMetricCardProps {
+  id?: string;
+  title: string;
+  telemetryConnected?: boolean;
+  value: number | null | undefined;
+  unit: string;
+  connectedSubtitle: string;
+  icon: LucideIcon;
+  iconVariant?: 'default' | 'danger' | 'success' | 'warning';
+}
+
+export const TelemetryMetricCard: React.FC<TelemetryMetricCardProps> = ({
+  id,
+  title,
+  telemetryConnected,
+  value,
+  unit,
+  connectedSubtitle,
+  icon,
+  iconVariant = 'default',
+}) => {
+  const hasReading = Boolean(telemetryConnected) && typeof value === 'number';
+
+  return (
+    <MetricCard
+      id={id}
+      title={title}
+      value={hasReading ? value.toLocaleString() : 'Not connected'}
+      unit={hasReading ? unit : undefined}
+      subtitle={hasReading ? connectedSubtitle : 'Hardware telemetry unavailable'}
+      valueColor={hasReading ? undefined : 'text-foreground-muted'}
+      icon={icon}
+      iconVariant={iconVariant}
+    />
+  );
+};

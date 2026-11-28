@@ -4,31 +4,7 @@ import { formatDate, formatMachineLocation as formatLocation } from '../../servi
 import type { Machine } from '../../types';
 import { PaginationBar } from '../common/RowActionMenu';
 import { MachineRowActions } from './MachineRowActions';
-
-const getOperationalBadgeStyles = (opStatus: string) => {
-  if (opStatus === 'Running') {
-    return {
-      pill: 'bg-status-running-bg text-status-running-text border-status-running-dot/30',
-      dot: 'bg-status-running-dot',
-    };
-  }
-  if (opStatus === 'Idle') {
-    return {
-      pill: 'bg-status-idle-bg text-status-idle-text border-status-idle-dot/30',
-      dot: 'bg-amber-500',
-    };
-  }
-  if (opStatus === 'Maintenance') {
-    return {
-      pill: 'bg-status-maint-bg text-status-maint-text border-status-maint-dot/30',
-      dot: 'bg-blue-500',
-    };
-  }
-  return {
-    pill: 'bg-surface-hover text-foreground-body border-border-default',
-    dot: 'bg-foreground-subtle',
-  };
-};
+import { ConnectivityBadge, OperationalStatusBadge } from './MachineStatusBadges';
 
 export interface MachineTableProps {
   machines: Machine[];
@@ -87,54 +63,30 @@ export const MachineTable: React.FC<MachineTableProps> = ({
           </p>
         </div>
       ) : (
-        machines.map((m) => {
-          const isOnline = m.connectivity_status?.toLowerCase() === 'online';
-          const opStatus = m.operational_status || 'Idle';
-          const opStyles = getOperationalBadgeStyles(opStatus);
-
-          return (
-            <div
-              key={m.id}
-              className="p-3.5 hover:bg-surface-muted transition-colors flex flex-col gap-2.5"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => onSelectMachine(m)}
-                    className="font-mono font-bold text-sm text-primary underline hover:text-primary-hover cursor-pointer text-left"
-                  >
-                    {m.machine_code || m.serial_number}
-                  </button>
-                  <div className="text-xs font-semibold text-foreground mt-0.5">
-                    {m.model} {m.capacity ? `· ${m.capacity}` : ''}
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                      isOnline
-                        ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
-                        : 'bg-surface-hover text-foreground-body border-border-default'
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        isOnline ? 'bg-status-running-dot' : 'bg-foreground-subtle'
-                      }`}
-                    />
-                    <span>{isOnline ? 'Online' : 'Offline'}</span>
-                  </span>
-
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${opStyles.pill}`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${opStyles.dot}`} />
-                    <span>{opStatus}</span>
-                  </span>
+        machines.map((m) => (
+          <div
+            key={m.id}
+            className="p-3.5 hover:bg-surface-muted transition-colors flex flex-col gap-2.5"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <button
+                  type="button"
+                  onClick={() => onSelectMachine(m)}
+                  className="font-mono font-bold text-sm text-primary underline hover:text-primary-hover cursor-pointer text-left"
+                >
+                  {m.machine_code || m.serial_number}
+                </button>
+                <div className="text-xs font-semibold text-foreground mt-0.5">
+                  {m.model} {m.capacity ? `· ${m.capacity}` : ''}
                 </div>
               </div>
+
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <ConnectivityBadge connectivityStatus={m.connectivity_status} />
+                <OperationalStatusBadge operationalStatus={m.operational_status} />
+              </div>
+            </div>
 
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-foreground-muted">
                 {isOem ? (
@@ -170,8 +122,7 @@ export const MachineTable: React.FC<MachineTableProps> = ({
                 )}
               </div>
             </div>
-          );
-        })
+          ))
       )}
     </div>
 
@@ -217,87 +168,63 @@ export const MachineTable: React.FC<MachineTableProps> = ({
               </td>
             </tr>
           ) : (
-            machines.map((m) => {
-              const isOnline = m.connectivity_status?.toLowerCase() === 'online';
-              const opStatus = m.operational_status || 'Idle';
-              const opStyles = getOperationalBadgeStyles(opStatus);
+            machines.map((m) => (
+              <tr key={m.id} className="hover:bg-surface-muted transition-colors">
+                <td className="py-3 px-4 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => onSelectMachine(m)}
+                    className="font-bold text-primary underline hover:text-primary-hover cursor-pointer whitespace-nowrap font-mono inline-block"
+                  >
+                    {m.machine_code || m.serial_number}
+                  </button>
+                </td>
 
-              return (
-                <tr key={m.id} className="hover:bg-surface-muted transition-colors">
-                  <td className="py-3 px-4 whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => onSelectMachine(m)}
-                      className="font-bold text-primary underline hover:text-primary-hover cursor-pointer whitespace-nowrap font-mono inline-block"
-                    >
-                      {m.machine_code || m.serial_number}
-                    </button>
-                  </td>
-
-                  <td className="py-3 px-4">
-                    <div className="font-bold text-foreground">{m.model}</div>
-                    {m.capacity && (
-                      <div className="text-[11px] text-foreground-muted mt-0.5">{m.capacity}</div>
-                    )}
-                  </td>
-
-                  {isOem && (
-                    <td className="py-3 px-4 font-bold text-foreground">
-                      {m.company_name || 'Unassigned'}
-                    </td>
+                <td className="py-3 px-4">
+                  <div className="font-bold text-foreground">{m.model}</div>
+                  {m.capacity && (
+                    <div className="text-[11px] text-foreground-muted mt-0.5">{m.capacity}</div>
                   )}
+                </td>
 
-                  {isOperator && (
-                    <td className="py-3 px-4 font-semibold text-foreground">
-                      {m.total_batches ?? '—'}
-                    </td>
-                  )}
-
-                  <td className="py-3 px-4 text-foreground">{formatLocation(m)}</td>
-
-                  <td className="py-3 px-4 text-foreground">{formatDate(m.lease_start_date)}</td>
-
-                  <td className="py-3 px-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                        isOnline
-                          ? 'bg-status-running-bg text-status-running-text border-status-running-dot/30'
-                          : 'bg-surface-hover text-foreground-body border-border-default'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          isOnline ? 'bg-status-running-dot' : 'bg-foreground-subtle'
-                        }`}
-                      />
-                      <span>{isOnline ? 'Online' : 'Offline'}</span>
-                    </span>
+                {isOem && (
+                  <td className="py-3 px-4 font-bold text-foreground">
+                    {m.company_name || 'Unassigned'}
                   </td>
+                )}
 
-                  <td className="py-3 px-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${opStyles.pill}`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${opStyles.dot}`} />
-                      <span>{opStatus}</span>
-                    </span>
+                {isOperator && (
+                  <td className="py-3 px-4 font-semibold text-foreground">
+                    {m.total_batches ?? '—'}
                   </td>
+                )}
 
-                  <td className="py-3 px-4 text-right">
-                    <MachineRowActions
-                      machine={m}
-                      isOem={isOem}
-                      isOpen={activeMenuId === m.id}
-                      onToggle={() => onToggleMenu(activeMenuId === m.id ? null : m.id)}
-                      onClose={() => onToggleMenu(null)}
-                      onView={() => onSelectMachine(m)}
-                      onEdit={() => onEditMachine(m)}
-                      onDelete={() => onDeleteMachine(m)}
-                    />
-                  </td>
-                </tr>
-              );
-            })
+                <td className="py-3 px-4 text-foreground">{formatLocation(m)}</td>
+
+                <td className="py-3 px-4 text-foreground">{formatDate(m.lease_start_date)}</td>
+
+                <td className="py-3 px-4">
+                  <ConnectivityBadge connectivityStatus={m.connectivity_status} />
+                </td>
+
+                <td className="py-3 px-4">
+                  <OperationalStatusBadge operationalStatus={m.operational_status} />
+                </td>
+
+                <td className="py-3 px-4 text-right">
+                  <MachineRowActions
+                    machine={m}
+                    isOem={isOem}
+                    isOpen={activeMenuId === m.id}
+                    onToggle={() => onToggleMenu(activeMenuId === m.id ? null : m.id)}
+                    onClose={() => onToggleMenu(null)}
+                    onView={() => onSelectMachine(m)}
+                    onEdit={() => onEditMachine(m)}
+                    onDelete={() => onDeleteMachine(m)}
+                  />
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>

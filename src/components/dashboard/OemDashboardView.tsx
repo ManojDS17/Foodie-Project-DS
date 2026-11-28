@@ -10,7 +10,7 @@ import {
   UserPlus,
   ArrowRight,
 } from 'lucide-react';
-import { MetricCard } from '../common/MetricCard';
+import { MetricCard, TelemetryMetricCard } from '../common/MetricCard';
 import { FleetEnergyChart, DashboardSidePanels } from './FleetEnergyChart';
 import { StatusBadge } from '../common/StatusBadge';
 import { AddClientView } from '../clients/AddClientView';
@@ -262,33 +262,13 @@ export const OemDashboardView: React.FC = () => {
           onClick={() => navigate('/machines')}
         />
 
-        <MetricCard
+        <TelemetryMetricCard
           id="metric-energy"
           title="Energy consumed"
-          value={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? dashboardStats.energy_consumed_today_kwh.toLocaleString()
-              : 'Not connected'
-          }
-          unit={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? 'kWh'
-              : undefined
-          }
-          subtitle={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? 'Today, all machines'
-              : 'Hardware telemetry unavailable'
-          }
-          valueColor={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.energy_consumed_today_kwh === 'number'
-              ? undefined
-              : 'text-foreground-muted'
-          }
+          telemetryConnected={dashboardStats?.telemetry_connected}
+          value={dashboardStats?.energy_consumed_today_kwh}
+          unit="kWh"
+          connectedSubtitle="Today, all machines"
           icon={Zap}
         />
 
@@ -306,33 +286,13 @@ export const OemDashboardView: React.FC = () => {
           iconVariant="danger"
         />
 
-        <MetricCard
+        <TelemetryMetricCard
           id="metric-waste"
           title="Waste intake"
-          value={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.waste_intake_today_kg === 'number'
-              ? dashboardStats.waste_intake_today_kg.toLocaleString()
-              : 'Not connected'
-          }
-          unit={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.waste_intake_today_kg === 'number'
-              ? 'kg'
-              : undefined
-          }
-          subtitle={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.waste_intake_today_kg === 'number'
-              ? 'Today, all machines'
-              : 'Hardware telemetry unavailable'
-          }
-          valueColor={
-            dashboardStats?.telemetry_connected &&
-            typeof dashboardStats.waste_intake_today_kg === 'number'
-              ? undefined
-              : 'text-foreground-muted'
-          }
+          telemetryConnected={dashboardStats?.telemetry_connected}
+          value={dashboardStats?.waste_intake_today_kg}
+          unit="kg"
+          connectedSubtitle="Today, all machines"
           icon={Leaf}
           iconVariant="success"
         />

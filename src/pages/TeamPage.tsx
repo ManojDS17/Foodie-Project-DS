@@ -1,12 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search,
   Plus,
   Users,
-  Eye,
-  Pencil,
-  Trash2,
-  Cpu,
 } from 'lucide-react';
 import {
   usersApi,
@@ -21,8 +17,11 @@ import { UserDetailView } from '../components/team/UserDetailView';
 import { EditUserView } from '../components/team/EditUserView';
 import { RemoveUserModal } from '../components/team/RemoveUserModal';
 import { AssignOperatorMachineModal } from '../components/operators/AssignOperatorMachineModal';
-import { RowActionMenu } from '../components/common/RowActionMenu';
-import { StatusBadge } from '../components/common/StatusBadge';
+import {
+  UserRowActionsMenu,
+  UserStatusBadge,
+} from '../components/team/UserActionControls';
+import { getUserLifecycleStatus } from '../components/team/userLifecycle';
 import { Toast, LoadErrorBanner } from '../components/common/Toast';
 import type { User, Organization, Machine, OperatorMachineAssignment } from '../types';
 
@@ -58,22 +57,6 @@ export const TeamPage: React.FC = () => {
   const [managingOperator, setManagingOperator] = useState<User | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
-
-  const actionMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
-        setOpenMenuUserId(null);
-      }
-    };
-    if (openMenuUserId) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [openMenuUserId]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,23 +126,6 @@ export const TeamPage: React.FC = () => {
     enabled: !isAddOperatorOpen && !editingUser && !removingUser && !managingOperator,
   });
 
-  const getUserStatus = (u: User): 'Active' | 'Pending' | 'Inactive' => {
-    if (!u.is_active) return 'Inactive';
-    if (!u.last_login_at) return 'Pending';
-    return 'Active';
-  };
-
-  const getStatusBadge = (u: User) => {
-    const status = getUserStatus(u);
-    if (status === 'Inactive') {
-      return <StatusBadge status="inactive" label="Inactive" bordered />;
-    }
-    if (status === 'Pending') {
-      return <StatusBadge status="pending" label="Pending" bordered pulse />;
-    }
-    return <StatusBadge status="active" label="Active" bordered />;
-  };
-
   const handleConfirmRemove = async () => {
     if (!removingUser) return;
     try {
@@ -196,7 +162,7 @@ export const TeamPage: React.FC = () => {
 
       // 3. Status Filter
       if (statusFilter !== 'All') {
-        const userStatus = getUserStatus(u);
+        const userStatus = getUserLifecycleStatus(u);
         if (userStatus !== statusFilter) {
           return false;
         }
@@ -544,73 +510,23 @@ export const TeamPage: React.FC = () => {
 
                       {/* Status */}
                       <td className="py-3.5 px-4 sm:px-6">
-                        {getStatusBadge(u)}
+                        <UserStatusBadge user={u} />
                       </td>
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 sm:px-6 text-right">
                         <div className="inline-flex items-center gap-2 text-left justify-end">
-                          <RowActionMenu
+                          <UserRowActionsMenu
+                            user={u}
                             isOpen={openMenuUserId === u.id}
+                            removeLabel="Remove user"
                             onToggle={() => setOpenMenuUserId(openMenuUserId === u.id ? null : u.id)}
                             onClose={() => setOpenMenuUserId(null)}
-                            buttonAriaLabel={`Actions for ${u.first_name}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpenMenuUserId(null);
-                                setViewingUser(u);
-                              }}
-                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
-                            >
-                              <Eye className="w-3.5 h-3.5 text-foreground-muted" />
-                              <span>View user</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpenMenuUserId(null);
-                                setEditingUser(u);
-                              }}
-                              className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
-                            >
-                              <Pencil className="w-3.5 h-3.5 text-foreground-muted" />
-                              <span>Edit user</span>
-                            </button>
-
-                            {u.role === 'OPERATOR' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOpenMenuUserId(null);
-                                  setManagingOperator(u);
-                                }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-medium text-foreground-body hover:bg-surface-muted flex items-center gap-2 cursor-pointer transition-colors"
-                              >
-                                <Cpu className="w-3.5 h-3.5 text-foreground-muted" />
-                                <span>Manage machines</span>
-                              </button>
-                            )}
-
-                            {u.role !== 'SITE_ADMIN' && (
-                              <>
-                                <div className="my-1 border-t border-surface-hover" />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenMenuUserId(null);
-                                    setRemovingUser(u);
-                                  }}
-                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-status-fault-text hover:bg-primary-light flex items-center gap-2 cursor-pointer transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5 text-status-fault-text" />
-                                  <span>Remove user</span>
-                                </button>
-                              </>
-                            )}
-                          </RowActionMenu>
+                            onView={setViewingUser}
+                            onEdit={setEditingUser}
+                            onManageMachines={setManagingOperator}
+                            onRemove={setRemovingUser}
+                          />
                         </div>
                       </td>
                     </tr>

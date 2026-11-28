@@ -330,16 +330,59 @@ class HandoverP0P1Tests(unittest.TestCase):
         self.assertIn(self.client.get("/api/machines").status_code, (401, 403))
         self.assertIn(self.client.get("/api/machine-models").status_code, (401, 403))
 
-        # Operator forbidden from org/user/machine mutations
+        # Operator forbidden from org/user/machine mutations or role self-escalation
         op_h = self._auth_headers(self.op1_id, self.op1_email, "OPERATOR", self.org1_id)
         self.assertEqual(self.client.get("/api/users", headers=op_h).status_code, 403)
+        self.assertEqual(self.client.get(f"/api/users/{self.sa1_id}", headers=op_h).status_code, 403)
         self.assertEqual(self.client.get("/api/organizations", headers=op_h).status_code, 403)
         self.assertEqual(self.client.put(f"/api/machines/{self.mach2_id}", json={"notes": "x"}, headers=op_h).status_code, 403)
+        self.assertEqual(self.client.put(f"/api/users/{self.op1_id}", json={"role": "SITE_ADMIN"}, headers=op_h).status_code, 403)
+        self.assertEqual(self.client.put(f"/api/users/{self.op1_id}", json={"is_active": False}, headers=op_h).status_code, 403)
+        self.assertEqual(self.client.put(f"/api/users/{self.op1_id}", json={"email": "hacked@example.com"}, headers=op_h).status_code, 403)
+        self.assertEqual(self.client.get("/api/organizations/next-code", headers=op_h).status_code, 403)
+        self.assertEqual(self.client.get("/api/machines/next-code", headers=op_h).status_code, 403)
 
-        # Site Admin 1 cannot access Site Admin 2's org or machine
+        # Site Admin 1 cannot access Site Admin 2's org or machine, nor mutate orgs or create OEM users
         sa1_h = self._auth_headers(self.sa1_id, self.sa1_email, "SITE_ADMIN", self.org1_id)
         self.assertEqual(self.client.get(f"/api/organizations/{self.org2_id}", headers=sa1_h).status_code, 403)
         self.assertEqual(self.client.get(f"/api/machines/{self.mach2_id}", headers=sa1_h).status_code, 404)
+        self.assertEqual(
+            self.client.post(
+                "/api/organizations",
+                json={
+                    "client_code": "CL-9999",
+                    "company_name": "Rogue Org",
+                    "contact_poc": "Rogue Contact",
+                    "email": f"rogue-org-{self.suffix}@example.com",
+                    "password": self.pwd,
+                },
+                headers=sa1_h,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.put(f"/api/organizations/{self.org1_id}", json={"company_name": "Hijack"}, headers=sa1_h).status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/organizations/{self.org1_id}", headers=sa1_h).status_code, 403)
+        self.assertEqual(
+            self.client.post(
+                "/api/users",
+                json={
+                    "email": f"rogue-oem-{self.suffix}@example.com",
+                    "first_name": "Rogue",
+                    "last_name": "Admin",
+                    "role": "OEM_MANAGER",
+                },
+                headers=sa1_h,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.put(f"/api/users/{self.sa1_id}", json={"role": "OEM_MANAGER"}, headers=sa1_h).status_code, 403)
+        self.assertEqual(self.client.put(f"/api/users/{self.sa1_id}", json={"is_active": False}, headers=sa1_h).status_code, 403)
+        self.assertEqual(self.client.get("/api/organizations/next-code", headers=sa1_h).status_code, 403)
+        self.assertEqual(self.client.get("/api/machines/next-code", headers=sa1_h).status_code, 403)
+
+        oem_h = self._auth_headers(self.oem_id, self.oem_email, "OEM_MANAGER", None)
+        self.assertEqual(self.client.get("/api/organizations/next-code", headers=oem_h).status_code, 200)
+        self.assertEqual(self.client.get("/api/machines/next-code", headers=oem_h).status_code, 200)
 
     def test_login_logout_and_reset_token_hashing(self):
         r_login = self.client.post("/api/auth/login", json={"email": self.sa1_email, "password": self.pwd})
