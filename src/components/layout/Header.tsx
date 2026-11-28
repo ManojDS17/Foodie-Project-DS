@@ -358,17 +358,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
             <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-foreground-body shrink-0" />
           </button>
 
-          {/* Notifications Alert Bell with red 2 badge */}
+          {/* Notifications Alert Bell */}
           <button
             type="button"
             onClick={() => navigate('/alerts')}
             className="relative p-1.5 sm:p-2 rounded-full text-foreground hover:bg-surface-hover transition-colors cursor-pointer shrink-0"
-            title="Active Telemetry Alerts (2)"
+            title="Alerts"
+            aria-label="Alerts"
           >
             <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-foreground" />
-            <span className="absolute top-0.5 right-0.5 bg-primary text-white text-[9px] sm:text-[10px] font-extrabold w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center leading-none">
-              2
-            </span>
           </button>
 
           {/* Vertical Divider */}

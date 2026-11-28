@@ -64,7 +64,6 @@ export const AppContent: React.FC = () => {
         }
       >
         <Route index element={<DashboardOverviewPage />} />
-        <Route path="sites" element={<Navigate to="/" replace />} />
         <Route
           path="profile"
           element={
@@ -131,8 +130,8 @@ export const AppContent: React.FC = () => {
             <ProtectedRoute>
               <PlaceholderView
                 title="Fleet Telemetry & Operational Reports"
-                subtitle="Export aggregated power usage, batch volume summaries, and ESG compliance certificates in PDF and CSV format."
-                tag="Reporting Engine"
+                subtitle="Aggregated power usage, batch volume summaries, and ESG compliance exports will populate once PLC hardware telemetry is connected."
+                tag="PLC Integration Pending"
               />
             </ProtectedRoute>
           }
@@ -143,8 +142,8 @@ export const AppContent: React.FC = () => {
             <ProtectedRoute>
               <PlaceholderView
                 title="System Notifications & Telemetry Alerts"
-                subtitle="Live stream of PLC temperature triggers, motor overloads, door sensor faults, and offline machine alerts."
-                tag="Telemetry Service"
+                subtitle="PLC temperature triggers, motor overloads, door sensor faults, and automated alerts will appear here once hardware telemetry is connected."
+                tag="PLC Integration Pending"
               />
             </ProtectedRoute>
           }

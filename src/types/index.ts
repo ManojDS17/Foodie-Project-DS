@@ -76,35 +76,6 @@ export interface OrganizationCreateData {
   is_active?: boolean;
 }
 
-export interface Site {
-  id: string;
-  organization_id: string;
-  site_code: string;
-  site_name: string;
-  address: string;
-  latitude?: number | null;
-  longitude?: number | null;
-  timezone: string;
-  is_active: boolean;
-  is_deleted?: boolean;
-  deleted_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SiteFormData {
-  organization_id: string;
-  site_code: string;
-  site_name: string;
-  address: string;
-  latitude?: string;
-  longitude?: string;
-  timezone: string;
-  is_active: boolean;
-  is_deleted?: boolean;
-  deleted_at?: string;
-}
-
 export interface User {
   id: string;
   organization_id: string | null;
@@ -136,6 +107,29 @@ export interface UserCreateData {
   phone_number?: string;
   organization_id?: string;
   role: UserRole;
+}
+
+export interface MachineTelemetry {
+  inside_temp?: number | null;
+  outside_temp?: number | null;
+  humidity?: number | null;
+  door_status?: string | null;
+  open_faults?: number | null;
+  motor_on?: boolean | null;
+  auto_mode?: boolean | null;
+  manual_mode?: boolean | null;
+  blower_on?: boolean | null;
+  heater_on?: boolean | null;
+  system_healthy?: boolean | null;
+  energy_used_today?: number | null;
+  peak_demand?: number | null;
+  operating_hours?: number | null;
+  output_produced_kg?: number | null;
+  waste_intake_kg?: number | null;
+  energy_consumed_kwh?: number | null;
+  running_time_str?: string | null;
+  compost_produced_kg?: number | null;
+  last_updated_label?: string | null;
 }
 
 export interface Machine {
@@ -179,6 +173,7 @@ export interface Machine {
   deleted_by?: string;
   created_at?: string;
   updated_at?: string;
+  telemetry?: MachineTelemetry | null;
 }
 
 export interface MachineFormData {
@@ -189,7 +184,6 @@ export interface MachineFormData {
   hardware_version: string;
   plc_ip: string;
   organization_id: string;
-  site_id: string;
   location_label: string;
   location_description?: string;
   plc_software_version?: string;
@@ -247,9 +241,10 @@ export interface DashboardStats {
   total_machines: number;
   online_machines: number;
   offline_machines: number;
-  energy_consumed_today_kwh: number;
-  waste_intake_today_kg: number;
-  compost_produced_today_kg: number;
+  telemetry_connected?: boolean;
+  energy_consumed_today_kwh: number | null;
+  waste_intake_today_kg: number | null;
+  compost_produced_today_kg: number | null;
   open_alerts_count: number;
   alert_clients_count: number;
   energy_history_14d: EnergyHistoryPoint[];

@@ -1,5 +1,4 @@
 import type {
-  Site,
   User,
   UserCreateData,
   Organization,
@@ -192,14 +191,6 @@ export const authApi = {
       // Ignored if offline or cookie already expired
     }
   },
-};
-
-// Legacy unmounted stub preserved for existing unused site registration page compilation
-export const sitesApi = {
-  getAll: async (): Promise<Site[]> => [],
-  create: async (_siteData: Record<string, unknown>): Promise<Site> => ({} as Site),
-  update: async (_id: string, _updatedFields: Record<string, unknown>): Promise<Site> => ({} as Site),
-  delete: async (_id: string): Promise<void> => {},
 };
 
 // ----------------------------------------------------------------------------

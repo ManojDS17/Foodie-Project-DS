@@ -264,78 +264,6 @@ class UserUpdate(BaseModel):
         return v
 
 # --------------------------------------------------------------------------
-# Site Management Schemas
-# --------------------------------------------------------------------------
-class SiteCreate(BaseModel):
-    organization_id: str
-    site_code: str
-    site_name: str
-    address: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    timezone: Optional[str] = 'Australia/Adelaide'
-    is_active: Optional[bool] = True
-
-    @field_validator('site_code')
-    @classmethod
-    def check_site_code(cls, v: str) -> str:
-        clean = v.strip().upper()
-        if not re.match(SITE_CODE_REGEX, clean):
-            raise ValueError('Site code must be 2-20 alphanumeric characters (hyphens allowed).')
-        return clean
-
-    @field_validator('site_name')
-    @classmethod
-    def check_site_name(cls, v: str) -> str:
-        clean = v.strip()
-        if len(clean) < 3:
-            raise ValueError('Facility / Site name must be at least 3 characters.')
-        return clean
-
-    @field_validator('address')
-    @classmethod
-    def check_address(cls, v: str) -> str:
-        clean = v.strip()
-        if len(clean) < 5:
-            raise ValueError('Physical installation address is required (min 5 characters).')
-        return clean
-
-    @field_validator('latitude')
-    @classmethod
-    def check_lat(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None and (v < -90 or v > 90):
-            raise ValueError('Latitude must be between -90 and 90.')
-        return v
-
-    @field_validator('longitude')
-    @classmethod
-    def check_lng(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None and (v < -180 or v > 180):
-            raise ValueError('Longitude must be between -180 and 180.')
-        return v
-
-class SiteUpdate(BaseModel):
-    site_name: Optional[str] = None
-    address: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    timezone: Optional[str] = None
-    is_active: Optional[bool] = None
-
-class SiteResponse(BaseModel):
-    id: str
-    organization_id: str
-    site_code: str
-    site_name: str
-    address: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    timezone: str
-    is_active: bool
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-# --------------------------------------------------------------------------
 # Organization & Global Search Schemas
 # --------------------------------------------------------------------------
 class MachineAssignmentItem(BaseModel):
@@ -556,7 +484,7 @@ class SearchResultItemMachine(BaseModel):
     company_name: Optional[str] = 'Unassigned'
     status: str
     connectivity_status: Optional[str] = 'Offline'
-    temp: Optional[str] = '62°C'
+    temp: Optional[str] = None
 
 class SearchResponse(BaseModel):
     clients: List[SearchResultItemClient] = []
@@ -819,4 +747,5 @@ class MachineResponse(BaseModel):
     deleted_by: Optional[str] = None
     created_by_name: Optional[str] = None
     total_machines: Optional[int] = 0
+    telemetry: Optional[dict] = None
 

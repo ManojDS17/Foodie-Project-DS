@@ -6,8 +6,7 @@ from typing import Optional, Tuple
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
 import psycopg2
-from psycopg2.pool import SimpleConnectionPool
-import bcrypt
+from psycopg2.pool import ThreadedConnectionPool
 
 load_dotenv()
 if not os.getenv("DB_PASSWORD"):
@@ -19,8 +18,7 @@ DB_NAME = os.getenv("DB_NAME", "foodie_db")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
-# Initialize PostgreSQL Connection Pool
-pool = SimpleConnectionPool(
+pool = ThreadedConnectionPool(
     minconn=1,
     maxconn=20,
     host=DB_HOST,
@@ -45,8 +43,8 @@ def get_db_cursor(commit=False):
     finally:
         pool.putconn(conn)
 
-def run_schema_migrations(cur):
-    """Execute idempotent schema migrations across all environments (dev and prod)."""
+def run_schema_migrations(cur, *, apply_destructive_cleanup: bool = False):
+    """Execute explicit schema migrations; destructive cleanup requires opt-in."""
     # 1. Machine Models Table
     cur.execute("""
         CREATE TABLE IF NOT EXISTS machine_models (
@@ -59,7 +57,6 @@ def run_schema_migrations(cur):
         );
     """)
 
-    # Standard Foodie composter model catalog definitions
     models = [
         ('F25', 'Foodie F25', '25 kg/day'),
         ('F100', 'Foodie F100', '100 kg/day'),
@@ -73,8 +70,45 @@ def run_schema_migrations(cur):
             ON CONFLICT (model_code) DO NOTHING;
         """, (code, name, cap))
 
-    # 2. Users schema migrations
+    # 2. Organizations & Users base tables + additive migrations
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS organizations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            client_code VARCHAR(50) NOT NULL,
+            company_name VARCHAR(255) NOT NULL,
+            tax_id VARCHAR(100),
+            contact_poc VARCHAR(255),
+            email VARCHAR(255),
+            phone_number VARCHAR(50),
+            website VARCHAR(255),
+            billing_address TEXT,
+            shipping_address TEXT,
+            payment_terms VARCHAR(50) DEFAULT '30 days',
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) DEFAULT 'Corporate';
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Active';
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS onboarding_date DATE DEFAULT CURRENT_DATE;
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS comms_preference VARCHAR(50) DEFAULT 'Email';
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
+
+        CREATE TABLE IF NOT EXISTS users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+            email VARCHAR(255) NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            first_name VARCHAR(100),
+            last_name VARCHAR(100),
+            role VARCHAR(50) NOT NULL,
+            phone_number VARCHAR(50),
+            is_active BOOLEAN DEFAULT TRUE,
+            last_login_at TIMESTAMP WITH TIME ZONE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
         ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 1;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP WITH TIME ZONE;
@@ -83,32 +117,21 @@ def run_schema_migrations(cur):
         ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
-        ALTER TABLE users DROP COLUMN IF EXISTS assigned_site_id;
-        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;
-        CREATE UNIQUE INDEX IF NOT EXISTS users_active_email_idx 
-        ON users (LOWER(email)) 
+        CREATE UNIQUE INDEX IF NOT EXISTS users_active_email_idx
+        ON users (LOWER(email))
         WHERE (is_deleted IS NOT TRUE);
-    """)
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;
 
-    # 3. Organizations schema migrations
-    cur.execute("""
-        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) DEFAULT 'Corporate';
-        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Active';
-        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS onboarding_date DATE DEFAULT CURRENT_DATE;
-        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS comms_preference VARCHAR(50) DEFAULT 'Email';
-        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
-        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
+        ALTER TABLE organizations ALTER COLUMN contact_poc DROP NOT NULL;
         ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE organizations ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
-        ALTER TABLE organizations ALTER COLUMN contact_poc DROP NOT NULL;
-        ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_client_code_key;
         CREATE UNIQUE INDEX IF NOT EXISTS organizations_client_code_active_unique ON organizations (UPPER(client_code)) WHERE (is_deleted IS NOT TRUE);
+        ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_client_code_key;
         CREATE UNIQUE INDEX IF NOT EXISTS organizations_tax_id_active_unique ON organizations (REGEXP_REPLACE(tax_id, '[^0-9]', '', 'g')) WHERE (is_deleted IS NOT TRUE AND tax_id IS NOT NULL AND tax_id != '');
-        ALTER TABLE organizations DROP COLUMN IF EXISTS preferred_currency;
     """)
 
-    # 4. Machines schema migrations
+    # 3. Machines schema migrations
     cur.execute("""
         CREATE TABLE IF NOT EXISTS machines (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -139,16 +162,15 @@ def run_schema_migrations(cur):
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
         ALTER TABLE machines ALTER COLUMN capacity DROP NOT NULL;
-        ALTER TABLE machines ALTER COLUMN hardware_version DROP DEFAULT;
         ALTER TABLE machines ALTER COLUMN operational_status SET DEFAULT 'Idle';
+        ALTER TABLE machines ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
+        ALTER TABLE machines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
         ALTER TABLE machines ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE machines ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE machines ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
-        ALTER TABLE machines DROP COLUMN IF EXISTS plc_ip;
-        ALTER TABLE machines DROP COLUMN IF EXISTS site_id;
     """)
 
-    # 5. Machine Leases schema migrations
+    # 4. Machine Leases schema migrations
     cur.execute("""
         CREATE TABLE IF NOT EXISTS machine_leases (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -169,7 +191,6 @@ def run_schema_migrations(cur):
             termination_remark TEXT DEFAULT NULL,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
-        ALTER TABLE machine_leases DROP COLUMN IF EXISTS site_id;
         ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS assigned_by UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
@@ -180,7 +201,7 @@ def run_schema_migrations(cur):
         ALTER TABLE machine_leases ADD COLUMN IF NOT EXISTS termination_remark TEXT DEFAULT NULL;
     """)
 
-    # 6. Operator Machine Assignments schema migrations
+    # 5. Operator Machine Assignments schema migrations
     cur.execute("""
         CREATE TABLE IF NOT EXISTS machine_assign_to_operators (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -200,143 +221,101 @@ def run_schema_migrations(cur):
             status VARCHAR(50) DEFAULT 'Active',
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
-        ALTER TABLE machine_assign_to_operators DROP CONSTRAINT IF EXISTS unique_operator_active_machine;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_active_operator_machine ON machine_assign_to_operators (operator_id, machine_id) WHERE status = 'Active';
         CREATE INDEX IF NOT EXISTS idx_mato_org ON machine_assign_to_operators (organization_id);
         CREATE INDEX IF NOT EXISTS idx_mato_operator ON machine_assign_to_operators (operator_id);
         CREATE INDEX IF NOT EXISTS idx_mato_machine ON machine_assign_to_operators (machine_id);
-        DROP INDEX IF EXISTS idx_unique_active_machine_assignment;
         ALTER TABLE machine_assign_to_operators ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
     """)
 
-def seed_demo_data(cur):
-    """Seed non-production demo accounts, organizations, and machines safely."""
-    # Organization setup for local development
-    cur.execute("SELECT id FROM organizations WHERE client_code = 'CL-0001';")
-    org = cur.fetchone()
-    if not org:
+    if apply_destructive_cleanup:
         cur.execute("""
-            INSERT INTO organizations (
-                client_code, company_name, tax_id, contact_poc, email, phone_number,
-                website, billing_address, shipping_address, payment_terms, is_active
-            ) VALUES (
-                'CL-0001', 'Green Valley Foods Pty Ltd', 'ABN 12 345 678 901', 'Jordan Smith',
-                'jordan@greenvalley.example', '+61 8 8200 1100', 'https://greenvalley.example',
-                'Railway Ave, Mount Isa QLD 4825', 'Railway Ave, Mount Isa QLD 4825', '30 days', true
-            ) RETURNING id;
+            ALTER TABLE users DROP COLUMN IF EXISTS assigned_site_id;
+            ALTER TABLE organizations DROP COLUMN IF EXISTS preferred_currency;
+            ALTER TABLE machines ALTER COLUMN hardware_version DROP DEFAULT;
+            ALTER TABLE machines DROP COLUMN IF EXISTS plc_ip;
+            ALTER TABLE machines DROP COLUMN IF EXISTS site_id;
+            ALTER TABLE machine_leases DROP COLUMN IF EXISTS site_id;
+            ALTER TABLE machine_assign_to_operators DROP CONSTRAINT IF EXISTS unique_operator_active_machine;
+            DROP INDEX IF EXISTS idx_unique_active_machine_assignment;
         """)
-        org_id = cur.fetchone()[0]
-    else:
-        org_id = org[0]
 
-    pw_hash = bcrypt.hashpw(b"admin123", bcrypt.gensalt(10)).decode('utf-8')
 
-    cur.execute("DELETE FROM users WHERE email IN ('admin@powertech.example', 'sam.taylor@greenvalley.example', 'priya.shah@greenvalley.example');")
+_REQUIRED_TABLES = (
+    "organizations",
+    "users",
+    "machine_models",
+    "machines",
+    "machine_leases",
+    "machine_assign_to_operators",
+)
 
-    # OEM Manager
-    cur.execute("SELECT id FROM users WHERE LOWER(email) = 'oem@gmail.com';")
-    if not cur.fetchone():
-        cur.execute("""
-            INSERT INTO users (organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active)
-            VALUES (NULL, 'oem@gmail.com', %s, 'OEM', 'Manager', 'OEM_MANAGER', '+61 8 8000 0001', true);
-        """, (pw_hash,))
+_REQUIRED_COLUMNS = (
+    ("users", "token_version"),
+    ("users", "reset_token"),
+    ("users", "reset_token_expires_at"),
+    ("users", "is_deleted"),
+    ("users", "deleted_at"),
+    ("users", "created_by"),
+    ("users", "updated_by"),
+    ("users", "deleted_by"),
+    ("organizations", "business_type"),
+    ("organizations", "status"),
+    ("organizations", "onboarding_date"),
+    ("organizations", "comms_preference"),
+    ("organizations", "is_deleted"),
+    ("organizations", "deleted_at"),
+    ("organizations", "created_by"),
+    ("organizations", "updated_by"),
+    ("organizations", "deleted_by"),
+    ("machines", "is_deleted"),
+    ("machines", "deleted_at"),
+    ("machines", "created_by"),
+    ("machines", "updated_by"),
+    ("machines", "deleted_by"),
+    ("machine_leases", "lease_status"),
+    ("machine_leases", "created_by"),
+    ("machine_leases", "assigned_by"),
+    ("machine_leases", "assigned_at"),
+    ("machine_leases", "updated_by"),
+    ("machine_leases", "updated_at"),
+    ("machine_leases", "terminated_at"),
+    ("machine_leases", "terminated_by"),
+    ("machine_leases", "termination_remark"),
+    ("machine_assign_to_operators", "status"),
+    ("machine_assign_to_operators", "created_by"),
+)
 
-    # Site Admin
-    cur.execute("SELECT id FROM users WHERE LOWER(email) = 'siteadmin@gmail.com';")
-    if not cur.fetchone():
-        cur.execute("""
-            INSERT INTO users (organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active)
-            VALUES (%s, 'siteadmin@gmail.com', %s, 'Site', 'Admin', 'SITE_ADMIN', '+61 422 111 222', true);
-        """, (org_id, pw_hash))
 
-    # Operator
-    cur.execute("SELECT id FROM users WHERE LOWER(email) = 'operator@gmail.com';")
-    if not cur.fetchone():
-        cur.execute("""
-            INSERT INTO users (organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active)
-            VALUES (%s, 'operator@gmail.com', %s, 'Composter', 'Operator', 'OPERATOR', '+61 433 222 333', true);
-        """, (org_id, pw_hash))
-
-    # Ensure seed machines exist if table is empty
-    cur.execute("SELECT COUNT(*) FROM machines;")
-    if cur.fetchone()[0] == 0:
-        cur.execute("SELECT id FROM machine_models WHERE model_code = 'F25';")
-        f25_row = cur.fetchone()
-        f25_id = f25_row[0] if f25_row else None
-        cur.execute("SELECT id FROM machine_models WHERE model_code = 'F100';")
-        f100_row = cur.fetchone()
-        f100_id = f100_row[0] if f100_row else None
-
-        cur.execute("""
-            INSERT INTO machines (
-                machine_code, serial_number, model_id, model, capacity, hardware_version,
-                organization_id, location_label, connectivity_status, is_active
-            ) VALUES 
-            ('C001', 'C001', %s, 'Foodie F100', '100 kg/day', 'v2.1', %s, 'Kitchen Loading Bay', 'Offline', true),
-            ('C002', 'C002', %s, 'Foodie F25', '25 kg/day', 'v2.1', %s, 'Carpark Bay 2', 'Offline', true),
-            ('C003', 'C003', %s, 'Foodie F25', '25 kg/day', 'v1.0', %s, 'Mawson Processing Hub', 'Offline', true);
-        """, (f100_id, org_id, f25_id, org_id, f25_id, org_id))
-
-    # Ensure non-conflicting initial lease records without overwriting revocations or terminations
-    cur.execute("""
-        INSERT INTO machine_leases (
-            machine_id, organization_id, location_label,
-            lease_start_date, lease_end_date, lease_status, lease_reference
+def verify_schema_compatibility(cur) -> None:
+    """Verify PostgreSQL connectivity and required schema objects without mutating schema."""
+    cur.execute("SELECT 1;")
+    for table_name in _REQUIRED_TABLES:
+        cur.execute("SELECT to_regclass(%s);", (f"public.{table_name}",))
+        if cur.fetchone()[0] is None:
+            raise RuntimeError(
+                f"Required database table '{table_name}' does not exist. Run: python -m backend.migrate"
+            )
+    for table_name, col_name in _REQUIRED_COLUMNS:
+        cur.execute(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s AND column_name = %s;
+            """,
+            (table_name, col_name),
         )
-        SELECT 
-            m.id, m.organization_id, m.location_label,
-            CURRENT_DATE, CURRENT_DATE + INTERVAL '1 year', 'Active',
-            'LSE-' || SUBSTRING(m.id::text, 1, 8)
-        FROM machines m
-        WHERE m.organization_id IS NOT NULL 
-          AND (m.is_deleted IS NOT TRUE)
-          AND NOT EXISTS (
-              SELECT 1 FROM machine_leases ml 
-              WHERE ml.machine_id = m.id AND ml.lease_status = 'Active'
-          )
-        ON CONFLICT (lease_reference) DO NOTHING;
+        if cur.fetchone() is None:
+            raise RuntimeError(
+                f"Required column '{table_name}.{col_name}' is missing. Run: python -m backend.migrate"
+            )
 
-        INSERT INTO machine_assign_to_operators (
-            organization_id, operator_id, machine_id,
-            start_date, end_date, location, status
-        )
-        SELECT 
-            ml.organization_id,
-            u.id,
-            ml.machine_id,
-            ml.lease_start_date,
-            ml.lease_end_date,
-            ml.location_label,
-            'Active'
-        FROM machine_leases ml
-        JOIN machines m ON ml.machine_id = m.id AND (m.is_deleted IS NOT TRUE)
-        JOIN users u ON ml.organization_id = u.organization_id AND u.role = 'OPERATOR' AND u.is_active = TRUE AND (u.is_deleted IS NOT TRUE)
-        WHERE ml.lease_status = 'Active'
-          AND NOT EXISTS (
-              SELECT 1 FROM machine_assign_to_operators mato
-              WHERE mato.operator_id = u.id AND mato.machine_id = ml.machine_id
-          )
-        ON CONFLICT (operator_id, machine_id) WHERE status = 'Active' DO NOTHING;
-    """)
 
 def init_db():
-    """Verify database connection, run migrations, and seed development data if non-production."""
-    # 1. Run migrations across all environments
-    with get_db_cursor(commit=True) as cur:
-        run_schema_migrations(cur)
+    """Verify database connection and schema compatibility on startup without running DDL or demo seeding."""
+    with get_db_cursor(commit=False) as cur:
+        verify_schema_compatibility(cur)
 
-    # 2. Check environment for seed data insertion
-    current_db = (os.getenv("DB_NAME") or DB_NAME or "").lower()
-    current_env = os.getenv("ENVIRONMENT", "").lower()
-
-    if current_db in ("foodie_prod", "prod", "production") or current_env in ("prod", "production"):
-        print(f"Connected to production database '{DB_NAME}'. Migrations completed. Demo seed data insertion bypassed.")
-        return
-
-    with get_db_cursor(commit=True) as cur:
-        seed_demo_data(cur)
-
-    print("Database connection initialized and verified successfully.")
+    print("Database connection and schema compatibility verified.")
 
 
 # --------------------------------------------------------------------------

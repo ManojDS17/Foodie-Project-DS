@@ -34,7 +34,13 @@ Full-stack web application for **PowerTech Energy** to manage commercial Foodie 
    - `JWT_SECRET` (cryptographically random secret, at least 32 bytes — startup refuses empty or weak secrets)
    - `ENVIRONMENT=development` (enables `/docs`, `/redoc`, and local CORS tunnel regexes; defaults safely to strict production mode when omitted)
    - Optional SMTP relay variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `FRONTEND_URL`)
-3. Start FastAPI (`http://localhost:5000`, or run `backend\run_fastapi.bat`):
+3. Initialize / migrate the database schema explicitly (startup performs read-only schema compatibility checks only, and no demo users or passwords are auto-seeded):
+   ```powershell
+   .\.venv\Scripts\python.exe -m backend.migrate
+   ```
+   *(If upgrading an older development schema that still holds deprecated columns/constraints, review backups first and pass `--apply-cleanup`.)*
+4. Provision an initial `OEM_MANAGER` account in PostgreSQL before signing in for the first time (no default credentials ship with the application).
+5. Start FastAPI (`http://localhost:5000`, or run `backend\run_fastapi.bat`):
    ```powershell
    .\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 5000 --reload
    ```
@@ -50,11 +56,12 @@ Full-stack web application for **PowerTech Energy** to manage commercial Foodie 
    npm run dev
    ```
 
-## Authentication & Security Notes
+## Authentication, Database & Telemetry Scope
 
 - Session tokens are issued as `HttpOnly`, `SameSite=Lax` cookies scoped to `/api` (plus optional `Authorization: Bearer <token>` support for API clients).
-- Password resets and account onboarding links store SHA-256 token digests in the database and never send plaintext passwords by email.
+- Password resets store SHA-256 token digests in the database and never send plaintext passwords by email.
 - Three role tiers are enforced across the UI and API: `OEM_MANAGER`, `SITE_ADMIN`, and `OPERATOR`.
+- **Deferred Hardware Telemetry:** Live PLC/Modbus telemetry ingestion is not yet integrated. When telemetry tables or machine sensor feeds are absent, the API returns `null` / `telemetry_connected: false` and the UI displays `Not connected` / `—` rather than calculated or mock sensor values. Real database `0` readings are kept distinct when telemetry data exists.
 
 ## Available Scripts & Checks
 
@@ -62,3 +69,4 @@ Full-stack web application for **PowerTech Energy** to manage commercial Foodie 
 - `npm run build` — Type-check (`tsc -b`) and build production bundle into `dist/`
 - `npm run lint` — Run linter checks across `src/`
 - `npx oxlint src` — Run `oxlint` static analysis
+- `.\.venv\Scripts\python.exe -m unittest discover -s backend\tests -v` — Run backend API, security, migration, and telemetry tests

@@ -7,14 +7,13 @@ import { InputField } from '../components/common/InputField';
 import { SelectField } from '../components/common/SelectField';
 import {
   machinesApi,
-  sitesApi,
   orgsApi,
   calculateOneYearLeaseEndDate,
   getTodayIsoDate,
 } from '../services/api';
 import { useAuth } from '../hooks';
 import { Toast } from '../components/common/Toast';
-import type { Machine, MachineFormData, Site, Organization } from '../types';
+import type { Machine, MachineFormData, Organization } from '../types';
 
 const MACHINE_MODELS = [
   { value: 'Foodie F25', label: 'Foodie F25 — 25 kg/day capacity', capacity: '25 kg/day' },
@@ -38,7 +37,6 @@ const CONNECTIVITY_OPTIONS = [
 export const MachineOnboardingPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [sites, setSites] = useState<Site[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -53,7 +51,6 @@ export const MachineOnboardingPage: React.FC = () => {
     hardware_version: 'v2.1',
     plc_ip: '192.168.1.20',
     organization_id: '',
-    site_id: '',
     location_label: '',
     lease_start_date: '',
     lease_end_date: '',
@@ -79,7 +76,6 @@ export const MachineOnboardingPage: React.FC = () => {
     hardware_version: string;
     plc_ip: string;
     organization_id: string;
-    site_id: string;
     location_label: string;
     lease_start_date: string;
     lease_end_date: string;
@@ -95,7 +91,6 @@ export const MachineOnboardingPage: React.FC = () => {
     hardware_version: 'v2.1',
     plc_ip: '',
     organization_id: '',
-    site_id: '',
     location_label: '',
     lease_start_date: '',
     lease_end_date: '',
@@ -108,28 +103,20 @@ export const MachineOnboardingPage: React.FC = () => {
   });
   const [editErrors, setEditErrors] = useState<Partial<Record<keyof MachineFormData, string>>>({});
 
-  // Load live machines, sites, and organizations from PostgreSQL
+  // Load live machines and organizations from PostgreSQL
   const loadData = useCallback(async () => {
     try {
-      const [liveMachines, liveSites, liveOrgs] = await Promise.all([
+      const [liveMachines, liveOrgs] = await Promise.all([
         machinesApi.getAll(),
-        sitesApi.getAll(),
         orgsApi.getAll(),
       ]);
       setMachines(liveMachines);
-      setSites(liveSites);
       setOrgs(liveOrgs);
 
       if (liveOrgs.length > 0) {
         setFormData((prev) => ({
           ...prev,
           organization_id: prev.organization_id || liveOrgs[0].id,
-        }));
-      }
-      if (liveSites.length > 0) {
-        setFormData((prev) => ({
-          ...prev,
-          site_id: prev.site_id || liveSites[0].id,
         }));
       }
     } catch (err) {
@@ -141,22 +128,15 @@ export const MachineOnboardingPage: React.FC = () => {
 
   useEffect(() => {
     let active = true;
-    Promise.all([machinesApi.getAll(), sitesApi.getAll(), orgsApi.getAll()])
-      .then(([liveMachines, liveSites, liveOrgs]) => {
+    Promise.all([machinesApi.getAll(), orgsApi.getAll()])
+      .then(([liveMachines, liveOrgs]) => {
         if (!active) return;
         setMachines(liveMachines);
-        setSites(liveSites);
         setOrgs(liveOrgs);
         if (liveOrgs.length > 0) {
           setFormData((prev) => ({
             ...prev,
             organization_id: prev.organization_id || liveOrgs[0].id,
-          }));
-        }
-        if (liveSites.length > 0) {
-          setFormData((prev) => ({
-            ...prev,
-            site_id: prev.site_id || liveSites[0].id,
           }));
         }
       })
@@ -176,11 +156,6 @@ export const MachineOnboardingPage: React.FC = () => {
   const orgOptions = orgs.map((o) => ({
     value: o.id,
     label: `${o.company_name} (${o.client_code})`,
-  }));
-
-  const siteOptions = sites.map((s) => ({
-    value: s.id,
-    label: `${s.site_name} (${s.site_code})`,
   }));
 
   const validate = (): boolean => {
@@ -223,10 +198,6 @@ export const MachineOnboardingPage: React.FC = () => {
       errs.organization_id = 'Please select a leasing client organization';
     }
 
-    if (!formData.site_id) {
-      errs.site_id = 'Please select a deployment facility site';
-    }
-
     if (!formData.lease_start_date) {
       errs.lease_start_date = 'Lease start date is required';
     }
@@ -261,7 +232,6 @@ export const MachineOnboardingPage: React.FC = () => {
         hardware_version: formData.hardware_version.trim() || 'v2.1',
         plc_ip: formData.plc_ip.trim(),
         organization_id: formData.organization_id,
-        site_id: formData.site_id,
         location_label: formData.location_label.trim() || undefined,
         lease_start_date: formData.lease_start_date,
         lease_end_date: formData.lease_end_date || undefined,
@@ -276,7 +246,6 @@ export const MachineOnboardingPage: React.FC = () => {
       setFormData({
         ...initialForm,
         organization_id: orgs.length > 0 ? orgs[0].id : '',
-        site_id: sites.length > 0 ? sites[0].id : '',
       });
       setErrors({});
       setSuccessMessage(`Composter "${newMachine.machine_code}" onboarded and lease recorded successfully in PostgreSQL!`);
@@ -304,7 +273,6 @@ export const MachineOnboardingPage: React.FC = () => {
       hardware_version: m.hardware_version || '',
       plc_ip: m.plc_ip || '',
       organization_id: m.organization_id || (orgs.length > 0 ? orgs[0].id : ''),
-      site_id: m.site_id || (sites.length > 0 ? sites[0].id : ''),
       location_label: m.location_label || '',
       lease_start_date: m.lease_start_date || '',
       lease_end_date: m.lease_end_date || '',
@@ -328,7 +296,6 @@ export const MachineOnboardingPage: React.FC = () => {
       hardware_version: m.hardware_version || '',
       plc_ip: m.plc_ip || '',
       organization_id: m.organization_id || (orgs.length > 0 ? orgs[0].id : ''),
-      site_id: m.site_id || (sites.length > 0 ? sites[0].id : ''),
       location_label: m.location_label || '',
       lease_start_date: m.lease_start_date || '',
       lease_end_date: m.lease_end_date || '',
@@ -373,7 +340,6 @@ export const MachineOnboardingPage: React.FC = () => {
         hardware_version: editFormData.hardware_version.trim() || undefined,
         plc_ip: editFormData.plc_ip.trim(),
         organization_id: editFormData.organization_id,
-        site_id: editFormData.site_id,
         location_label: editFormData.location_label.trim() || undefined,
         lease_start_date: editFormData.lease_start_date || undefined,
         lease_end_date: editFormData.lease_end_date || undefined,
@@ -554,7 +520,7 @@ export const MachineOnboardingPage: React.FC = () => {
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectField
                 label="Client Organization"
                 required
@@ -562,15 +528,6 @@ export const MachineOnboardingPage: React.FC = () => {
                 value={formData.organization_id}
                 onChange={(e) => setFormData({ ...formData, organization_id: e.target.value })}
                 error={errors.organization_id}
-              />
-
-              <SelectField
-                label="Deployment Facility Site"
-                required
-                options={siteOptions}
-                value={formData.site_id}
-                onChange={(e) => setFormData({ ...formData, site_id: e.target.value })}
-                error={errors.site_id}
               />
 
               <InputField
@@ -730,7 +687,7 @@ export const MachineOnboardingPage: React.FC = () => {
                           {m.company_name || '—'}
                         </span>
                         <span className="text-[11px] text-foreground-muted block">
-                          {m.site_name || '—'} {m.location_label ? `(${m.location_label})` : ''}
+                          {m.lease_location_label || m.location_label || '—'}
                         </span>
                       </div>
                     </td>
@@ -917,11 +874,10 @@ export const MachineOnboardingPage: React.FC = () => {
 
                 <div className="bg-slate-50 p-3 rounded-lg border border-border-subtle">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted block">
-                    Deployment Site & Placement
+                    Deployment Placement
                   </span>
                   <span className="text-xs text-foreground mt-1 block">
-                    {editingMachine.site_name} ({editingMachine.site_code})
-                    {editingMachine.location_label && ` — Location: ${editingMachine.location_label}`}
+                    {editingMachine.lease_location_label || editingMachine.location_label || '—'}
                   </span>
                 </div>
 
@@ -1033,20 +989,12 @@ export const MachineOnboardingPage: React.FC = () => {
                     onChange={(e) => setEditFormData({ ...editFormData, organization_id: e.target.value })}
                   />
 
-                  <SelectField
-                    label="Deployment Site"
-                    required
-                    options={siteOptions}
-                    value={editFormData.site_id}
-                    onChange={(e) => setEditFormData({ ...editFormData, site_id: e.target.value })}
+                  <InputField
+                    label="Location on Site / Bay"
+                    value={editFormData.location_label}
+                    onChange={(e) => setEditFormData({ ...editFormData, location_label: e.target.value })}
                   />
                 </div>
-
-                <InputField
-                  label="Location on Site / Bay"
-                  value={editFormData.location_label}
-                  onChange={(e) => setEditFormData({ ...editFormData, location_label: e.target.value })}
-                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <InputField

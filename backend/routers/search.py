@@ -107,7 +107,7 @@ def search_entities(
                     company_name=r[5] or "Unassigned",
                     status=status,
                     connectivity_status=r[7] or "Offline",
-                    temp="62°C"
+                    temp=None
                 ))
         elif user_role == "OPERATOR" and user_org_id:
             cur.execute("""
@@ -151,7 +151,7 @@ def search_entities(
                     company_name=r[5] or "",
                     status=r[6] or "Idle",
                     connectivity_status=r[7] or "Offline",
-                    temp="62°C"
+                    temp=None
                 ))
         elif user_org_id:
             cur.execute("""
@@ -183,7 +183,7 @@ def search_entities(
                     company_name=r[5] or "",
                     status=r[6] or "Idle",
                     connectivity_status=r[7] or "Offline",
-                    temp="62°C"
+                    temp=None
                 ))
 
         return SearchResponse(

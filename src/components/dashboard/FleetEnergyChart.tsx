@@ -24,8 +24,9 @@ export const FleetEnergyChart: React.FC<{ data?: EnergyHistoryPoint[] }> = ({
 
   if (!visibleData || visibleData.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs flex flex-col justify-center items-center h-[260px]">
-        <p className="text-xs text-foreground-dim">live telemetry energy data...</p>
+      <div className="bg-white rounded-xl border border-border-subtle p-5 shadow-xs flex flex-col justify-center items-center h-[260px] text-center gap-1">
+        <p className="text-xs sm:text-sm font-bold text-foreground">Energy usage</p>
+        <p className="text-xs text-foreground-dim">Telemetry not connected — energy usage data unavailable.</p>
       </div>
     );
   }

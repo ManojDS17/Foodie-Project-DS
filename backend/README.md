@@ -33,8 +33,8 @@ Or launch `backend\run_fastapi.bat`.
 
 ## Database Architecture
 
-- Uses a PostgreSQL `SimpleConnectionPool` (`minconn=1`, `maxconn=20`) configured in `backend/database.py` (tested on PostgreSQL 18.7).
-- Startup verifies schema state via `init_db()` cleanly without altering production seed guards.
+- Uses a PostgreSQL `ThreadedConnectionPool` (`minconn=1`, `maxconn=20`) configured in `backend/database.py` (tested on PostgreSQL 18.7).
+- Schema changes are applied explicitly via `python -m backend.migrate` (with optional `--apply-cleanup` for controlled legacy drops); application startup (`init_db()`) checks connectivity and required schema objects read-only without running DDL or seeding demo accounts.
 - Sequential client codes (`CL-0001+`) and machine codes (`C001+`) use PostgreSQL transaction-scoped advisory locks (`pg_advisory_xact_lock`) during creation to avoid race collisions without requiring extra database sequence objects.
 
 ## Live API Endpoints

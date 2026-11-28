@@ -2,6 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+import psycopg2
 from ..database import (
     get_db_cursor,
     require_uuid_or_400,
@@ -321,25 +322,31 @@ def create_user(payload: UserCreate, background_tasks: BackgroundTasks, current_
         welcome_token_hash = hash_reset_token(welcome_token)
         welcome_token_expires = datetime.now(timezone.utc) + timedelta(days=7)
 
-        cur.execute("""
-            INSERT INTO users (
-                organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active,
-                reset_token, reset_token_expires_at, created_by
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, true, %s, %s, %s)
-            RETURNING id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by;
-        """, (
-            org_id,
-            normalized_email,
-            pw_hash,
-            payload.first_name.strip(),
-            (payload.last_name or "").strip(),
-            payload.role,
-            payload.phone_number.strip() if payload.phone_number else None,
-            welcome_token_hash,
-            welcome_token_expires,
-            current_user.get("id")
-        ))
+        try:
+            cur.execute("""
+                INSERT INTO users (
+                    organization_id, email, password_hash, first_name, last_name, role, phone_number, is_active,
+                    reset_token, reset_token_expires_at, created_by
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, true, %s, %s, %s)
+                RETURNING id, organization_id, email, first_name, last_name, role, phone_number, is_active, last_login_at, created_at, updated_at, created_by, updated_by, deleted_by;
+            """, (
+                org_id,
+                normalized_email,
+                pw_hash,
+                payload.first_name.strip(),
+                (payload.last_name or "").strip(),
+                payload.role,
+                payload.phone_number.strip() if payload.phone_number else None,
+                welcome_token_hash,
+                welcome_token_expires,
+                current_user.get("id")
+            ))
+        except psycopg2.IntegrityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'An account with email "{normalized_email}" is already registered. Email must be unique.'
+            ) from exc
         row = cur.fetchone()
         cols = [desc[0] for desc in cur.description]
         d = dict(zip(cols, row))

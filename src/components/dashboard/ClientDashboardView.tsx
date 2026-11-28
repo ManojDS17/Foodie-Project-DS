@@ -158,9 +158,30 @@ export const ClientDashboardView: React.FC = () => {
         <MetricCard
           id="client-metric-energy"
           title="Energy consumed"
-          value={dashboardStats ? dashboardStats.energy_consumed_today_kwh.toLocaleString() : '0'}
-          unit="kWh"
-          subtitle="Today, my machines"
+          value={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? dashboardStats.energy_consumed_today_kwh.toLocaleString()
+              : 'Not connected'
+          }
+          unit={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? 'kWh'
+              : undefined
+          }
+          subtitle={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? 'Today, my machines'
+              : 'Hardware telemetry unavailable'
+          }
+          valueColor={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? undefined
+              : 'text-foreground-muted'
+          }
           icon={Zap}
         />
 
@@ -169,7 +190,7 @@ export const ClientDashboardView: React.FC = () => {
           title="Open alerts"
           value={openAlerts}
           valueColor="text-primary"
-          subtitle="Last updated 30 min ago"
+          subtitle={openAlerts > 0 ? 'Active fleet alerts' : 'No active alerts reported'}
           icon={Bell}
           iconVariant="danger"
           onClick={() => navigate('/alerts')}
@@ -178,9 +199,30 @@ export const ClientDashboardView: React.FC = () => {
         <MetricCard
           id="client-metric-output"
           title="Output produced"
-          value={dashboardStats ? dashboardStats.compost_produced_today_kg.toLocaleString() : '0'}
-          unit="kg"
-          subtitle="Load cell · last 30 min"
+          value={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.compost_produced_today_kg === 'number'
+              ? dashboardStats.compost_produced_today_kg.toLocaleString()
+              : 'Not connected'
+          }
+          unit={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.compost_produced_today_kg === 'number'
+              ? 'kg'
+              : undefined
+          }
+          subtitle={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.compost_produced_today_kg === 'number'
+              ? 'Today, my machines'
+              : 'Hardware telemetry unavailable'
+          }
+          valueColor={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.compost_produced_today_kg === 'number'
+              ? undefined
+              : 'text-foreground-muted'
+          }
           icon={Leaf}
           iconVariant="success"
         />

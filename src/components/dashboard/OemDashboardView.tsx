@@ -199,9 +199,6 @@ export const OemDashboardView: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
             Welcome, {user ? `${user.first_name} ${user.last_name}` : 'PowerTech Admin'}
           </h1>
-          <p className="text-xs text-foreground-dim mt-0.5">
-            Fleet overview across all clients · Live database &amp; telemetry
-          </p>
         </div>
 
         {/* Action Buttons: + Add client & + Add machine & + Add operator */}
@@ -268,9 +265,30 @@ export const OemDashboardView: React.FC = () => {
         <MetricCard
           id="metric-energy"
           title="Energy consumed"
-          value={dashboardStats ? dashboardStats.energy_consumed_today_kwh.toLocaleString() : '0'}
-          unit="kWh"
-          subtitle="Today, all machines"
+          value={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? dashboardStats.energy_consumed_today_kwh.toLocaleString()
+              : 'Not connected'
+          }
+          unit={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? 'kWh'
+              : undefined
+          }
+          subtitle={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? 'Today, all machines'
+              : 'Hardware telemetry unavailable'
+          }
+          valueColor={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.energy_consumed_today_kwh === 'number'
+              ? undefined
+              : 'text-foreground-muted'
+          }
           icon={Zap}
         />
 
@@ -282,7 +300,7 @@ export const OemDashboardView: React.FC = () => {
           subtitle={
             dashboardStats && dashboardStats.open_alerts_count > 0
               ? `Across ${dashboardStats.alert_clients_count} client${dashboardStats.alert_clients_count === 1 ? '' : 's'}`
-              : 'All systems normal'
+              : 'No active alerts reported'
           }
           icon={Bell}
           iconVariant="danger"
@@ -291,9 +309,30 @@ export const OemDashboardView: React.FC = () => {
         <MetricCard
           id="metric-waste"
           title="Waste intake"
-          value={dashboardStats ? dashboardStats.waste_intake_today_kg.toLocaleString() : '0'}
-          unit="kg"
-          subtitle="Load cell · today, all machines"
+          value={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.waste_intake_today_kg === 'number'
+              ? dashboardStats.waste_intake_today_kg.toLocaleString()
+              : 'Not connected'
+          }
+          unit={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.waste_intake_today_kg === 'number'
+              ? 'kg'
+              : undefined
+          }
+          subtitle={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.waste_intake_today_kg === 'number'
+              ? 'Today, all machines'
+              : 'Hardware telemetry unavailable'
+          }
+          valueColor={
+            dashboardStats?.telemetry_connected &&
+            typeof dashboardStats.waste_intake_today_kg === 'number'
+              ? undefined
+              : 'text-foreground-muted'
+          }
           icon={Leaf}
           iconVariant="success"
         />
